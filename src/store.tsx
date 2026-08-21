@@ -242,8 +242,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
       const local = await getSyncSnapshot();
       const remoteJson = await downloadSnapshotJson();
-      const remote: SyncSnapshot = remoteJson
-        ? JSON.parse(remoteJson) as SyncSnapshot
+      // A snapshot uploaded before a new collection existed (e.g. dailyLogs) has no key for it at
+      // all — normalizeData backfills any missing collection as [] so mergeCollection always has
+      // an array to iterate, instead of throwing on `undefined` from an older snapshot.
+      const remoteParsed = remoteJson ? JSON.parse(remoteJson) as Partial<SyncSnapshot> : null;
+      const remote: SyncSnapshot = remoteParsed
+        ? { tombstones: [], settingsUpdatedAt: new Date(0).toISOString(), ...remoteParsed, data: normalizeData(remoteParsed.data ?? {}) }
         : { data: normalizeData({}), tombstones: [], settingsUpdatedAt: new Date(0).toISOString() };
 
       const merged = mergeSnapshots(local, remote);
