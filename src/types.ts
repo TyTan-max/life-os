@@ -518,6 +518,29 @@ export interface Settings {
   // aren't locked here, so renaming/deleting/reordering any of them must persist too. Undefined
   // means "use the CONTACT_CATEGORIES default list unmodified".
   contactCategories?: string[];
+  // Undefined means "use $50,000" — the same default Trading Journal always used back when this
+  // lived in its own separate localStorage key.
+  tradingStartBalance?: number;
+  tradingPresetLabels?: string[];
+}
+
+export interface TradingScreenshot {
+  src: string;
+  label?: string;
+}
+
+// Migrated from a page-local `localStorage` array (key `life-os-trading-journal-daily-v1`) onto
+// the shared collection system — it was never part of `AppData` before, which is why it was the
+// one thing Export/Import and Drive sync both silently skipped. `storage.ts`'s
+// `migrateTradingJournalV1` carries any pre-existing entries over the first time this runs.
+export interface DailyLog extends BaseRecord {
+  date: string;
+  totalTrades: number;
+  dailyPL: number;
+  dailyFees: number;
+  emotion?: string;
+  screenshots?: TradingScreenshot[];
+  notes?: string;
 }
 
 export interface ProgramAssignment {
@@ -625,6 +648,7 @@ export interface AppData {
   workoutRoutines: WorkoutRoutine[];
   contacts: Contact[];
   contactInteractions: ContactInteraction[];
+  dailyLogs: DailyLog[];
   settings: Settings;
 }
 
@@ -634,11 +658,12 @@ export type CollectionRecord =
   | Task | Habit | HabitRoutine | RoutineDateAssignment | Goal | CalendarEvent | Budget | Transaction | Bill
   | Movie | Videogame | Book | FinanceAccount | FinanceCategory | FinanceGoal | Note | BucketListItem
   | WorkoutEntry | WeightEntry | SleepEntry | Medication | MealEntry | GlucoseEntry | WorkoutRoutine
-  | Contact | ContactInteraction;
+  | Contact | ContactInteraction | DailyLog;
 
 export const COLLECTION_NAMES: CollectionName[] = [
   'tasks', 'habits', 'habitRoutines', 'routineAssignments', 'goals', 'events', 'budgets', 'transactions',
   'bills', 'movies', 'videogames', 'books', 'notes', 'bucketList', 'contacts', 'contactInteractions',
   'financeAccounts', 'financeCategories', 'financeGoals',
-  'workouts', 'weightEntries', 'sleepEntries', 'medications', 'meals', 'glucoseEntries', 'workoutRoutines'
+  'workouts', 'weightEntries', 'sleepEntries', 'medications', 'meals', 'glucoseEntries', 'workoutRoutines',
+  'dailyLogs'
 ];

@@ -1,17 +1,13 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { Calendar as CalendarIcon, ChevronDown, ChevronLeft, ChevronRight, ImagePlus, Minus, Plus, RotateCcw, StickyNote, Table2, TrendingDown, TrendingUp, Trash2, Upload, X } from 'lucide-react';
-import { useLocalCollection } from '../hooks/useLocalCollection';
-import { generateId } from '../utils/id';
+import { useStore, newRecord } from '../store';
+import type { DailyLog, TradingScreenshot } from '../types';
 import { formatCurrency, Modal } from '../components/UI';
 import { DatePicker } from '../components/DatePicker';
 import { MobileRecordList } from '../components/MobileRecordList';
 import { useIsMobile } from '../hooks/useIsMobile';
 import { useFabAction } from '../hooks/useFabAction';
-
-const STORAGE_KEY = 'life-os-trading-journal-daily-v1';
-const BALANCE_KEY = 'life-os-trading-journal-balance-v1';
-const LABELS_KEY = 'life-os-trading-journal-labels-v1';
 
 const EMOTIONS: { value: string; emoji: string }[] = [
   { value: 'Greed', emoji: '🤑' },
@@ -26,22 +22,6 @@ const CAT_CLASSES = ['tj-cat-1', 'tj-cat-2', 'tj-cat-3', 'tj-cat-4'];
 type Period = 'Week' | 'Month' | 'Year' | 'Total';
 const PERIODS: Period[] = ['Week', 'Month', 'Year', 'Total'];
 
-interface Screenshot {
-  src: string;
-  label?: string;
-}
-
-interface DailyLog {
-  id: string;
-  date: string;
-  totalTrades: number;
-  dailyPL: number;
-  dailyFees: number;
-  emotion?: string;
-  screenshots?: Screenshot[];
-  notes?: string;
-}
-
 function netOf(log: DailyLog): number {
   return log.dailyPL - log.dailyFees;
 }
@@ -50,7 +30,7 @@ function statusOf(net: number): 'GREEN' | 'RED' | 'FLAT' {
   return net > 0 ? 'GREEN' : net < 0 ? 'RED' : 'FLAT';
 }
 
-function blankLog(): Omit<DailyLog, 'id'> {
+function blankLog(): Pick<DailyLog, 'date' | 'totalTrades' | 'dailyPL' | 'dailyFees'> {
   return { date: new Date().toISOString().slice(0, 10), totalTrades: 0, dailyPL: 0, dailyFees: 0 };
 }
 
@@ -109,20 +89,6 @@ function formatPeriodLabel(period: Period, anchor: Date): string {
   if (period === 'Month') return anchor.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
   if (period === 'Year') return String(anchor.getFullYear());
   return 'All Time';
-}
-
-function useLocalValue<T>(key: string, initial: T) {
-  const [value, setValue] = useState<T>(() => {
-    if (typeof window === 'undefined') return initial;
-    try {
-      const raw = window.localStorage.getItem(key);
-      return raw ? (JSON.parse(raw) as T) : initial;
-    } catch {
-      return initial;
-    }
-  });
-  useEffect(() => { window.localStorage.setItem(key, JSON.stringify(value)); }, [key, value]);
-  return [value, setValue] as const;
 }
 
 function fmt(n: number, digits = 2): string {
@@ -937,11 +903,14 @@ function ChartCarousel({ slides }: { slides: { key: string; node: ReactNode; wid
 }
 
 export function TradingJournal() {
-  const { items: logs, add, update, remove } = useLocalCollection<DailyLog>(STORAGE_KEY);
+  const { data, upsert, remove, updateSettings } = useStore();
+  const logs = data.dailyLogs;
   const isMobile = useIsMobile();
   const [editingLogId, setEditingLogId] = useState<string | null>(null);
-  const [startBalance, setStartBalance] = useLocalValue<number>(BALANCE_KEY, 50000);
-  const [presetLabels, setPresetLabels] = useLocalValue<string[]>(LABELS_KEY, []);
+  const startBalance = data.settings.tradingStartBalance ?? 50000;
+  const setStartBalance = (n: number) => void updateSettings({ tradingStartBalance: n });
+  const presetLabels = data.settings.tradingPresetLabels ?? [];
+  const setPresetLabels = (next: string[]) => void updateSettings({ tradingPresetLabels: next });
   const [period, setPeriod] = useState<Period>('Total');
   const [anchorDate, setAnchorDate] = useState(() => new Date());
 
@@ -1007,17 +976,18 @@ export function TradingJournal() {
     [filteredLogs]
   );
 
-  const addLog = () => add({ ...blankLog(), id: generateId() });
+  const removeLog = (id: string) => void remove('dailyLogs', id);
+  const addLog = () => void upsert('dailyLogs', newRecord<DailyLog>(blankLog()));
   useFabAction('Trading Journal', 'Add day', addLog);
   const createLogForDate = (date: string): DailyLog => {
-    const created: DailyLog = { ...blankLog(), date, id: generateId() };
-    add(created);
+    const created = newRecord<DailyLog>({ ...blankLog(), date });
+    void upsert('dailyLogs', created);
     return created;
   };
   const patch = (id: string, p: Partial<DailyLog>) => {
     const l = logs.find(x => x.id === id);
     if (!l) return;
-    update({ ...l, ...p });
+    void upsert('dailyLogs', { ...l, ...p });
   };
 
   const shiftPeriod = (delta: number) => {
@@ -1038,22 +1008,22 @@ export function TradingJournal() {
   const editingLog = editingLogId ? logs.find(l => l.id === editingLogId) ?? null : null;
 
   const addScreenshots = async (id: string, files: FileList) => {
-    const encoded = await Promise.all(Array.from(files).map(async f => ({ src: await fileToCompressedDataUrl(f) })));
+    const encoded: TradingScreenshot[] = await Promise.all(Array.from(files).map(async f => ({ src: await fileToCompressedDataUrl(f) })));
     const l = logs.find(x => x.id === id);
     if (!l) return;
-    update({ ...l, screenshots: [...(l.screenshots ?? []), ...encoded] });
+    void upsert('dailyLogs', { ...l, screenshots: [...(l.screenshots ?? []), ...encoded] });
   };
   const removeScreenshot = (id: string, index: number) => {
     const l = logs.find(x => x.id === id);
     if (!l) return;
-    update({ ...l, screenshots: (l.screenshots ?? []).filter((_, i) => i !== index) });
+    void upsert('dailyLogs', { ...l, screenshots: (l.screenshots ?? []).filter((_, i) => i !== index) });
   };
   const relabelScreenshot = (id: string, index: number, label: string) => {
     const l = logs.find(x => x.id === id);
     if (!l) return;
     const shots = [...(l.screenshots ?? [])];
     shots[index] = { ...shots[index], label };
-    update({ ...l, screenshots: shots });
+    void upsert('dailyLogs', { ...l, screenshots: shots });
   };
   const reorderScreenshots = (id: string, from: number, to: number) => {
     const l = logs.find(x => x.id === id);
@@ -1061,14 +1031,17 @@ export function TradingJournal() {
     const shots = [...(l.screenshots ?? [])];
     const [moved] = shots.splice(from, 1);
     shots.splice(to, 0, moved);
-    update({ ...l, screenshots: shots });
+    void upsert('dailyLogs', { ...l, screenshots: shots });
   };
 
   const addPresetLabel = (label: string) => {
-    setPresetLabels(prev => (prev.some(p => p.toLowerCase() === label.toLowerCase()) ? prev : [...prev, label].sort((a, b) => a.localeCompare(b))));
+    const next = presetLabels.some(p => p.toLowerCase() === label.toLowerCase())
+      ? presetLabels
+      : [...presetLabels, label].sort((a, b) => a.localeCompare(b));
+    setPresetLabels(next);
   };
   const removePresetLabel = (label: string) => {
-    setPresetLabels(prev => prev.filter(p => p !== label));
+    setPresetLabels(presetLabels.filter(p => p !== label));
   };
 
   if (showCalendar) {
@@ -1077,9 +1050,9 @@ export function TradingJournal() {
         logs={logs}
         initialMonth={anchorDate}
         onClose={() => setShowCalendar(false)}
-        onSaveLog={update}
+        onSaveLog={l => void upsert('dailyLogs', l)}
         onCreateLog={createLogForDate}
-        onDeleteLog={remove}
+        onDeleteLog={removeLog}
         onAddScreenshots={(id, files) => void addScreenshots(id, files)}
         onRemoveScreenshot={removeScreenshot}
         onReorderScreenshots={reorderScreenshots}
@@ -1298,7 +1271,7 @@ export function TradingJournal() {
               { label: 'Screenshots', value: l => l.screenshots?.length || '—' }
             ]}
             onOpen={l => setEditingLogId(l.id)}
-            onDelete={l => remove(l.id)}
+            onDelete={l => removeLog(l.id)}
             deleteLabel={l => `Delete ${formatFullDate(l.date)}`}
             empty="No days logged in this period."
           />
@@ -1345,7 +1318,7 @@ export function TradingJournal() {
                       <ImagePlus size={14} /> {shotCount || ''}
                     </button>
                   </td>
-                  <td><button type="button" className="icon-btn danger" onClick={() => remove(l.id)} aria-label="Delete day"><Trash2 size={14} /></button></td>
+                  <td><button type="button" className="icon-btn danger" onClick={() => removeLog(l.id)} aria-label="Delete day"><Trash2 size={14} /></button></td>
                 </tr>
               );
             })}
@@ -1372,8 +1345,8 @@ export function TradingJournal() {
         <DayEditModal
           log={editingLog}
           onClose={() => setEditingLogId(null)}
-          onSave={updated => { update(updated); setEditingLogId(null); }}
-          onDelete={() => { remove(editingLog.id); setEditingLogId(null); }}
+          onSave={updated => { void upsert('dailyLogs', updated); setEditingLogId(null); }}
+          onDelete={() => { removeLog(editingLog.id); setEditingLogId(null); }}
           onManageScreenshots={() => { setScreenshotLogId(editingLog.id); setEditingLogId(null); }}
         />
       )}

@@ -1,7 +1,7 @@
 import { openDB, type IDBPDatabase } from 'idb';
 import type {
   AppData, BaseRecord, Bill, Budget, BucketListItem, CalendarEvent, CollectionName, CollectionRecord,
-  Book, ExerciseSetLog, FinanceAccount, FinanceCategory, GlucoseEntry, Goal, Habit, MealEntry, Medication, Movie,
+  Book, DailyLog, ExerciseSetLog, FinanceAccount, FinanceCategory, GlucoseEntry, Goal, Habit, MealEntry, Medication, Movie,
   Note, RoutineDay, Settings, SleepEntry, Task, Transaction, Videogame, WeightEntry, WorkoutEntry, WorkoutRoutine
 } from './types';
 import { COLLECTION_NAMES } from './types';
@@ -10,7 +10,11 @@ import { buildStarterRoutine, ROUTINE_EPOCH } from './lib/starterRoutine';
 import type { SyncSnapshot, Tombstone } from './lib/syncMerge';
 
 const DB_NAME = 'life-os';
-const DB_VERSION = 20;
+// Bumped for the new `dailyLogs` store — IndexedDB only runs the `upgrade` callback (which is
+// what actually creates a missing object store) on a version increase, not just because
+// COLLECTION_NAMES grew. Existing installs stay on the old version, and the new store, forever
+// if this number doesn't move.
+const DB_VERSION = 21;
 const META_STORE = 'meta';
 const TOMBSTONES_KEY = 'tombstones';
 const SETTINGS_UPDATED_AT_KEY = 'settingsUpdatedAt';
@@ -377,6 +381,62 @@ async function migrateWorkoutRoutineVersionsV1(db: IDBPDatabase): Promise<void> 
   await tx.done;
 }
 
+// Trading Journal used to live entirely in three page-local `localStorage` keys, never routed
+// through IndexedDB/AppData at all — which is exactly why it was the one collection Export,
+// Import, and Drive sync all silently skipped. This carries whatever's sitting in those keys
+// into the real `dailyLogs` store and the two new Settings fields, once, on whichever device
+// opens the app first after this shipped. The old localStorage keys are left in place afterward
+// rather than cleared — harmless dead weight if the migration succeeded, a safety net if it
+// somehow didn't reach every entry.
+async function migrateTradingJournalV1(db: IDBPDatabase): Promise<void> {
+  const done = await db.get(META_STORE, 'tradingJournalMigratedV1');
+  if (done) return;
+  if (typeof window === 'undefined') return;
+
+  try {
+    const rawLogs = window.localStorage.getItem('life-os-trading-journal-daily-v1');
+    const legacy = rawLogs ? (JSON.parse(rawLogs) as Array<Record<string, unknown>>) : [];
+    const existing = await db.getAll('dailyLogs') as DailyLog[];
+    const existingIds = new Set(existing.map(l => l.id));
+
+    const rewritten: DailyLog[] = legacy
+      .filter(l => typeof l.id === 'string' && !existingIds.has(l.id as string))
+      .map(l => {
+        // The legacy shape never had timestamps at all — anchoring to the log's own trading
+        // date (rather than "now") keeps a year-old entry from suddenly looking like it was
+        // just edited, which matters once this is compared against another device's copy.
+        const anchor = typeof l.date === 'string' && l.date ? `${l.date}T12:00:00.000Z` : new Date().toISOString();
+        return { ...l, createdAt: anchor, updatedAt: anchor } as DailyLog;
+      });
+
+    const rawBalance = window.localStorage.getItem('life-os-trading-journal-balance-v1');
+    const rawLabels = window.localStorage.getItem('life-os-trading-journal-labels-v1');
+    const settings = (await db.get(META_STORE, 'settings')) as Settings | undefined;
+    const settingsPatch: Partial<Settings> = {};
+    if (rawBalance != null && settings?.tradingStartBalance == null) {
+      const n = JSON.parse(rawBalance) as number;
+      if (typeof n === 'number' && Number.isFinite(n)) settingsPatch.tradingStartBalance = n;
+    }
+    if (rawLabels != null && settings?.tradingPresetLabels == null) {
+      const arr = JSON.parse(rawLabels) as string[];
+      if (Array.isArray(arr)) settingsPatch.tradingPresetLabels = arr;
+    }
+
+    const tx = db.transaction(['dailyLogs', META_STORE], 'readwrite');
+    await Promise.all([
+      ...rewritten.map(l => tx.objectStore('dailyLogs').put(l)),
+      Object.keys(settingsPatch).length
+        ? tx.objectStore(META_STORE).put({ ...settings, ...settingsPatch }, 'settings')
+        : Promise.resolve(),
+      tx.objectStore(META_STORE).put(true, 'tradingJournalMigratedV1')
+    ]);
+    await tx.done;
+  } catch {
+    // A malformed value in one of the old keys shouldn't block the app from loading — leave the
+    // flag unset so this is retried next launch rather than silently giving up forever.
+  }
+}
+
 let loadPromise: Promise<AppData> | null = null;
 
 // React StrictMode double-invokes effects in dev, which would otherwise race two
@@ -403,6 +463,7 @@ async function loadAllInternal(): Promise<AppData> {
     await db.put(META_STORE, true, 'videogameStatusMigratedV1');
     await db.put(META_STORE, true, 'workoutRoutineVersionsMigratedV1');
     await db.put(META_STORE, true, 'sleepQualityScaleMigratedV1');
+    await db.put(META_STORE, true, 'tradingJournalMigratedV1');
     return seed;
   }
   await migrateFinanceV1(db);
@@ -412,6 +473,7 @@ async function loadAllInternal(): Promise<AppData> {
   await migrateVideogameStatusV1(db);
   await migrateWorkoutRoutineVersionsV1(db);
   await migrateSleepQualityScaleV1(db);
+  await migrateTradingJournalV1(db);
   return readAllCollections(db);
 }
 

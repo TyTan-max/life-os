@@ -98,7 +98,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     tasks:[], habits:[], habitRoutines:[], routineAssignments:[], goals:[], events:[], budgets:[], transactions:[], bills:[],
     movies:[], videogames:[], books:[], financeAccounts:[], financeCategories:[], financeGoals:[], notes:[], bucketList:[],
     workouts:[], weightEntries:[], sleepEntries:[], medications:[], meals:[], glucoseEntries:[], workoutRoutines:[],
-    contacts:[], contactInteractions:[],
+    contacts:[], contactInteractions:[], dailyLogs:[],
     settings:{ userName:'Khuong', theme:'light', notificationsEnabled:false, launchAtLogin:false, dailyBriefTime:'08:00', currency:'USD', weightUnit:'lb', sleepTargetHours:8, dailyCalorieTarget:2200, proteinTargetG:150, glucoseUnit:'mg/dL', glucoseTrackingEnabled:false }
   }));
   const [loading, setLoading] = useState(true);
