@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls -la \"C:\\\\Users\\\\KoonerT23\\\\Desktop\\\\Life OS\\\\\")",
+      "Bash(npm install *)",
+      "Bash(npx tsc *)",
+      "Bash(node scripts/validate_palette.js \"#4f5bd5,#0f9488,#7c4fd6,#c47a05\" --mode light)",
+      "Bash(node scripts/validate_palette.js \"#8891ff,#2dd4bf,#b18aff,#eab04d\" --mode dark)",
+      "Read(//c/Users/KOONER~1/AppData/Local/Temp/claude/bundled-skills/2.1.221/59b91048a22416aa0b0e4d1f5492bb67/dataviz/**)",
+      "Bash(node scripts/validate_palette.js \"#1a8a53,#e5484d\" --mode light)",
+      "Bash(node scripts/validate_palette.js \"#4fd18c,#ff6b6f\" --mode dark)",
+      "WebSearch"
+    ]
+  }
+}
