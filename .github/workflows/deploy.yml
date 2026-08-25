@@ -37,9 +37,11 @@ jobs:
           # Baked into the built JS at this step — Vite's VITE_ vars are compile-time, not
           # read at runtime — so it has to be present here, not just set somewhere the
           # deployed site could read it later. Pulled from repository secrets rather than
-          # committed, so neither key ever sits in the repo's history in plain text.
+          # committed, so none of these ever sit in the repo's history in plain text.
           VITE_GOOGLE_CLIENT_ID: ${{ secrets.VITE_GOOGLE_CLIENT_ID }}
           VITE_GEMINI_API_KEY: ${{ secrets.VITE_GEMINI_API_KEY }}
+          VITE_TMDB_API_KEY: ${{ secrets.VITE_TMDB_API_KEY }}
+          VITE_UNSPLASH_ACCESS_KEY: ${{ secrets.VITE_UNSPLASH_ACCESS_KEY }}
 
       - uses: actions/upload-pages-artifact@v3
         with:
