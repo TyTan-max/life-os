@@ -25,13 +25,30 @@ function json(body, status, headers) {
 // effective lifespan. Worst case is an extra token fetch, never a correctness issue.
 let cachedToken = null;
 
+// Trims defensively — a secret pasted with a trailing newline/space from a terminal paste is
+// indistinguishable from a wrong value at the HTTP level (Twitch just returns a flat 400), so
+// this rules that specific failure mode out rather than requiring a second round of guessing.
+function clean(v) {
+  return (v ?? '').trim();
+}
+
 async function getAccessToken(env) {
   if (cachedToken && cachedToken.expiresAt > Date.now()) return cachedToken.value;
+  const clientId = clean(env.IGDB_CLIENT_ID);
+  const clientSecret = clean(env.IGDB_CLIENT_SECRET);
   const res = await fetch(
-    `https://id.twitch.tv/oauth2/token?client_id=${env.IGDB_CLIENT_ID}&client_secret=${env.IGDB_CLIENT_SECRET}&grant_type=client_credentials`,
+    `https://id.twitch.tv/oauth2/token?client_id=${clientId}&client_secret=${clientSecret}&grant_type=client_credentials`,
     { method: 'POST' }
   );
-  if (!res.ok) throw new Error(`IGDB auth failed: ${res.status}`);
+  if (!res.ok) {
+    // Surface Twitch's actual rejection reason (e.g. "Invalid client secret") instead of just
+    // the bare status code, plus enough about the input to catch a whitespace/swap mistake
+    // without ever revealing the secret itself.
+    const detail = await res.text().catch(() => '');
+    throw new Error(
+      `IGDB auth failed: ${res.status} ${detail} (client_id len=${clientId.length}, secret len=${clientSecret.length})`
+    );
+  }
   const data = await res.json();
   cachedToken = { value: data.access_token, expiresAt: Date.now() + (data.expires_in - 60) * 1000 };
   return cachedToken.value;
