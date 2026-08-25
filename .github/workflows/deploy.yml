@@ -3,9 +3,8 @@ name: Deploy to GitHub Pages
 on:
   push:
     branches: [main]
-  # Lets you re-run a deploy from the Actions tab without needing a new commit —
-  # useful right after changing a secret (VITE_GOOGLE_CLIENT_ID, VITE_GEMINI_API_KEY),
-  # since that alone doesn't trigger a push.
+  # Lets you re-run a deploy from the Actions tab without needing a new commit — useful
+  # right after changing a secret or repo variable, since that alone doesn't trigger a push.
   workflow_dispatch:
 
 permissions:
@@ -39,13 +38,17 @@ jobs:
           # deployed site could read it later. Pulled from repository secrets rather than
           # committed, so none of these ever sit in the repo's history in plain text.
           VITE_GOOGLE_CLIENT_ID: ${{ secrets.VITE_GOOGLE_CLIENT_ID }}
-          VITE_GEMINI_API_KEY: ${{ secrets.VITE_GEMINI_API_KEY }}
           VITE_TMDB_API_KEY: ${{ secrets.VITE_TMDB_API_KEY }}
           VITE_UNSPLASH_ACCESS_KEY: ${{ secrets.VITE_UNSPLASH_ACCESS_KEY }}
-          # Not a secret — just the public URL of the Cloudflare Worker in cloudflare/igdb-proxy/
-          # that stands in for the dev-only IGDB proxy on the deployed site. Set once as a repo
-          # *variable* (Settings → Secrets and variables → Actions → Variables tab), not a secret.
+          # Deliberately NOT forwarding VITE_GEMINI_API_KEY here — a VITE_-prefixed var gets baked
+          # straight into the public JS bundle, and Gemini's key is billable, so anyone extracting
+          # it from DevTools could run up usage on this app's account. The deployed build instead
+          # points at the Cloudflare Worker below, which holds the real key server-side.
+          #
+          # Both proxy URLs are public info, not secrets — set once as repo *variables*
+          # (Settings → Secrets and variables → Actions → Variables tab), not the Secrets tab.
           VITE_IGDB_PROXY_URL: ${{ vars.VITE_IGDB_PROXY_URL }}
+          VITE_GEMINI_PROXY_URL: ${{ vars.VITE_GEMINI_PROXY_URL }}
 
       - uses: actions/upload-pages-artifact@v3
         with:

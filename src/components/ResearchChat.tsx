@@ -24,7 +24,7 @@ import {
   Check, Cloud, Copy, Cpu, Mic, MicOff, Paperclip, RotateCcw,
   Send, Square, ThumbsDown, ThumbsUp, Trash2, X
 } from 'lucide-react';
-import { ENGINE_STORAGE_KEY, GEMINI_API_KEY, GEMINI_MODEL, OLLAMA_BASE_URL, OLLAMA_MODEL } from '../lib/aiEngine';
+import { checkCloudConfigured, ENGINE_STORAGE_KEY, GEMINI_API_KEY, GEMINI_MODEL, GEMINI_ORIGIN, OLLAMA_BASE_URL, OLLAMA_MODEL } from '../lib/aiEngine';
 import type { Engine as SharedEngine } from '../lib/aiEngine';
 
 /* ============================================================================
@@ -289,15 +289,15 @@ const streamOllama: StreamFn = async (history, onDelta, signal) => {
 
 /** Google Gemini. Streams server-sent events (`data: {...}`). */
 const streamGemini: StreamFn = async (history, onDelta, signal) => {
-  if (!GEMINI_API_KEY) {
+  if (!GEMINI_ORIGIN && !GEMINI_API_KEY) {
     throw new Error(
       'No Gemini API key found. Add VITE_GEMINI_API_KEY to .env.local and restart the dev server.'
     );
   }
 
-  const url =
-    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}` +
-    `:streamGenerateContent?alt=sse&key=${encodeURIComponent(GEMINI_API_KEY)}`;
+  const base = GEMINI_ORIGIN ? `${GEMINI_ORIGIN}/gemini` : 'https://generativelanguage.googleapis.com/v1beta';
+  const keyQuery = GEMINI_ORIGIN ? '' : `&key=${encodeURIComponent(GEMINI_API_KEY)}`;
+  const url = `${base}/models/${GEMINI_MODEL}:streamGenerateContent?alt=sse${keyQuery}`;
 
   const res = await fetch(url, {
     method: 'POST',
@@ -657,6 +657,8 @@ export function ResearchChat({
   const [listening, setListening] = useState(false);
   const [voiceSupported] = useState(() => getSpeechRecognitionCtor() !== null);
   const [pendingImages, setPendingImages] = useState<Attachment[]>([]);
+  const [cloudReady, setCloudReady] = useState(true);
+  useEffect(() => { void checkCloudConfigured().then(setCloudReady); }, []);
 
   const streamRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -897,7 +899,7 @@ export function ResearchChat({
     }
   };
 
-  const cloudUnconfigured = engine === 'cloud' && !GEMINI_API_KEY;
+  const cloudUnconfigured = engine === 'cloud' && !cloudReady;
   const statusColor = isStreaming ? C.amber : cloudUnconfigured ? C.danger : C.success;
   const statusLabel = isStreaming ? 'Thinking…' : cloudUnconfigured ? 'Needs API key' : 'Ready';
 
@@ -998,8 +1000,9 @@ export function ResearchChat({
 
       {cloudUnconfigured && (
         <div style={S.notice}>
-          No Gemini API key detected. Add <code>VITE_GEMINI_API_KEY=…</code> to{' '}
-          <code>.env.local</code> and restart the dev server.
+          {GEMINI_ORIGIN
+            ? 'The Gemini proxy isn’t configured — set the GEMINI_API_KEY secret on the Cloudflare Worker (see cloudflare/gemini-proxy/).'
+            : <>No Gemini API key detected. Add <code>VITE_GEMINI_API_KEY=…</code> to <code>.env.local</code> and restart the dev server.</>}
         </div>
       )}
 

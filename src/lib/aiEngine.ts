@@ -14,6 +14,20 @@ export const GEMINI_MODEL = 'gemini-3.5-flash';
 export const OLLAMA_MODEL = 'llama3';
 export const OLLAMA_BASE_URL = '/api/ollama';
 
+// In dev, calls go straight to Google with the key from .env.local (never leaves the dev's own
+// machine, so there's nothing to hide). In production a VITE_-prefixed var gets baked into the
+// public JS bundle — anyone could pull the key out of DevTools and run up billed Gemini usage on
+// this app's own account — so the deployed site instead calls a small standalone Cloudflare
+// Worker that holds the real key server-side. See cloudflare/gemini-proxy/.
+export const GEMINI_ORIGIN = import.meta.env.DEV ? '' : (import.meta.env.VITE_GEMINI_PROXY_URL as string | undefined) ?? '';
+const GEMINI_BASE = GEMINI_ORIGIN ? `${GEMINI_ORIGIN}/gemini` : 'https://generativelanguage.googleapis.com/v1beta';
+
+function geminiUrl(path: string, extraQuery = ''): string {
+  const keyQuery = GEMINI_ORIGIN ? '' : `key=${encodeURIComponent(GEMINI_API_KEY)}`;
+  const query = [extraQuery, keyQuery].filter(Boolean).join('&');
+  return `${GEMINI_BASE}/${path}${query ? `?${query}` : ''}`;
+}
+
 /** Same localStorage key the Research chat uses, so an engine choice made in either place carries over. */
 export const ENGINE_STORAGE_KEY = 'life-os-research-engine-v1';
 
@@ -27,8 +41,17 @@ export function loadSavedEngine(): Engine {
   return saved === 'cloud' || saved === 'local' ? saved : 'local';
 }
 
-export function isCloudConfigured(): boolean {
-  return Boolean(GEMINI_API_KEY);
+/** Works in both dev and prod — hits the Worker's /gemini/status route when GEMINI_ORIGIN is set. */
+export async function checkCloudConfigured(): Promise<boolean> {
+  if (!GEMINI_ORIGIN) return Boolean(GEMINI_API_KEY);
+  try {
+    const res = await fetch(`${GEMINI_ORIGIN}/gemini/status`);
+    if (!res.ok) return false;
+    const data = await res.json() as { configured?: boolean };
+    return Boolean(data.configured);
+  } catch {
+    return false;
+  }
 }
 
 async function describeHttpError(res: Response, label: string): Promise<string> {
@@ -65,12 +88,10 @@ async function completeOllama(system: string, user: string, signal: AbortSignal)
 }
 
 async function completeGemini(system: string, user: string, signal: AbortSignal): Promise<string> {
-  if (!GEMINI_API_KEY) {
+  if (!GEMINI_ORIGIN && !GEMINI_API_KEY) {
     throw new Error('No Gemini API key found. Add VITE_GEMINI_API_KEY to .env.local and restart the dev server.');
   }
-  const url =
-    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}` +
-    `:generateContent?key=${encodeURIComponent(GEMINI_API_KEY)}`;
+  const url = geminiUrl(`models/${GEMINI_MODEL}:generateContent`);
   const res = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
