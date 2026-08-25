@@ -1,5 +1,12 @@
 import type { AutofillResult } from '../components/CollectionPage';
 
+// In dev, Vite's own middleware (vite.config.ts) serves /api/igdb/* locally, so this stays empty
+// and requests resolve relative to the current origin exactly as before. In production there's
+// no server behind the built static site to run that middleware, so requests instead go to a
+// small standalone Cloudflare Worker that implements the same two endpoints — see
+// cloudflare/igdb-proxy/. Left unset, this just means "not configured" rather than erroring.
+const IGDB_ORIGIN = import.meta.env.DEV ? '' : (import.meta.env.VITE_IGDB_PROXY_URL as string | undefined) ?? '';
+
 interface IgdbCompany {
   company?: { name: string };
   developer?: boolean;
@@ -35,7 +42,7 @@ function toPatch(g: IgdbGame): Record<string, unknown> {
 
 export async function checkIgdbConfigured(): Promise<boolean> {
   try {
-    const res = await fetch('/api/igdb/status');
+    const res = await fetch(`${IGDB_ORIGIN}/api/igdb/status`);
     if (!res.ok) return false;
     const data = await res.json();
     return Boolean(data.configured);
@@ -45,7 +52,7 @@ export async function checkIgdbConfigured(): Promise<boolean> {
 }
 
 export async function searchGames(query: string): Promise<AutofillResult[]> {
-  const res = await fetch(`/api/igdb/search?q=${encodeURIComponent(query)}`);
+  const res = await fetch(`${IGDB_ORIGIN}/api/igdb/search?q=${encodeURIComponent(query)}`);
   // A failed request (rate-limited, network hiccup, proxy error) is not the same thing as
   // "this game doesn't exist" — swallowing it into an empty array made bulk import report a
   // real match as "No match found — skipped" instead of a retryable error. Throwing lets

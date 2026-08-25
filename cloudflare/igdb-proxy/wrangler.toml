@@ -1,0 +1,13 @@
+name = "life-os-igdb-proxy"
+main = "src/index.js"
+compatibility_date = "2026-08-25"
+
+# Not secret — just the one origin allowed to call this Worker. Update if the GitHub Pages
+# origin ever changes (custom domain, repo rename, etc.) and redeploy with `wrangler deploy`.
+[vars]
+ALLOWED_ORIGIN = "https://tytan-max.github.io"
+
+# IGDB_CLIENT_ID and IGDB_CLIENT_SECRET are NOT set here — they're real secrets, set once via:
+#   npx wrangler secret put IGDB_CLIENT_ID
+#   npx wrangler secret put IGDB_CLIENT_SECRET
+# which stores them encrypted on Cloudflare's side, never in this repo.

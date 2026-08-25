@@ -42,6 +42,10 @@ jobs:
           VITE_GEMINI_API_KEY: ${{ secrets.VITE_GEMINI_API_KEY }}
           VITE_TMDB_API_KEY: ${{ secrets.VITE_TMDB_API_KEY }}
           VITE_UNSPLASH_ACCESS_KEY: ${{ secrets.VITE_UNSPLASH_ACCESS_KEY }}
+          # Not a secret — just the public URL of the Cloudflare Worker in cloudflare/igdb-proxy/
+          # that stands in for the dev-only IGDB proxy on the deployed site. Set once as a repo
+          # *variable* (Settings → Secrets and variables → Actions → Variables tab), not a secret.
+          VITE_IGDB_PROXY_URL: ${{ vars.VITE_IGDB_PROXY_URL }}
 
       - uses: actions/upload-pages-artifact@v3
         with:
