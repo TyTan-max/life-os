@@ -4,8 +4,8 @@ on:
   push:
     branches: [main]
   # Lets you re-run a deploy from the Actions tab without needing a new commit —
-  # useful right after changing the VITE_GOOGLE_CLIENT_ID secret, since that alone
-  # doesn't trigger a push.
+  # useful right after changing a secret (VITE_GOOGLE_CLIENT_ID, VITE_GEMINI_API_KEY),
+  # since that alone doesn't trigger a push.
   workflow_dispatch:
 
 permissions:
@@ -36,9 +36,10 @@ jobs:
         env:
           # Baked into the built JS at this step — Vite's VITE_ vars are compile-time, not
           # read at runtime — so it has to be present here, not just set somewhere the
-          # deployed site could read it later. Pulled from a repository secret rather than
-          # committed, so the client ID never sits in the repo's history in plain text.
+          # deployed site could read it later. Pulled from repository secrets rather than
+          # committed, so neither key ever sits in the repo's history in plain text.
           VITE_GOOGLE_CLIENT_ID: ${{ secrets.VITE_GOOGLE_CLIENT_ID }}
+          VITE_GEMINI_API_KEY: ${{ secrets.VITE_GEMINI_API_KEY }}
 
       - uses: actions/upload-pages-artifact@v3
         with:
