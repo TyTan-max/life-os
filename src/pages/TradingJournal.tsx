@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, ReactNode } from 'react';
-import { Calendar as CalendarIcon, ChevronDown, ChevronLeft, ChevronRight, ImagePlus, Minus, Plus, RotateCcw, StickyNote, Table2, TrendingDown, TrendingUp, Trash2, Upload, X } from 'lucide-react';
+import { Calculator as CalculatorIcon, Calendar as CalendarIcon, ChevronDown, ChevronLeft, ChevronRight, ImagePlus, Minus, Plus, RotateCcw, StickyNote, Table2, TrendingDown, TrendingUp, Trash2, Upload, X } from 'lucide-react';
 import { useStore, newRecord } from '../store';
 import type { DailyLog, TradingScreenshot } from '../types';
 import { formatCurrency, Modal } from '../components/UI';
@@ -743,6 +743,117 @@ function ScreenshotLightbox({
   );
 }
 
+const CALC_OPERATORS = ['+', '-', '×', '÷'] as const;
+type CalcOperator = typeof CALC_OPERATORS[number];
+
+function calcCompute(a: number, b: number, op: CalcOperator): number {
+  switch (op) {
+    case '+': return a + b;
+    case '-': return a - b;
+    case '×': return a * b;
+    case '÷': return b === 0 ? NaN : a / b;
+  }
+}
+
+// Floating-point arithmetic leaves artifacts like 0.30000000000000004 — round before displaying
+// rather than showing that to someone just trying to check trade math.
+function calcFormat(n: number): string {
+  if (!isFinite(n)) return 'Error';
+  return String(Math.round(n * 1e10) / 1e10);
+}
+
+function CalculatorModal({ onClose }: { onClose: () => void }) {
+  const [display, setDisplay] = useState('0');
+  const [prevValue, setPrevValue] = useState<number | null>(null);
+  const [operator, setOperator] = useState<CalcOperator | null>(null);
+  const [waitingForOperand, setWaitingForOperand] = useState(false);
+
+  const inputDigit = (d: string) => {
+    if (waitingForOperand) { setDisplay(d); setWaitingForOperand(false); }
+    else setDisplay(display === '0' ? d : display + d);
+  };
+  const inputDecimal = () => {
+    if (waitingForOperand) { setDisplay('0.'); setWaitingForOperand(false); return; }
+    if (!display.includes('.')) setDisplay(display + '.');
+  };
+  const backspace = () => setDisplay(d => (d.length > 1 ? d.slice(0, -1) : '0'));
+  const clear = () => { setDisplay('0'); setPrevValue(null); setOperator(null); setWaitingForOperand(false); };
+  const toggleSign = () => setDisplay(d => (d === '0' ? d : d.startsWith('-') ? d.slice(1) : `-${d}`));
+  const inputPercent = () => setDisplay(calcFormat(parseFloat(display) / 100));
+
+  const performOperator = (nextOp: CalcOperator) => {
+    const inputValue = parseFloat(display);
+    if (prevValue === null) {
+      setPrevValue(inputValue);
+    } else if (operator && !waitingForOperand) {
+      const result = calcCompute(prevValue, inputValue, operator);
+      setDisplay(calcFormat(result));
+      setPrevValue(result);
+    }
+    setWaitingForOperand(true);
+    setOperator(nextOp);
+  };
+  const equals = () => {
+    const inputValue = parseFloat(display);
+    if (operator === null || prevValue === null) return;
+    setDisplay(calcFormat(calcCompute(prevValue, inputValue, operator)));
+    setPrevValue(null);
+    setOperator(null);
+    setWaitingForOperand(true);
+  };
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key >= '0' && e.key <= '9') inputDigit(e.key);
+      else if (e.key === '.') inputDecimal();
+      else if (e.key === '+') performOperator('+');
+      else if (e.key === '-') performOperator('-');
+      else if (e.key === '*') performOperator('×');
+      else if (e.key === '/') { e.preventDefault(); performOperator('÷'); }
+      else if (e.key === 'Enter' || e.key === '=') equals();
+      else if (e.key === 'Backspace') backspace();
+      else if (e.key.toLowerCase() === 'c') clear();
+      else return;
+      e.stopPropagation();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  });
+
+  return (
+    <Modal eyebrow="Life OS" title="Calculator" onClose={onClose}>
+      <div className="tj-calc">
+        <div className="tj-calc-display">{display}</div>
+        <div className="tj-calc-grid">
+          <button type="button" className="tj-calc-btn tj-calc-btn-fn" onClick={clear}>C</button>
+          <button type="button" className="tj-calc-btn tj-calc-btn-fn" onClick={toggleSign}>±</button>
+          <button type="button" className="tj-calc-btn tj-calc-btn-fn" onClick={inputPercent}>%</button>
+          <button type="button" className="tj-calc-btn tj-calc-btn-op" onClick={() => performOperator('÷')}>÷</button>
+
+          <button type="button" className="tj-calc-btn" onClick={() => inputDigit('7')}>7</button>
+          <button type="button" className="tj-calc-btn" onClick={() => inputDigit('8')}>8</button>
+          <button type="button" className="tj-calc-btn" onClick={() => inputDigit('9')}>9</button>
+          <button type="button" className="tj-calc-btn tj-calc-btn-op" onClick={() => performOperator('×')}>×</button>
+
+          <button type="button" className="tj-calc-btn" onClick={() => inputDigit('4')}>4</button>
+          <button type="button" className="tj-calc-btn" onClick={() => inputDigit('5')}>5</button>
+          <button type="button" className="tj-calc-btn" onClick={() => inputDigit('6')}>6</button>
+          <button type="button" className="tj-calc-btn tj-calc-btn-op" onClick={() => performOperator('-')}>−</button>
+
+          <button type="button" className="tj-calc-btn" onClick={() => inputDigit('1')}>1</button>
+          <button type="button" className="tj-calc-btn" onClick={() => inputDigit('2')}>2</button>
+          <button type="button" className="tj-calc-btn" onClick={() => inputDigit('3')}>3</button>
+          <button type="button" className="tj-calc-btn tj-calc-btn-op" onClick={() => performOperator('+')}>+</button>
+
+          <button type="button" className="tj-calc-btn tj-calc-btn-zero" onClick={() => inputDigit('0')}>0</button>
+          <button type="button" className="tj-calc-btn" onClick={inputDecimal}>.</button>
+          <button type="button" className="tj-calc-btn tj-calc-btn-eq" onClick={equals}>=</button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
 function DayEditModal({
   log, onClose, onSave, onDelete, onManageScreenshots
 }: {
@@ -1111,6 +1222,7 @@ export function TradingJournal() {
   const [equityView, setEquityView] = useState<'chart' | 'table'>('chart');
   const [screenshotLogId, setScreenshotLogId] = useState<string | null>(null);
   const [showCalendar, setShowCalendar] = useState(false);
+  const [showCalculator, setShowCalculator] = useState(false);
   const screenshotLog = screenshotLogId ? logs.find(l => l.id === screenshotLogId) ?? null : null;
   const editingLog = editingLogId ? logs.find(l => l.id === editingLogId) ?? null : null;
 
@@ -1213,6 +1325,9 @@ export function TradingJournal() {
           ))}
           <button type="button" className="icon-btn tj-cal-open" onClick={() => setShowCalendar(true)} aria-label="Open calendar view" title="Calendar view">
             <CalendarIcon size={16} />
+          </button>
+          <button type="button" className="icon-btn tj-cal-open" onClick={() => setShowCalculator(true)} aria-label="Open calculator" title="Calculator">
+            <CalculatorIcon size={16} />
           </button>
         </div>
         {period !== 'Total' && (
@@ -1470,6 +1585,7 @@ export function TradingJournal() {
           onRemovePreset={removePresetLabel}
         />
       )}
+      {showCalculator && <CalculatorModal onClose={() => setShowCalculator(false)} />}
     </>
   );
 }

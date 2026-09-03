@@ -3016,6 +3016,39 @@ input, select, textarea { font-family: inherit; }
 }
 .tj-screenshot-lightbox-close:hover { background: rgba(255, 255, 255, 0.22); }
 
+/* Calculator popup */
+.tj-calc { display: flex; flex-direction: column; gap: 12px; width: 260px; max-width: 100%; }
+.tj-calc-display {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px 14px;
+  text-align: right;
+  font-size: 28px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  overflow-x: auto;
+  white-space: nowrap;
+}
+.tj-calc-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.tj-calc-btn {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 16px;
+  font-weight: 600;
+  border-radius: 10px;
+  padding: 14px 0;
+  cursor: pointer;
+  font-variant-numeric: tabular-nums;
+}
+.tj-calc-btn:hover { background: var(--bg); }
+.tj-calc-btn-fn { color: var(--accent); }
+.tj-calc-btn-op { color: var(--teal); }
+.tj-calc-btn-eq { grid-column: span 2; background: var(--teal); border-color: var(--teal); color: #fff; }
+.tj-calc-btn-eq:hover { filter: brightness(1.08); }
+.tj-calc-btn-zero { grid-column: span 2; }
+
 /* Monthly calendar view */
 .tj-cal-open { margin-left: 4px; }
 .tj-cal-page { display: flex; flex-direction: column; gap: 18px; }
