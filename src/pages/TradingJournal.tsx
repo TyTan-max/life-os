@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
-import type { ReactNode } from 'react';
+import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, ReactNode } from 'react';
 import { Calendar as CalendarIcon, ChevronDown, ChevronLeft, ChevronRight, ImagePlus, Minus, Plus, RotateCcw, StickyNote, Table2, TrendingDown, TrendingUp, Trash2, Upload, X } from 'lucide-react';
 import { useStore, newRecord } from '../store';
 import type { DailyLog, TradingScreenshot } from '../types';
@@ -626,13 +626,111 @@ function ScreenshotsModal({
         ) : <p className="muted tj-empty">No screenshots for this day yet.</p>}
       </div>
       {preview !== null && shots[preview] && (
-        <div className="tj-screenshot-lightbox" onClick={() => setPreview(null)}>
-          <button type="button" className="tj-screenshot-lightbox-close" onClick={() => setPreview(null)} aria-label="Close preview"><X size={18} /></button>
-          {shots[preview].label && <span className="tj-screenshot-lightbox-label">{shots[preview].label}</span>}
-          <img src={shots[preview].src} alt={`Screenshot ${preview + 1}`} onClick={e => e.stopPropagation()} />
-        </div>
+        <ScreenshotLightbox
+          key={preview}
+          src={shots[preview].src}
+          label={shots[preview].label}
+          index={preview}
+          onClose={() => setPreview(null)}
+        />
       )}
     </Modal>
+  );
+}
+
+const ZOOM_MIN = 1;
+const ZOOM_MAX = 4;
+const ZOOM_CLICK_STEP = 2.5;
+
+function ScreenshotLightbox({
+  src, label, index, onClose
+}: {
+  src: string;
+  label: string | undefined;
+  index: number;
+  onClose: () => void;
+}) {
+  const [zoom, setZoom] = useState(1);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const dragRef = useRef<{ startX: number; startY: number; panX: number; panY: number } | null>(null);
+  const [dragging, setDragging] = useState(false);
+  const imgRef = useRef<HTMLImageElement>(null);
+
+  const resetZoom = () => { setZoom(1); setPan({ x: 0, y: 0 }); };
+
+  // Click toggles between fit and a fixed zoom level — the common "tap to zoom" pattern. Wheel
+  // gives finer, continuous control for anyone who wants a specific zoom level instead.
+  const onImageClick = (e: ReactMouseEvent) => {
+    e.stopPropagation();
+    if (dragRef.current) return; // a drag just ended on this click — don't also toggle zoom
+    if (zoom > 1) resetZoom();
+    else setZoom(ZOOM_CLICK_STEP);
+  };
+
+  // React's synthetic onWheel is registered as a passive listener, so e.preventDefault() there
+  // silently fails (and logs a console error) — a native listener is the only way to actually
+  // stop the page/trackpad from scrolling or pinch-zooming while the cursor is over the image.
+  useEffect(() => {
+    const el = imgRef.current;
+    if (!el) return;
+    const handler = (e: WheelEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setZoom(z => {
+        const next = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, z - e.deltaY * 0.0025));
+        if (next === ZOOM_MIN) setPan({ x: 0, y: 0 });
+        return next;
+      });
+    };
+    el.addEventListener('wheel', handler, { passive: false });
+    return () => el.removeEventListener('wheel', handler);
+  }, []);
+
+  const onPointerDown = (e: ReactPointerEvent) => {
+    if (zoom <= 1) return;
+    e.stopPropagation();
+    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    dragRef.current = { startX: e.clientX, startY: e.clientY, panX: pan.x, panY: pan.y };
+    setDragging(true);
+  };
+  const onPointerMove = (e: ReactPointerEvent) => {
+    if (!dragRef.current) return;
+    e.stopPropagation();
+    const { startX, startY, panX, panY } = dragRef.current;
+    setPan({ x: panX + (e.clientX - startX), y: panY + (e.clientY - startY) });
+  };
+  const endDrag = (e: ReactPointerEvent) => {
+    if (!dragRef.current) return;
+    e.stopPropagation();
+    dragRef.current = null;
+    setDragging(false);
+  };
+
+  return (
+    <div className="tj-screenshot-lightbox" onClick={onClose}>
+      <button type="button" className="tj-screenshot-lightbox-close" onClick={onClose} aria-label="Close preview"><X size={18} /></button>
+      {label && <span className="tj-screenshot-lightbox-label">{label}</span>}
+      <img
+        ref={imgRef}
+        src={src}
+        alt={`Screenshot ${index + 1}`}
+        className="tj-screenshot-lightbox-img"
+        style={{
+          transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+          transition: dragging ? 'none' : 'transform 0.15s ease-out',
+          cursor: zoom > 1 ? (dragging ? 'grabbing' : 'grab') : 'zoom-in'
+        }}
+        onClick={onImageClick}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={endDrag}
+        onPointerLeave={endDrag}
+        draggable={false}
+      />
+      {zoom > 1 && (
+        <span className="tj-screenshot-lightbox-zoom">{Math.round(zoom * 100)}%</span>
+      )}
+    </div>
   );
 }
 
