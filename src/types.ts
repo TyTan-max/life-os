@@ -211,11 +211,17 @@ export type ParaProjectStatus = 'Not Started' | 'In Progress' | 'Blocked' | 'Com
 export type ResourceKind = 'Article' | 'Snippet' | 'Reference' | 'Idea' | 'Book Note' | 'Repo';
 export type ReviewCadence = 'Weekly' | 'Monthly' | 'Quarterly';
 
+export interface NoteImage {
+  src: string;
+  label?: string;
+}
+
 export interface Note extends BaseRecord {
   title: string;
   body: string;
   tags?: string[];
   pinned?: boolean;
+  images?: NoteImage[];
 
   paraType?: ParaType;
   // Archived is a status layered on top of paraType, not a separate type — kept

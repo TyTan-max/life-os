@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { ClipboardEvent } from 'react';
+import type { ChangeEvent, ClipboardEvent } from 'react';
 import {
   Archive, ArchiveRestore, Bold, BookMarked, Check, ChevronLeft, Code2, Command, Heading2, Inbox as InboxIcon,
-  Italic, Layers, Link2, List, ListOrdered, Pin, PinOff, Plus, Quote, Search, Strikethrough, Trash2, X
+  Italic, Layers, Link2, List, ListOrdered, Pin, PinOff, Plus, Quote, Search, Strikethrough, Trash2, Upload, X
 } from 'lucide-react';
 import { useStore, newRecord } from '../store';
-import type { Frequency, Goal, GoalHorizon, GoalProgressMode, GoalStatus, Note, ParaProjectStatus, ParaType, Priority, ResourceKind, ReviewCadence, Task, TaskStatus } from '../types';
+import type { Frequency, Goal, GoalHorizon, GoalProgressMode, GoalStatus, Note, NoteImage, ParaProjectStatus, ParaType, Priority, ResourceKind, ReviewCadence, Task, TaskStatus } from '../types';
 import { Badge, Card, EmptyState, Kpi, Modal, PageHeader, formatDate } from '../components/UI';
 import { DatePicker } from '../components/DatePicker';
 import { RichTextEditor } from '../components/RichTextEditor';
@@ -109,6 +109,37 @@ function extractLinkedTitles(body: string): string[] {
 function snippet(body: string, max = 90): string {
   const flat = body.replace(WIKILINK_PATTERN, '$1').replace(/\s+/g, ' ').trim();
   return flat.length > max ? `${flat.slice(0, max)}…` : flat || 'No content yet.';
+}
+
+const NOTE_IMAGE_MAX_DIM = 1200;
+const NOTE_IMAGE_QUALITY = 0.82;
+
+// Downscales and re-encodes as JPEG so pasted screenshots don't bloat IndexedDB (and, eventually,
+// every device's Drive sync payload) with a full-resolution PNG for what's usually just a
+// reference image inside a note.
+function fileToCompressedDataUrl(file: File, maxDim = NOTE_IMAGE_MAX_DIM, quality = NOTE_IMAGE_QUALITY): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const reader = new FileReader();
+    reader.onerror = () => reject(reader.error);
+    reader.onload = () => {
+      img.onerror = () => reject(new Error('Could not read image'));
+      img.onload = () => {
+        const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+        const w = Math.round(img.width * scale);
+        const h = Math.round(img.height * scale);
+        const canvas = document.createElement('canvas');
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) { resolve(reader.result as string); return; }
+        ctx.drawImage(img, 0, 0, w, h);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+      img.src = reader.result as string;
+    };
+    reader.readAsDataURL(file);
+  });
 }
 
 function escapeRegExp(s: string): string {
@@ -237,6 +268,9 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
   const [languageFilter, setLanguageFilter] = useState<string | null>(null);
   const [captureText, setCaptureText] = useState('');
   const bodyRef = useRef<HTMLTextAreaElement>(null);
+  const imageFileRef = useRef<HTMLInputElement>(null);
+  const [uploadingImage, setUploadingImage] = useState(false);
+  const [imageLightboxSrc, setImageLightboxSrc] = useState<string | null>(null);
 
   // Frictionless capture — always lands untyped (Inbox) regardless of which PARA
   // tab you're currently viewing. Deliberately no title prompt: organize later.
@@ -554,11 +588,54 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
     wrapSelection('[', `](${safe})`);
   };
 
+  // A screenshot on the clipboard (Snipping Tool, Cmd+Shift+4, "Copy image") arrives as an image
+  // file, not text/html — caught here before the HTML branch below, since a pasted image often
+  // carries no text/html payload at all and would otherwise just silently do nothing in a plain
+  // <textarea>.
+  const addImageFile = async (file: File) => {
+    const targetId = note?.id;
+    if (!targetId) return;
+    setUploadingImage(true);
+    try {
+      const dataUrl = await fileToCompressedDataUrl(file);
+      // Re-read from `notes` rather than trusting the closed-over `note` — compression takes a
+      // moment, and another field could have changed in the meantime.
+      const latest = notes.find(n => n.id === targetId);
+      if (!latest) return;
+      const image: NoteImage = { src: dataUrl };
+      void upsert('notes', { ...latest, images: [...(latest.images ?? []), image] });
+    } catch {
+      /* unreadable file — silently skip rather than block the rest of the paste/upload */
+    } finally {
+      setUploadingImage(false);
+    }
+  };
+
+  const removeImage = (src: string) => {
+    if (!note) return;
+    patchNote({ images: (note.images ?? []).filter(img => img.src !== src) });
+  };
+
+  const triggerImageUpload = () => imageFileRef.current?.click();
+
+  const onImageFileSelected = (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // allow re-selecting the same file later
+    if (file) void addImageFile(file);
+  };
+
   // Pasted HTML (Google Docs, Word, browsers) gets rewritten to Markdown so paragraphs,
   // nested lists, and bold/italic/links survive instead of collapsing into one plain-text
   // run — skipped for code snippets, which should paste verbatim.
   const handleBodyPaste = (e: ClipboardEvent<HTMLTextAreaElement>) => {
     if (!note || note.resourceKind === 'Snippet') return;
+    const imageItem = Array.from(e.clipboardData.items).find(item => item.type.startsWith('image/'));
+    const imageFile = imageItem?.getAsFile();
+    if (imageFile) {
+      e.preventDefault();
+      void addImageFile(imageFile);
+      return;
+    }
     const html = e.clipboardData.getData('text/html');
     if (!html) return;
     e.preventDefault();
@@ -1122,6 +1199,8 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                   <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => prefixLines(i => `${i + 1}. `)} title="Numbered list" aria-label="Numbered list"><ListOrdered size={14} /></button>
                   <span className="rte-divider" />
                   <button type="button" onMouseDown={e => e.preventDefault()} onClick={insertMarkdownLink} title="Add link" aria-label="Add link"><Link2 size={14} /></button>
+                  <span className="rte-divider" />
+                  <button type="button" onMouseDown={e => e.preventDefault()} onClick={triggerImageUpload} disabled={uploadingImage} title="Add a photo" aria-label="Add a photo"><Upload size={14} /></button>
                 </div>
               )}
               <textarea
@@ -1129,11 +1208,24 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                 className={`sb-body-input ${note.resourceKind === 'Snippet' ? 'sb-body-code' : ''}`}
                 placeholder={note.resourceKind === 'Snippet'
                   ? 'Paste the snippet — a fenced ```lang block is a handy convention, even without a renderer.'
-                  : 'Start writing… use [[Note Title]] to link to another note. Paste from Docs/Word to keep paragraphs, lists, and bold/italic.'}
+                  : 'Start writing… use [[Note Title]] to link to another note. Paste from Docs/Word to keep paragraphs, lists, and bold/italic. Paste or upload a photo to attach it.'}
                 value={note.body}
                 onChange={e => patchNote({ body: e.target.value })}
                 onPaste={handleBodyPaste}
               />
+              {((note.images ?? []).length > 0 || uploadingImage) && (
+                <div className="sb-note-photos">
+                  {(note.images ?? []).map(img => (
+                    <div className="sb-note-photo" key={img.src}>
+                      <button type="button" className="sb-note-photo-expand" onClick={() => setImageLightboxSrc(img.src)} aria-label="View full-size photo">
+                        <img src={img.src} alt="" />
+                      </button>
+                      <button type="button" className="sb-note-photo-remove" onClick={() => removeImage(img.src)} aria-label="Remove photo"><X size={11} /></button>
+                    </div>
+                  ))}
+                  {uploadingImage && <div className="sb-note-photo sb-note-photo-uploading">Uploading…</div>}
+                </div>
+              )}
               {backlinks.length > 0 && (
                 <div className="sb-backlinks">
                   <h3>Linked mentions ({backlinks.length})</h3>
@@ -1305,6 +1397,15 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
           <p>{confirmDeleteNote.message}</p>
         </Modal>
       )}
+      {imageLightboxSrc && (
+        <div className="photo-lightbox-overlay" onClick={() => setImageLightboxSrc(null)}>
+          <button type="button" className="photo-lightbox-close" onClick={() => setImageLightboxSrc(null)} aria-label="Close">
+            <X size={20} />
+          </button>
+          <img src={imageLightboxSrc} alt="" className="photo-lightbox-image" onClick={e => e.stopPropagation()} />
+        </div>
+      )}
+      <input ref={imageFileRef} type="file" accept="image/*" hidden onChange={onImageFileSelected} />
     </>
   );
 }
