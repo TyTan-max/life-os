@@ -437,6 +437,94 @@ async function migrateTradingJournalV1(db: IDBPDatabase): Promise<void> {
   }
 }
 
+// Deep, key-order-independent stringify — two structurally-identical objects always produce the
+// same string, regardless of the order their fields happened to be written in at each call site.
+function stableStringify(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`;
+  if (value && typeof value === 'object') {
+    const obj = value as Record<string, unknown>;
+    const keys = Object.keys(obj).sort();
+    return `{${keys.map(k => `${JSON.stringify(k)}:${stableStringify(obj[k])}`).join(',')}}`;
+  }
+  return JSON.stringify(value);
+}
+
+// Content fingerprint for a record, ignoring the fields that are *expected* to differ between
+// two otherwise-identical copies: identity (id/createdAt/updatedAt) and, for habits, `checkins` —
+// two duplicate copies of the same seed habit may have picked up different real check-ins on
+// their respective devices before anyone noticed the duplication, so that field is unioned back
+// together separately rather than used to tell copies apart.
+function seedContentKey(record: Record<string, unknown>): string {
+  const { id: _id, createdAt: _createdAt, updatedAt: _updatedAt, checkins: _checkins, ...rest } = record;
+  return stableStringify(rest);
+}
+
+// One-time cleanup for the fresh-seed-then-sync duplication bug fixed by buildSeedData() now
+// using deterministic ids (see `seed()` above): before that fix, every device that seeded its own
+// fresh install minted the *same* seed content under a *different* random id, and Drive sync's
+// per-id dedup had no way to recognize them as one record — each sync round permanently kept
+// every copy. This finds any stored record whose content exactly matches one of this app's own
+// hardcoded seed records (a real user's own data essentially never coincidentally matches this
+// app's specific placeholder text) and collapses every duplicate found down to one, under the
+// canonical deterministic id, unioning habit check-ins across copies rather than picking one
+// arbitrarily. Tombstones the removed ids so the cleanup propagates to every other device the
+// next time each one syncs, instead of Drive resurrecting the duplicates right back.
+async function dedupeLegacySeedDuplicatesV1(db: IDBPDatabase): Promise<void> {
+  const done = await db.get(META_STORE, 'seedDuplicatesDedupedV1');
+  if (done) return;
+
+  const canonical = buildSeedData();
+  const tombstones: Tombstone[] = [];
+  const deletedAt = new Date().toISOString();
+
+  for (const name of COLLECTION_NAMES) {
+    const canonicalRecords = canonical[name] as CollectionRecord[];
+    if (!canonicalRecords.length) continue;
+    const canonicalByKey = new Map<string, CollectionRecord>();
+    for (const r of canonicalRecords) canonicalByKey.set(seedContentKey(r as unknown as Record<string, unknown>), r);
+
+    const stored = await db.getAll(name) as CollectionRecord[];
+    const groups = new Map<string, CollectionRecord[]>();
+    for (const r of stored) {
+      const key = seedContentKey(r as unknown as Record<string, unknown>);
+      if (!canonicalByKey.has(key)) continue; // doesn't match any known seed record — real user data, leave it alone
+      const arr = groups.get(key) ?? [];
+      arr.push(r);
+      groups.set(key, arr);
+    }
+    if (!groups.size) continue;
+
+    const tx = db.transaction([name, META_STORE], 'readwrite');
+    for (const [key, matches] of groups) {
+      const canonicalId = canonicalByKey.get(key)!.id;
+      const checkinsUnion = matches.some(m => Array.isArray((m as unknown as Record<string, unknown>).checkins))
+        ? Array.from(new Set(matches.flatMap(m => ((m as unknown as Record<string, unknown>).checkins as string[] | undefined) ?? []))).sort()
+        : undefined;
+      const consolidated = {
+        ...matches[0],
+        ...(checkinsUnion ? { checkins: checkinsUnion } : {}),
+        id: canonicalId,
+        createdAt: matches.map(m => m.createdAt).sort()[0],
+        updatedAt: matches.map(m => m.updatedAt ?? m.createdAt).sort().slice(-1)[0]
+      } as CollectionRecord;
+
+      await tx.objectStore(name).put(consolidated);
+      for (const m of matches) {
+        if (m.id === canonicalId) continue;
+        await tx.objectStore(name).delete(m.id);
+        tombstones.push({ collection: name, id: m.id, deletedAt });
+      }
+    }
+    await tx.done;
+  }
+
+  if (tombstones.length) {
+    const existing = ((await db.get(META_STORE, TOMBSTONES_KEY)) ?? []) as Tombstone[];
+    await db.put(META_STORE, [...existing, ...tombstones], TOMBSTONES_KEY);
+  }
+  await db.put(META_STORE, true, 'seedDuplicatesDedupedV1');
+}
+
 let loadPromise: Promise<AppData> | null = null;
 
 // React StrictMode double-invokes effects in dev, which would otherwise race two
@@ -453,8 +541,8 @@ async function loadAllInternal(): Promise<AppData> {
   const db = await getDb();
   const seeded = await db.get(META_STORE, 'seeded');
   if (!seeded) {
-    const seed = buildSeedData();
-    await writeAll(db, seed);
+    const seedData = buildSeedData();
+    await writeAll(db, seedData);
     await db.put(META_STORE, true, 'seeded');
     await db.put(META_STORE, true, 'financeMigratedV1');
     await db.put(META_STORE, true, 'budgetsMigratedV1');
@@ -464,7 +552,10 @@ async function loadAllInternal(): Promise<AppData> {
     await db.put(META_STORE, true, 'workoutRoutineVersionsMigratedV1');
     await db.put(META_STORE, true, 'sleepQualityScaleMigratedV1');
     await db.put(META_STORE, true, 'tradingJournalMigratedV1');
-    return seed;
+    // A brand-new install seeds directly from the now-deterministic-id buildSeedData() — there's
+    // nothing to have duplicated yet, so there's nothing for this cleanup pass to do.
+    await db.put(META_STORE, true, 'seedDuplicatesDedupedV1');
+    return seedData;
   }
   await migrateFinanceV1(db);
   await migrateBudgetsV1(db);
@@ -474,6 +565,7 @@ async function loadAllInternal(): Promise<AppData> {
   await migrateWorkoutRoutineVersionsV1(db);
   await migrateSleepQualityScaleV1(db);
   await migrateTradingJournalV1(db);
+  await dedupeLegacySeedDuplicatesV1(db);
   return readAllCollections(db);
 }
 
@@ -582,95 +674,109 @@ function iso(offsetDays = 0): string {
   return d.toISOString().slice(0, 10);
 }
 
+// Every seed record gets a stable, deterministic id (via `seed()` below) instead of makeRecord's
+// usual random one. Without this, two devices that each seed their own fresh install — before
+// either has synced in real data — mint the *same* 13 habits (etc.) under two different random
+// ids, and Google Drive sync's per-id dedup has no way to recognize them as the same record: it
+// just keeps both, forever, compounding on every fresh-seed-then-sync. Deterministic ids mean
+// the same logical seed record always lands on the same id no matter which device produced it,
+// so it merges as one record like it should. See dedupeLegacySeedDuplicatesV1 for cleaning up
+// duplicates that already happened before this fix.
+let seedIdCounter = 0;
+function seed<T extends BaseRecord>(fields: Partial<T>): T {
+  return makeRecord<T>({ id: `seed-${seedIdCounter++}`, ...fields } as Partial<T>);
+}
+
 function buildSeedData(): AppData {
+  seedIdCounter = 0;
   const data = emptyData();
   data.settings = { ...DEFAULT_SETTINGS, userName: 'Khuong' };
 
   data.tasks = [
-    makeRecord<Task>({ title: 'Review weekly budget', status: 'Not Started', priority: 'High', dueDate: iso(-1), category: 'Finance' }),
-    makeRecord<Task>({ title: 'Plan trip itinerary', status: 'Not Started', priority: 'Medium', dueDate: iso(0), category: 'Personal' }),
-    makeRecord<Task>({ title: 'Ship Life OS v1', status: 'In Progress', priority: 'Urgent', dueDate: iso(2), project: 'Life OS' }),
-    makeRecord<Task>({ title: 'Call the dentist', status: 'Not Started', priority: 'Low', dueDate: iso(5), category: 'Health' })
+    seed<Task>({ title: 'Review weekly budget', status: 'Not Started', priority: 'High', dueDate: iso(-1), category: 'Finance' }),
+    seed<Task>({ title: 'Plan trip itinerary', status: 'Not Started', priority: 'Medium', dueDate: iso(0), category: 'Personal' }),
+    seed<Task>({ title: 'Ship Life OS v1', status: 'In Progress', priority: 'Urgent', dueDate: iso(2), project: 'Life OS' }),
+    seed<Task>({ title: 'Call the dentist', status: 'Not Started', priority: 'Low', dueDate: iso(5), category: 'Health' })
   ];
 
   data.habits = [
-    makeRecord<Habit>({ name: 'Wake Up', description: 'One focused action can change the direction of your whole day.', frequency: 'Daily', checkins: ['2026-08-04', '2026-08-05'], active: true, reminderAt: '06:00', order: 0, targetPerWeek: 7 }),
-    makeRecord<Habit>({ name: 'Work Out', description: 'Do it with purpose, even when it feels small.', frequency: 'Daily', checkins: ['2026-08-05'], active: true, reminderAt: '06:15', order: 1, targetPerWeek: 7 }),
-    makeRecord<Habit>({ name: 'Shower', description: 'Your habits are votes for the person you are becoming.', frequency: 'Daily', checkins: [], active: true, reminderAt: '07:15', order: 2, targetPerWeek: 7 }),
-    makeRecord<Habit>({ name: 'Read', description: 'Consistency turns ordinary effort into extraordinary results.', frequency: 'Daily', checkins: [], active: true, reminderAt: '07:30', order: 3, targetPerWeek: 7 }),
-    makeRecord<Habit>({ name: 'Trading Setup', description: 'Keep the promise you made to yourself.', frequency: 'Weekdays', checkins: ['2026-08-03', '2026-08-04', '2026-08-05'], active: true, reminderAt: '08:10', order: 4, targetPerWeek: 5 }),
-    makeRecord<Habit>({ name: 'Day Trading', description: 'Let purpose lead and discipline carry you forward.', frequency: 'Weekdays', checkins: ['2026-08-03', '2026-08-04', '2026-08-05'], active: true, reminderAt: '08:30', order: 5, targetPerWeek: 5 }),
-    makeRecord<Habit>({ name: 'WIFE', description: 'Build quietly; the results will speak for you.', frequency: 'Daily', checkins: ['2026-08-05'], active: true, reminderAt: '10:30', order: 6, targetPerWeek: 7 }),
-    makeRecord<Habit>({ name: 'Lunch', description: 'Show up today; your future self is counting on you.', frequency: 'Daily', checkins: ['2026-08-05'], active: true, reminderAt: '12:30', order: 7, targetPerWeek: 7 }),
-    makeRecord<Habit>({ name: 'Deep Work', description: 'Small wins, repeated daily, become a powerful life.', frequency: 'Weekdays', checkins: ['2026-08-05'], active: true, reminderAt: '13:00', order: 8, targetPerWeek: 5 }),
-    makeRecord<Habit>({ name: 'Gaming', description: 'Choose the action that makes you proud tonight.', frequency: 'Daily', checkins: ['2026-08-03', '2026-08-04'], active: true, reminderAt: '18:00', order: 9, targetPerWeek: 7 }),
-    makeRecord<Habit>({ name: 'Relax', description: 'Your habits are votes for the person you are becoming.', frequency: 'Daily', checkins: ['2026-08-03', '2026-08-04', '2026-08-05'], active: true, reminderAt: '20:30', order: 10, targetPerWeek: 7 }),
-    makeRecord<Habit>({ name: 'Read Bible', description: 'Begin with courage and finish with consistency.', frequency: 'Daily', checkins: ['2026-08-05'], active: true, reminderAt: '21:30', order: 11, targetPerWeek: 7 }),
-    makeRecord<Habit>({ name: 'Sleep', description: 'Today is another chance to strengthen your standard.', frequency: 'Daily', checkins: ['2026-08-05'], active: true, reminderAt: '23:00', order: 12, targetPerWeek: 7 })
+    seed<Habit>({ name: 'Wake Up', description: 'One focused action can change the direction of your whole day.', frequency: 'Daily', checkins: ['2026-08-04', '2026-08-05'], active: true, reminderAt: '06:00', order: 0, targetPerWeek: 7 }),
+    seed<Habit>({ name: 'Work Out', description: 'Do it with purpose, even when it feels small.', frequency: 'Daily', checkins: ['2026-08-05'], active: true, reminderAt: '06:15', order: 1, targetPerWeek: 7 }),
+    seed<Habit>({ name: 'Shower', description: 'Your habits are votes for the person you are becoming.', frequency: 'Daily', checkins: [], active: true, reminderAt: '07:15', order: 2, targetPerWeek: 7 }),
+    seed<Habit>({ name: 'Read', description: 'Consistency turns ordinary effort into extraordinary results.', frequency: 'Daily', checkins: [], active: true, reminderAt: '07:30', order: 3, targetPerWeek: 7 }),
+    seed<Habit>({ name: 'Trading Setup', description: 'Keep the promise you made to yourself.', frequency: 'Weekdays', checkins: ['2026-08-03', '2026-08-04', '2026-08-05'], active: true, reminderAt: '08:10', order: 4, targetPerWeek: 5 }),
+    seed<Habit>({ name: 'Day Trading', description: 'Let purpose lead and discipline carry you forward.', frequency: 'Weekdays', checkins: ['2026-08-03', '2026-08-04', '2026-08-05'], active: true, reminderAt: '08:30', order: 5, targetPerWeek: 5 }),
+    seed<Habit>({ name: 'WIFE', description: 'Build quietly; the results will speak for you.', frequency: 'Daily', checkins: ['2026-08-05'], active: true, reminderAt: '10:30', order: 6, targetPerWeek: 7 }),
+    seed<Habit>({ name: 'Lunch', description: 'Show up today; your future self is counting on you.', frequency: 'Daily', checkins: ['2026-08-05'], active: true, reminderAt: '12:30', order: 7, targetPerWeek: 7 }),
+    seed<Habit>({ name: 'Deep Work', description: 'Small wins, repeated daily, become a powerful life.', frequency: 'Weekdays', checkins: ['2026-08-05'], active: true, reminderAt: '13:00', order: 8, targetPerWeek: 5 }),
+    seed<Habit>({ name: 'Gaming', description: 'Choose the action that makes you proud tonight.', frequency: 'Daily', checkins: ['2026-08-03', '2026-08-04'], active: true, reminderAt: '18:00', order: 9, targetPerWeek: 7 }),
+    seed<Habit>({ name: 'Relax', description: 'Your habits are votes for the person you are becoming.', frequency: 'Daily', checkins: ['2026-08-03', '2026-08-04', '2026-08-05'], active: true, reminderAt: '20:30', order: 10, targetPerWeek: 7 }),
+    seed<Habit>({ name: 'Read Bible', description: 'Begin with courage and finish with consistency.', frequency: 'Daily', checkins: ['2026-08-05'], active: true, reminderAt: '21:30', order: 11, targetPerWeek: 7 }),
+    seed<Habit>({ name: 'Sleep', description: 'Today is another chance to strengthen your standard.', frequency: 'Daily', checkins: ['2026-08-05'], active: true, reminderAt: '23:00', order: 12, targetPerWeek: 7 })
   ];
 
-  const annualHealth = makeRecord<Goal>({ title: 'Get healthier', horizon: 'Annual', category: 'Health', progress: 60, status: 'In Progress', targetDate: '2026-12-31' });
-  const annualCareer = makeRecord<Goal>({ title: 'Advance my career', horizon: 'Annual', category: 'Career', progress: 25, status: 'In Progress', targetDate: '2026-12-31' });
-  const quarterlyHealth = makeRecord<Goal>({ title: 'Build a consistent workout habit', horizon: 'Quarterly', category: 'Health', progress: 60, status: 'In Progress', targetDate: '2026-09-30', parentId: annualHealth.id });
-  const quarterlyCareer = makeRecord<Goal>({ title: 'Lead a major project at work', horizon: 'Quarterly', category: 'Career', progress: 25, status: 'On Track', targetDate: '2026-09-30', parentId: annualCareer.id });
-  const monthlyHealth = makeRecord<Goal>({ title: 'Work out 4x per week this month', horizon: 'Monthly', category: 'Health', progress: 60, status: 'In Progress', targetDate: '2026-07-31', parentId: quarterlyHealth.id });
-  const monthlyCareer = makeRecord<Goal>({ title: 'Finish project scoping', horizon: 'Monthly', category: 'Career', progress: 25, status: 'In Progress', targetDate: '2026-07-31', parentId: quarterlyCareer.id });
-  const weeklyHealth = makeRecord<Goal>({ title: 'Hit the gym Mon / Wed / Fri this week', horizon: 'Weekly', category: 'Health', progress: 60, status: 'In Progress', targetDate: '2026-07-26', parentId: monthlyHealth.id });
-  const weeklyCareer = makeRecord<Goal>({ title: 'Draft the project brief', horizon: 'Weekly', category: 'Career', progress: 25, status: 'In Progress', targetDate: '2026-07-26', parentId: monthlyCareer.id });
+  const annualHealth = seed<Goal>({ title: 'Get healthier', horizon: 'Annual', category: 'Health', progress: 60, status: 'In Progress', targetDate: '2026-12-31' });
+  const annualCareer = seed<Goal>({ title: 'Advance my career', horizon: 'Annual', category: 'Career', progress: 25, status: 'In Progress', targetDate: '2026-12-31' });
+  const quarterlyHealth = seed<Goal>({ title: 'Build a consistent workout habit', horizon: 'Quarterly', category: 'Health', progress: 60, status: 'In Progress', targetDate: '2026-09-30', parentId: annualHealth.id });
+  const quarterlyCareer = seed<Goal>({ title: 'Lead a major project at work', horizon: 'Quarterly', category: 'Career', progress: 25, status: 'On Track', targetDate: '2026-09-30', parentId: annualCareer.id });
+  const monthlyHealth = seed<Goal>({ title: 'Work out 4x per week this month', horizon: 'Monthly', category: 'Health', progress: 60, status: 'In Progress', targetDate: '2026-07-31', parentId: quarterlyHealth.id });
+  const monthlyCareer = seed<Goal>({ title: 'Finish project scoping', horizon: 'Monthly', category: 'Career', progress: 25, status: 'In Progress', targetDate: '2026-07-31', parentId: quarterlyCareer.id });
+  const weeklyHealth = seed<Goal>({ title: 'Hit the gym Mon / Wed / Fri this week', horizon: 'Weekly', category: 'Health', progress: 60, status: 'In Progress', targetDate: '2026-07-26', parentId: monthlyHealth.id });
+  const weeklyCareer = seed<Goal>({ title: 'Draft the project brief', horizon: 'Weekly', category: 'Career', progress: 25, status: 'In Progress', targetDate: '2026-07-26', parentId: monthlyCareer.id });
   data.goals = [weeklyHealth, weeklyCareer, monthlyHealth, monthlyCareer, quarterlyHealth, quarterlyCareer, annualHealth, annualCareer];
 
   data.events = [
-    makeRecord<CalendarEvent>({ title: 'Team sync', date: iso(0), startTime: '10:00', endTime: '10:30' }),
-    makeRecord<CalendarEvent>({ title: 'Dentist appointment', date: iso(5), startTime: '14:00' })
+    seed<CalendarEvent>({ title: 'Team sync', date: iso(0), startTime: '10:00', endTime: '10:30' }),
+    seed<CalendarEvent>({ title: 'Dentist appointment', date: iso(5), startTime: '14:00' })
   ];
 
   const seedCategories = buildDefaultCategories();
   const catByName = (n: string) => seedCategories.find(c => c.name === n)!;
-  const seedAccount = makeRecord<FinanceAccount>({
+  const seedAccount = seed<FinanceAccount>({
     name: 'Everyday Checking', type: 'Checking', institution: 'Chase', balance: 4381.24, status: 'Active'
   });
   data.financeCategories = seedCategories;
   data.financeAccounts = [seedAccount];
 
   data.budgets = [
-    makeRecord<Budget>({ categoryId: catByName('Groceries').id, month: iso(0).slice(0, 7), limit: 500, rolloverEnabled: true }),
-    makeRecord<Budget>({ categoryId: catByName('Dining Out').id, month: iso(0).slice(0, 7), limit: 200, rolloverEnabled: false })
+    seed<Budget>({ categoryId: catByName('Groceries').id, month: iso(0).slice(0, 7), limit: 500, rolloverEnabled: true }),
+    seed<Budget>({ categoryId: catByName('Dining Out').id, month: iso(0).slice(0, 7), limit: 200, rolloverEnabled: false })
   ];
 
   data.transactions = [
-    makeRecord<Transaction>({ date: iso(-3), merchant: 'Paycheck', amount: 4200, accountId: seedAccount.id, type: 'Income', categoryId: catByName('Salary').id }),
-    makeRecord<Transaction>({ date: iso(-2), merchant: 'Trader Joes', amount: 86.42, accountId: seedAccount.id, type: 'Expense', categoryId: catByName('Groceries').id }),
-    makeRecord<Transaction>({ date: iso(-1), merchant: 'Lunch', amount: 34.5, accountId: seedAccount.id, type: 'Expense', categoryId: catByName('Dining Out').id })
+    seed<Transaction>({ date: iso(-3), merchant: 'Paycheck', amount: 4200, accountId: seedAccount.id, type: 'Income', categoryId: catByName('Salary').id }),
+    seed<Transaction>({ date: iso(-2), merchant: 'Trader Joes', amount: 86.42, accountId: seedAccount.id, type: 'Expense', categoryId: catByName('Groceries').id }),
+    seed<Transaction>({ date: iso(-1), merchant: 'Lunch', amount: 34.5, accountId: seedAccount.id, type: 'Expense', categoryId: catByName('Dining Out').id })
   ];
 
   data.bills = [
-    makeRecord<Bill>({ name: 'Rent', amount: 1800, nextDue: iso(10), frequency: 'Monthly', autopay: true, kind: 'Bill' }),
-    makeRecord<Bill>({ name: 'Internet', amount: 65, nextDue: iso(12), frequency: 'Monthly', autopay: true, kind: 'Bill' }),
-    makeRecord<Bill>({ name: 'Netflix', amount: 15.99, nextDue: iso(20), frequency: 'Monthly', autopay: true, kind: 'Subscription', usageRating: 4 })
+    seed<Bill>({ name: 'Rent', amount: 1800, nextDue: iso(10), frequency: 'Monthly', autopay: true, kind: 'Bill' }),
+    seed<Bill>({ name: 'Internet', amount: 65, nextDue: iso(12), frequency: 'Monthly', autopay: true, kind: 'Bill' }),
+    seed<Bill>({ name: 'Netflix', amount: 15.99, nextDue: iso(20), frequency: 'Monthly', autopay: true, kind: 'Subscription', usageRating: 4 })
   ];
 
   data.movies = [
-    makeRecord<Movie>({
+    seed<Movie>({
       title: 'Dune: Part Two', mediaType: 'Movie', director: 'Denis Villeneuve', releaseYear: 2024,
       genres: ['Sci-Fi', 'Drama'], runtimeMin: 166, status: 'To Watch', whereToWatch: ['Theater']
     })
   ];
 
   data.videogames = [
-    makeRecord<Videogame>({
+    seed<Videogame>({
       title: "Baldur's Gate 3", developer: 'Larian Studios', platforms: ['PC'],
       genre: ['RPG'], status: 'Playing', rating: 5, playtimeHours: 40, multiplayer: true
     })
   ];
 
   data.books = [
-    makeRecord<Book>({
+    seed<Book>({
       title: 'Designing Data-Intensive Applications', author: 'Martin Kleppmann', format: 'Physical',
       genre: ['Non-Fiction'], pageCount: 616, status: 'Reading', rating: 4, progress: 45
     })
   ];
 
-  const welcomeNote = makeRecord<Note>({
+  const welcomeNote = seed<Note>({
     title: 'Welcome to your Second Brain',
     body:
       'This is a place to capture notes, ideas, and knowledge for later.\n\n' +
@@ -681,7 +787,7 @@ function buildSeedData(): AppData {
     tags: ['meta'],
     pinned: true
   });
-  const ideasNote = makeRecord<Note>({
+  const ideasNote = seed<Note>({
     title: 'Life OS Ideas',
     body:
       'Random ideas for Life OS, captured as they come up:\n\n' +
@@ -693,31 +799,31 @@ function buildSeedData(): AppData {
   data.notes = [welcomeNote, ideasNote];
 
   data.bucketList = [
-    makeRecord<BucketListItem>({
+    seed<BucketListItem>({
       title: 'Hike Machu Picchu', category: 'Travel', status: 'Someday',
       location: 'Peru', costTier: '$$$',
       coverArt: 'https://images.unsplash.com/photo-1526392060635-9d6019884377?w=800',
       notes: 'Multi-day trek along the Inca Trail, ending at sunrise over the ruins.'
     }),
-    makeRecord<BucketListItem>({
+    seed<BucketListItem>({
       title: 'Run a half marathon', category: 'Experience', status: 'Planning',
       costTier: '$', targetDate: iso(120),
       coverArt: 'https://images.unsplash.com/photo-1552674605-db6ffd4facb5?w=800',
       notes: 'First half marathon — building up from the 10K training block.',
       subtasks: [
-        { id: generateId(), text: 'Pick a race and register', done: true },
-        { id: generateId(), text: 'Build a 12-week training plan', done: true },
-        { id: generateId(), text: 'Run a 15K training run', done: false },
-        { id: generateId(), text: 'Break in race-day shoes', done: false }
+        { id: 'seed-subtask-0', text: 'Pick a race and register', done: true },
+        { id: 'seed-subtask-1', text: 'Build a 12-week training plan', done: true },
+        { id: 'seed-subtask-2', text: 'Run a 15K training run', done: false },
+        { id: 'seed-subtask-3', text: 'Break in race-day shoes', done: false }
       ]
     }),
-    makeRecord<BucketListItem>({
+    seed<BucketListItem>({
       title: 'Learn to make sourdough bread', category: 'Skill', status: 'Achieved',
       costTier: '$',
       coverArt: 'https://images.unsplash.com/photo-1509440159596-0249088772ff?w=800',
       subtasks: [
-        { id: generateId(), text: 'Grow a starter from scratch', done: true },
-        { id: generateId(), text: 'Bake a loaf that actually rises', done: true }
+        { id: 'seed-subtask-4', text: 'Grow a starter from scratch', done: true },
+        { id: 'seed-subtask-5', text: 'Bake a loaf that actually rises', done: true }
       ],
       achievedAt: iso(-14),
       memoryPhotos: ['https://images.unsplash.com/photo-1585478259715-4d3a5f3e9a3a?w=800'],
@@ -726,16 +832,16 @@ function buildSeedData(): AppData {
   ];
 
   data.workouts = [
-    makeRecord<WorkoutEntry>({ date: iso(-6), type: 'Run', durationMin: 32, avgHr: 152, maxHr: 171, caloriesBurned: 340, rpe: 6, notes: 'Easy morning loop.' }),
-    makeRecord<WorkoutEntry>({ date: iso(-4), type: 'Strength', durationMin: 50, avgHr: 118, maxHr: 145, caloriesBurned: 280, rpe: 7, notes: 'Upper body — push day.' }),
-    makeRecord<WorkoutEntry>({ date: iso(-2), type: 'Cycling', durationMin: 45, avgHr: 140, maxHr: 168, caloriesBurned: 410, rpe: 7 }),
-    makeRecord<WorkoutEntry>({ date: iso(-1), type: 'Yoga', durationMin: 25, avgHr: 95, rpe: 3, notes: 'Recovery flow.' }),
-    makeRecord<WorkoutEntry>({ date: iso(0), type: 'Run', durationMin: 40, avgHr: 158, maxHr: 176, caloriesBurned: 420, rpe: 8, notes: 'Tempo intervals.' })
+    seed<WorkoutEntry>({ date: iso(-6), type: 'Run', durationMin: 32, avgHr: 152, maxHr: 171, caloriesBurned: 340, rpe: 6, notes: 'Easy morning loop.' }),
+    seed<WorkoutEntry>({ date: iso(-4), type: 'Strength', durationMin: 50, avgHr: 118, maxHr: 145, caloriesBurned: 280, rpe: 7, notes: 'Upper body — push day.' }),
+    seed<WorkoutEntry>({ date: iso(-2), type: 'Cycling', durationMin: 45, avgHr: 140, maxHr: 168, caloriesBurned: 410, rpe: 7 }),
+    seed<WorkoutEntry>({ date: iso(-1), type: 'Yoga', durationMin: 25, avgHr: 95, rpe: 3, notes: 'Recovery flow.' }),
+    seed<WorkoutEntry>({ date: iso(0), type: 'Run', durationMin: 40, avgHr: 158, maxHr: 176, caloriesBurned: 420, rpe: 8, notes: 'Tempo intervals.' })
   ];
 
   const startWeight = 186;
   data.weightEntries = [-28, -24, -21, -17, -14, -10, -7, -3, -1, 0].map((offset, i) =>
-    makeRecord<WeightEntry>({
+    seed<WeightEntry>({
       date: iso(offset),
       weight: Math.round((startWeight - i * 0.9 + (i % 3 === 0 ? 0.6 : -0.2)) * 10) / 10,
       bodyFatPct: i === 9 ? 19.5 : undefined
@@ -743,7 +849,7 @@ function buildSeedData(): AppData {
   );
 
   data.sleepEntries = [-6, -5, -4, -3, -2, -1, 0].map(offset =>
-    makeRecord<SleepEntry>({
+    seed<SleepEntry>({
       date: iso(offset),
       bedTime: '22:45',
       wakeTime: '06:30',
@@ -756,26 +862,26 @@ function buildSeedData(): AppData {
   );
 
   data.meals = [
-    makeRecord<MealEntry>({ date: iso(0), mealType: 'Breakfast', description: 'Greek yogurt with berries and granola', calories: 380, proteinG: 28, carbsG: 45, fatG: 9 }),
-    makeRecord<MealEntry>({ date: iso(0), mealType: 'Lunch', description: 'Grilled chicken bowl with rice and veggies', calories: 620, proteinG: 48, carbsG: 60, fatG: 18 }),
-    makeRecord<MealEntry>({ date: iso(-1), mealType: 'Dinner', description: 'Salmon, sweet potato, asparagus', calories: 590, proteinG: 42, carbsG: 38, fatG: 24 })
+    seed<MealEntry>({ date: iso(0), mealType: 'Breakfast', description: 'Greek yogurt with berries and granola', calories: 380, proteinG: 28, carbsG: 45, fatG: 9 }),
+    seed<MealEntry>({ date: iso(0), mealType: 'Lunch', description: 'Grilled chicken bowl with rice and veggies', calories: 620, proteinG: 48, carbsG: 60, fatG: 18 }),
+    seed<MealEntry>({ date: iso(-1), mealType: 'Dinner', description: 'Salmon, sweet potato, asparagus', calories: 590, proteinG: 42, carbsG: 38, fatG: 24 })
   ];
 
   data.glucoseEntries = [
-    makeRecord<GlucoseEntry>({ date: iso(-2), time: '07:15', value: 92, context: 'Fasting' }),
-    makeRecord<GlucoseEntry>({ date: iso(-1), time: '07:10', value: 88, context: 'Fasting' }),
-    makeRecord<GlucoseEntry>({ date: iso(0), time: '07:20', value: 95, context: 'Fasting' })
+    seed<GlucoseEntry>({ date: iso(-2), time: '07:15', value: 92, context: 'Fasting' }),
+    seed<GlucoseEntry>({ date: iso(-1), time: '07:10', value: 88, context: 'Fasting' }),
+    seed<GlucoseEntry>({ date: iso(0), time: '07:20', value: 95, context: 'Fasting' })
   ];
 
-  data.workoutRoutines = [makeRecord<WorkoutRoutine>(buildStarterRoutine())];
+  data.workoutRoutines = [seed<WorkoutRoutine>(buildStarterRoutine())];
 
   data.medications = [
-    makeRecord<Medication>({
+    seed<Medication>({
       name: 'Vitamin D3', dosage: '2000 IU', frequency: 'Once Daily', times: ['08:00'],
       withFood: true, pillsRemaining: 42, refillThreshold: 7, active: true,
       doseLog: [-3, -2, -1].map(offset => ({ date: iso(offset), time: '08:00', takenAt: `${iso(offset)}T08:05:00.000Z` }))
     }),
-    makeRecord<Medication>({
+    seed<Medication>({
       name: 'Metformin', dosage: '500mg', frequency: 'Twice Daily', times: ['08:00', '20:00'],
       withFood: true, pillsRemaining: 18, refillThreshold: 10, prescriber: 'Dr. Patel', active: true,
       doseLog: [-2, -1].flatMap(offset => [
