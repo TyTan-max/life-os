@@ -653,6 +653,11 @@ function ScreenshotLightbox({
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const dragRef = useRef<{ startX: number; startY: number; panX: number; panY: number } | null>(null);
+  // A pointerup always fires a click right after it — including at the end of a drag, not just a
+  // tap. dragRef is already cleared by then (pointerup needs it to distinguish itself from a
+  // stray move), so the click handler needs its own record of whether real movement happened,
+  // one that survives past pointerup into the click that follows it.
+  const didDragRef = useRef(false);
   const [dragging, setDragging] = useState(false);
   const imgRef = useRef<HTMLImageElement>(null);
 
@@ -662,7 +667,7 @@ function ScreenshotLightbox({
   // gives finer, continuous control for anyone who wants a specific zoom level instead.
   const onImageClick = (e: ReactMouseEvent) => {
     e.stopPropagation();
-    if (dragRef.current) return; // a drag just ended on this click — don't also toggle zoom
+    if (didDragRef.current) { didDragRef.current = false; return; } // this click is the tail end of a drag
     if (zoom > 1) resetZoom();
     else setZoom(ZOOM_CLICK_STEP);
   };
@@ -691,12 +696,16 @@ function ScreenshotLightbox({
     e.stopPropagation();
     (e.target as HTMLElement).setPointerCapture(e.pointerId);
     dragRef.current = { startX: e.clientX, startY: e.clientY, panX: pan.x, panY: pan.y };
+    didDragRef.current = false;
     setDragging(true);
   };
   const onPointerMove = (e: ReactPointerEvent) => {
     if (!dragRef.current) return;
     e.stopPropagation();
     const { startX, startY, panX, panY } = dragRef.current;
+    // A few pixels of jitter shouldn't count as "dragged" — only real movement should suppress
+    // the click-to-zoom-out that follows.
+    if (Math.abs(e.clientX - startX) > 3 || Math.abs(e.clientY - startY) > 3) didDragRef.current = true;
     setPan({ x: panX + (e.clientX - startX), y: panY + (e.clientY - startY) });
   };
   const endDrag = (e: ReactPointerEvent) => {
@@ -724,7 +733,7 @@ function ScreenshotLightbox({
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={endDrag}
-        onPointerLeave={endDrag}
+        onPointerCancel={endDrag}
         draggable={false}
       />
       {zoom > 1 && (
