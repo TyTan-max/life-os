@@ -16,12 +16,12 @@ import { VaultOnboarding } from '../components/VaultOnboarding';
 import { htmlToMarkdown } from '../lib/htmlToMarkdown';
 
 const WIKILINK_PATTERN = /\[\[([^\]]+)\]\]/g;
-// The ordinal (group 1) is the only part that actually identifies the photo — stable and never
-// reused, which is what makes it safe to click a marker without re-checking which photo it
-// "really" points to (see Note.nextPhotoNumber). The optional ": label" suffix is purely
-// cosmetic: renaming a photo rewrites this same marker to show a name instead of a bare number,
-// without changing what it points to.
-const PHOTO_MARKER_PATTERN = /\[Photo (\d+)(?::[^\]]*)?\]/g;
+// A photo marker is any single-bracket segment that isn't part of a [[Wikilink]] (the negative
+// look-around excludes brackets nested inside a double-bracket pair). Its text is either the
+// default "Photo N" or, once renamed, the photo's own label — there's no fixed shape to match on
+// beyond "some single-bracket text," so resolving a match to an actual photo (see
+// resolveMarkerImage) checks the "Photo N" pattern first and falls back to a label lookup.
+const PHOTO_MARKER_PATTERN = /(?<!\[)\[([^[\]]+)\](?!\])/g;
 
 const PROJECT_STATUSES: ParaProjectStatus[] = ['Not Started', 'In Progress', 'Blocked', 'Completed'];
 const REVIEW_CADENCES: ReviewCadence[] = ['Weekly', 'Monthly', 'Quarterly'];
@@ -113,8 +113,23 @@ function extractLinkedTitles(body: string): string[] {
 }
 
 function snippet(body: string, max = 90): string {
-  const flat = body.replace(WIKILINK_PATTERN, '$1').replace(PHOTO_MARKER_PATTERN, '📷').replace(/\s+/g, ' ').trim();
+  // Photo markers are left as-is here — telling a real "[Photo 1]"/"[Trade Setup]" marker apart
+  // from an unrelated "[something]" the user just typed needs the note's actual image list,
+  // which this function doesn't have; showing the bracket text verbatim is a harmless fallback.
+  const flat = body.replace(WIKILINK_PATTERN, '$1').replace(/\s+/g, ' ').trim();
   return flat.length > max ? `${flat.slice(0, max)}…` : flat || 'No content yet.';
+}
+
+// "Photo N" resolves directly by ordinal; anything else is checked against the note's current
+// photo labels — the only two shapes a marker's bracket text can ever actually be.
+function resolveMarkerImage(images: NoteImage[], innerText: string): NoteImage | undefined {
+  const numMatch = innerText.match(/^Photo (\d+)$/);
+  if (numMatch) return images.find(img => img.ordinal === Number(numMatch[1]));
+  return images.find(img => img.label === innerText);
+}
+
+function markerTextFor(img: NoteImage): string {
+  return `[${img.label || `Photo ${img.ordinal}`}]`;
 }
 
 const NOTE_IMAGE_MAX_DIM = 1200;
@@ -286,6 +301,8 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
   const pendingImageInsertRef = useRef<{ start: number; end: number } | null>(null);
   const [uploadingImage, setUploadingImage] = useState(false);
   const [imageLightboxSrc, setImageLightboxSrc] = useState<string | null>(null);
+  const [dragImageOrdinal, setDragImageOrdinal] = useState<number | null>(null);
+  const [dragOverImageOrdinal, setDragOverImageOrdinal] = useState<number | null>(null);
 
   // Frictionless capture — always lands untyped (Inbox) regardless of which PARA
   // tab you're currently viewing. Deliberately no title prompt: organize later.
@@ -645,22 +662,46 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
   // would then remove every photo sharing that data instead of only the one that was clicked.
   const removeImage = (ordinal: number) => {
     if (!note) return;
+    const target = (note.images ?? []).find(img => img.ordinal === ordinal);
+    if (!target) return;
     const images = (note.images ?? []).filter(img => img.ordinal !== ordinal);
     // Strips every marker referencing the removed photo (renamed or not) so the text doesn't
-    // keep pointing at a photo that's no longer there.
-    const body = note.body.replace(new RegExp(`\\[Photo ${ordinal}(?::[^\\]]*)?\\] ?`, 'g'), '');
+    // keep pointing at a photo that's no longer there. The look-around guard matches
+    // PHOTO_MARKER_PATTERN's own — never touch a bracket that's actually part of a [[Wikilink]].
+    const escaped = escapeRegExp(markerTextFor(target));
+    const body = note.body.replace(new RegExp(`(?<!\\[)${escaped}(?!\\]) ?`, 'g'), '');
     patchNote({ images, body });
   };
 
   // Rewrites the same marker in place to show a name instead of a bare number — the ordinal
-  // (and so what the marker actually points to) never changes, only how it reads.
+  // (and so what the marker actually points to) never changes, only how it reads. Once named, the
+  // marker drops the "Photo N:" prefix entirely and just reads "[Name]" — clicking it still
+  // resolves correctly via resolveMarkerImage's label lookup.
   const renameImage = (ordinal: number, label: string) => {
     if (!note) return;
-    const trimmed = label.trim().replace(/]/g, ')'); // ']' would prematurely close the marker
-    const images = (note.images ?? []).map(img => (img.ordinal === ordinal ? { ...img, label: trimmed || undefined } : img));
-    const newMarker = trimmed ? `[Photo ${ordinal}: ${trimmed}]` : `[Photo ${ordinal}]`;
-    const body = note.body.replace(new RegExp(`\\[Photo ${ordinal}(?::[^\\]]*)?\\]`, 'g'), newMarker);
+    const current = (note.images ?? []).find(img => img.ordinal === ordinal);
+    if (!current) return;
+    const trimmed = label.trim().replace(/[[\]]/g, ''); // brackets would break marker parsing
+    const oldMarker = markerTextFor(current);
+    const updated = { ...current, label: trimmed || undefined };
+    const newMarker = markerTextFor(updated);
+    const images = (note.images ?? []).map(img => (img.ordinal === ordinal ? updated : img));
+    const escaped = escapeRegExp(oldMarker);
+    const body = note.body.replace(new RegExp(`(?<!\\[)${escaped}(?!\\])`, 'g'), newMarker);
     patchNote({ images, body });
+  };
+
+  // Purely display order — the ordinal (and every marker referencing it) is untouched, so
+  // reordering never needs to touch the body text at all.
+  const reorderImages = (fromOrdinal: number, toOrdinal: number) => {
+    if (!note || fromOrdinal === toOrdinal) return;
+    const images = [...(note.images ?? [])];
+    const fromIdx = images.findIndex(img => img.ordinal === fromOrdinal);
+    const toIdx = images.findIndex(img => img.ordinal === toOrdinal);
+    if (fromIdx === -1 || toIdx === -1) return;
+    const [moved] = images.splice(fromIdx, 1);
+    images.splice(toIdx, 0, moved);
+    patchNote({ images });
   };
 
   const triggerImageUpload = () => {
@@ -689,8 +730,7 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
       const start = m.index ?? -1;
       const end = start + m[0].length;
       if (pos < start || pos > end) continue;
-      const ordinal = Number(m[1]);
-      const image = (note.images ?? []).find(img => img.ordinal === ordinal);
+      const image = resolveMarkerImage(note.images ?? [], m[1]);
       if (image) setImageLightboxSrc(image.src);
       return;
     }
@@ -1289,7 +1329,20 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
               {((note.images ?? []).length > 0 || uploadingImage) && (
                 <div className="sb-note-photos">
                   {(note.images ?? []).map(img => (
-                    <div className="sb-note-photo" key={img.ordinal}>
+                    <div
+                      className={`sb-note-photo ${dragImageOrdinal === img.ordinal ? 'dragging' : ''} ${dragOverImageOrdinal === img.ordinal && dragImageOrdinal !== null && dragImageOrdinal !== img.ordinal ? 'drag-over' : ''}`}
+                      key={img.ordinal}
+                      draggable
+                      onDragStart={() => setDragImageOrdinal(img.ordinal)}
+                      onDragEnter={() => setDragOverImageOrdinal(img.ordinal)}
+                      onDragOver={e => e.preventDefault()}
+                      onDrop={() => {
+                        if (dragImageOrdinal !== null) reorderImages(dragImageOrdinal, img.ordinal);
+                        setDragImageOrdinal(null);
+                        setDragOverImageOrdinal(null);
+                      }}
+                      onDragEnd={() => { setDragImageOrdinal(null); setDragOverImageOrdinal(null); }}
+                    >
                       <button
                         type="button"
                         className="sb-note-photo-expand"
@@ -1297,7 +1350,7 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                         aria-label="View full-size photo"
                         title={img.addedAt ? `Added ${formatPhotoTimestamp(img.addedAt)}` : undefined}
                       >
-                        <img src={img.src} alt="" />
+                        <img src={img.src} alt="" draggable={false} />
                       </button>
                       <button type="button" className="sb-note-photo-remove" onClick={() => removeImage(img.ordinal)} aria-label="Remove photo"><X size={11} /></button>
                       <input
@@ -1306,6 +1359,8 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                         value={img.label ?? ''}
                         placeholder={`Photo ${img.ordinal}`}
                         onChange={e => renameImage(img.ordinal, e.target.value)}
+                        onMouseDown={e => e.stopPropagation()}
+                        draggable={false}
                         aria-label="Name this photo"
                       />
                     </div>

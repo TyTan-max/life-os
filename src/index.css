@@ -3563,7 +3563,9 @@ input, select, textarea { font-family: inherit; }
   padding: 12px;
 }
 .sb-note-photos { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; flex-shrink: 0; }
-.sb-note-photo { position: relative; width: 72px; flex-shrink: 0; }
+.sb-note-photo { position: relative; width: 72px; flex-shrink: 0; cursor: grab; }
+.sb-note-photo.dragging { opacity: 0.4; }
+.sb-note-photo.drag-over .sb-note-photo-expand { outline: 2px solid var(--teal); outline-offset: 1px; }
 .sb-note-photo-expand { position: relative; display: block; width: 72px; height: 64px; padding: 0; border: none; background: none; cursor: zoom-in; border-radius: 6px; overflow: hidden; }
 .sb-note-photo-expand img { width: 100%; height: 100%; object-fit: cover; display: block; transition: transform 0.15s ease; }
 .sb-note-photo-expand:hover img { transform: scale(1.08); }
