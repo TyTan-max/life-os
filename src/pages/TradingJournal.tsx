@@ -767,6 +767,9 @@ function calcFormat(n: number): string {
 // it. Starts near the top-right corner rather than dead center, out of the way of the stats rail.
 const CALC_DEFAULT_MARGIN = 24;
 const CALC_WIDTH = 280;
+// The popup's actual height depends on rendered content, but it's fixed in practice (same grid
+// every time) — close enough to center on without measuring the DOM before first paint.
+const CALC_HEIGHT_ESTIMATE = 400;
 
 function CalculatorPopup({ onClose }: { onClose: () => void }) {
   const [display, setDisplay] = useState('0');
@@ -776,8 +779,8 @@ function CalculatorPopup({ onClose }: { onClose: () => void }) {
   const [justEvaluated, setJustEvaluated] = useState(false);
 
   const [pos, setPos] = useState(() => ({
-    x: Math.max(CALC_DEFAULT_MARGIN, window.innerWidth - CALC_WIDTH - CALC_DEFAULT_MARGIN),
-    y: 88
+    x: Math.max(CALC_DEFAULT_MARGIN, (window.innerWidth - CALC_WIDTH) / 2),
+    y: Math.max(CALC_DEFAULT_MARGIN, (window.innerHeight - CALC_HEIGHT_ESTIMATE) / 2)
   }));
   const dragRef = useRef<{ startX: number; startY: number; posX: number; posY: number } | null>(null);
   const [dragging, setDragging] = useState(false);
