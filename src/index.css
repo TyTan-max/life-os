@@ -3513,7 +3513,10 @@ input, select, textarea { font-family: inherit; }
 /* min-width:0 for the same reason as .sb-sidebar — without it a single long unbroken line
    (a URL, or a minified line in a Snippet note) sets the grid item's intrinsic floor and the
    overflow:hidden shell clips it. The code textarea inside scrolls on its own axis. */
-.sb-editor { display: flex; flex-direction: column; min-height: 0; min-width: 0; padding: 18px 22px; }
+/* overflow-y:auto is the fix: .sb-shell clips at a fixed height, so without this, a note with a
+   long body or a long "Linked mentions" list underneath it just gets cut off with no way to
+   reach the rest — scrolling the pane is the only way back to it. */
+.sb-editor { display: flex; flex-direction: column; min-height: 0; min-width: 0; padding: 18px 22px; overflow-y: auto; }
 .sb-editor-empty { flex: 1; display: flex; align-items: center; justify-content: center; }
 .sb-editor-toolbar { display: flex; align-items: center; gap: 4px; margin-bottom: 10px; flex-shrink: 0; }
 .sb-editor-meta { margin-left: auto; font-size: 11.5px; color: var(--text-faint); }
