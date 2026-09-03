@@ -10,6 +10,7 @@ import { isLiabilityAccount } from './FinanceAccounts';
 import { actualSpendByCategory } from '../lib/budgetMath';
 import { getSessionVerse } from '../lib/bibleVerses';
 import { lastContactedDate, contactStatus } from '../lib/crmCadence';
+import { getEffectiveRoutineFilter, loadSavedRoutineFilter, matchesRoutineFilter, sortRoutines } from '../lib/habitRoutines';
 import { Badge, Card, Kpi, ProgressBar, formatCurrency, formatDate } from '../components/UI';
 import { useIsMobile } from '../hooks/useIsMobile';
 
@@ -99,7 +100,14 @@ export function Dashboard({navigate}:{navigate:(page:string, tab?: string)=>void
   const openTasks = data.tasks.filter(t=>t.status!=='Completed');
   const overdue = openTasks.filter(t=>t.dueDate<today);
   const dueToday = openTasks.filter(t=>t.dueDate===today);
-  const activeHabits = data.habits.filter(h=>h.active !== false);
+  // Mirrors the Habits page's own routine scoping exactly (same saved selection, same fallback
+  // to the first routine, same "show everything" baseline when no routines exist yet) — so the
+  // Dashboard's snapshot never disagrees with whichever routine is actually selected there.
+  const routines = sortRoutines(data.habitRoutines);
+  const effectiveRoutineFilter = getEffectiveRoutineFilter(routines, loadSavedRoutineFilter());
+  const habitsInRoutine = routines.length === 0 ? data.habits : data.habits.filter(h => matchesRoutineFilter(h, effectiveRoutineFilter));
+  const activeHabits = habitsInRoutine.filter(h=>h.active !== false);
+  const currentRoutineName = routines.find(r => r.id === effectiveRoutineFilter)?.name;
   const todayDayIndex = new Date().getDay();
   const habitsDueToday = activeHabits.filter(h=>scheduledDays(h).includes(todayDayIndex)).sort((a,b)=>(a.reminderAt||'99:99').localeCompare(b.reminderAt||'99:99'));
   const todayDone = habitsDueToday.filter(h=>h.checkins.includes(today)).length;
@@ -225,7 +233,7 @@ export function Dashboard({navigate}:{navigate:(page:string, tab?: string)=>void
       <Card className="span-2 smart-brief" style={isMobile ? { order: -200 } : undefined}><div className="card-title"><div><Sparkles size={19}/><h2>Smart daily brief</h2></div><Badge>Rule-based v0.4</Badge></div><div className="brief-list">{brief.map((line,i)=><div key={line}><span>{i+1}</span><p>{line}</p></div>)}</div></Card>
       <Card style={slot(2, nextReminders.length)}><div className="card-title"><div><Bell size={19}/><h2>Next reminders</h2></div></div>{nextReminders.length?<div className="scroll-list">{nextReminders.map(r=><div className="list-row" key={`${r.type}-${r.at}-${r.title}`}><div><b>{r.title}</b><small>{r.type}</small></div><span>{new Date(r.at).toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})}</span></div>)}</div>:<p className="muted">No upcoming reminders yet.</p>}</Card>
       <Card className="span-2" style={slot(3, overdue.length + dueToday.length)}><div className="card-title"><div><CheckCircle2 size={19}/><h2>Today's focus</h2></div><button className="text-btn" onClick={()=>navigate('Second Brain','Tasks')}>Open tasks <ArrowRight size={15}/></button></div>{focus.length?<div className="scroll-list">{focus.map(task=><div className="task-focus" key={task.id}><span className={`priority-dot ${task.priority.toLowerCase()}`}/><div><b>{task.title}</b><small>{task.project||task.category}</small></div><div className="focus-date"><Badge tone={task.dueDate<today?'danger':task.dueDate===today?'warning':''}>{task.dueDate<today?'Overdue':task.dueDate===today?'Today':formatDate(task.dueDate)}</Badge></div></div>)}</div>:<p className="muted">Nothing urgent. Add a task or plan ahead.</p>}</Card>
-      <Card className="span-2 dashboard-habit-card" style={slot(4, habitsDueToday.length - todayDone)}><div className="card-title"><div><Flame size={19}/><h2>Habit tracker</h2></div><button className="text-btn" onClick={()=>navigate('Habits')}>Open habits <ArrowRight size={15}/></button></div><div className="dashboard-habit-summary"><div><span>Today</span><b>{todayDone}/{habitsDueToday.length}</b></div><div><span>This week</span><b>{weekHabitPct}%</b></div></div><ProgressBar value={habitPct}/>{habitsDueToday.length?<div className="dashboard-habit-list scroll-list">{habitsDueToday.map(habit=>{const done=habit.checkins.includes(today);return <button type="button" className={`dashboard-habit-row ${done?'done':''}`} key={habit.id} onClick={()=>void toggleHabitToday(habit)}><span className="dashboard-habit-check"><Check size={13}/></span><span><b>{habit.name}</b><small>{habit.reminderAt||'Any time'}</small></span></button>})}</div>:<p className="muted dashboard-habit-empty">No active habits are scheduled today. Open Habits to adjust your schedule.</p>}</Card>
+      <Card className="span-2 dashboard-habit-card" style={slot(4, habitsDueToday.length - todayDone)}><div className="card-title"><div><Flame size={19}/><h2>Habit tracker</h2>{currentRoutineName && <Badge>{currentRoutineName}</Badge>}</div><button className="text-btn" onClick={()=>navigate('Habits')}>Open habits <ArrowRight size={15}/></button></div><div className="dashboard-habit-summary"><div><span>Today</span><b>{todayDone}/{habitsDueToday.length}</b></div><div><span>This week</span><b>{weekHabitPct}%</b></div></div><ProgressBar value={habitPct}/>{habitsDueToday.length?<div className="dashboard-habit-list scroll-list">{habitsDueToday.map(habit=>{const done=habit.checkins.includes(today);return <button type="button" className={`dashboard-habit-row ${done?'done':''}`} key={habit.id} onClick={()=>void toggleHabitToday(habit)}><span className="dashboard-habit-check"><Check size={13}/></span><span><b>{habit.name}</b><small>{habit.reminderAt||'Any time'}</small></span></button>})}</div>:<p className="muted dashboard-habit-empty">No active habits are scheduled today. Open Habits to adjust your schedule.</p>}</Card>
       <DashCard
         icon={<HeartPulse size={19}/>} title="Health" isMobile={isMobile}
         quiet={lowMeds === 0} expanded={expandedCards.has('health')} onToggle={()=>toggleCard('health')}

@@ -8,11 +8,11 @@ import { Card, Modal } from '../components/UI';
 import { DatePicker } from '../components/DatePicker';
 import { TimeWheelPicker } from '../components/TimeWheelPicker';
 import { getSessionQuote } from '../lib/quotes';
+import { getEffectiveRoutineFilter, loadSavedRoutineFilter, matchesRoutineFilter, saveRoutineFilter, sortRoutines } from '../lib/habitRoutines';
 
 const FREQUENCIES: HabitFrequency[] = ['Daily', 'Weekdays', 'Weekly', 'Custom'];
 const DAY_LABELS = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
 const DAY_FULL = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-const ROUTINE_FILTER_KEY = 'habits-routine-filter';
 // Cycled through by routine list position so the calendar pill colors stay consistent
 // without needing a color picker in the UI.
 const ROUTINE_COLORS = ['#4f5bd5', '#0f9488', '#c47a05', '#e5484d', '#7c4fd6', '#2563eb', '#1a8a53', '#d6409f'];
@@ -65,14 +65,6 @@ function isExcused(habit: Habit, dateStr: string): boolean {
 function isForeignDay(dateStr: string, currentRoutineId: string, routineByDate: Map<string, string>): boolean {
   const assigned = routineByDate.get(dateStr);
   return Boolean(assigned) && assigned !== currentRoutineId;
-}
-
-// Every routine is a genuinely separate set — a habit only shows up under a routine it's
-// explicitly tagged with (unless deliberately tagged with more than one), so switching never
-// overlaps. There's no untagged fallback bucket: once routines exist, a habit needs a tag to
-// appear anywhere.
-function matchesRoutineFilter(habit: Habit, routineFilter: string): boolean {
-  return (habit.routineIds ?? []).includes(routineFilter);
 }
 
 // Whether any habit in the given list has this date checked — habits with a pending mutation
@@ -147,13 +139,6 @@ function blankHabit(routineId?: string): Partial<Habit> {
   };
 }
 
-// Which routine is currently shown persists across tab switches — plain component state would
-// otherwise silently reset on remount. Empty string means "no routine selected yet"; the
-// effective filter falls back to the first routine once routines load.
-function loadSavedRoutineFilter(): string {
-  return window.localStorage.getItem(ROUTINE_FILTER_KEY) ?? '';
-}
-
 export function Habits() {
   const { data, upsert, remove } = useStore();
   const today = localIso();
@@ -174,15 +159,11 @@ export function Habits() {
 
   const setRoutineFilter = (id: string) => {
     setRoutineFilterState(id);
-    window.localStorage.setItem(ROUTINE_FILTER_KEY, id);
+    saveRoutineFilter(id);
   };
 
-  const routines = data.habitRoutines.slice().sort((a, b) =>
-    (a.order ?? 9999) - (b.order ?? 9999) || a.name.localeCompare(b.name)
-  );
-  // Falls back to the first routine if nothing (valid) is selected yet — e.g. first load,
-  // or the previously-selected routine was just deleted.
-  const effectiveRoutineFilter = routines.some(r => r.id === routineFilter) ? routineFilter : (routines[0]?.id ?? '');
+  const routines = sortRoutines(data.habitRoutines);
+  const effectiveRoutineFilter = getEffectiveRoutineFilter(routines, routineFilter);
   const routineColorId = (id: string) => ROUTINE_COLORS[Math.max(0, routines.findIndex(r => r.id === id)) % ROUTINE_COLORS.length];
   const routineByDate = useMemo(
     () => new Map(data.routineAssignments.map(r => [r.date, r.routineId])),
