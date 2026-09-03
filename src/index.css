@@ -3016,36 +3016,98 @@ input, select, textarea { font-family: inherit; }
 }
 .tj-screenshot-lightbox-close:hover { background: rgba(255, 255, 255, 0.22); }
 
-/* Calculator popup */
-.tj-calc { display: flex; flex-direction: column; gap: 12px; width: 260px; max-width: 100%; }
+/* Calculator — a floating, draggable popup (not a modal) so the trading panels underneath stay
+   visible and interactive while checking trade math. */
+.tj-calc-popup {
+  position: fixed;
+  z-index: 300;
+  border-radius: 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow), 0 24px 48px -12px rgba(10, 12, 24, 0.35);
+  overflow: hidden;
+  user-select: none;
+}
+.tj-calc-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 9px 8px 9px 14px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+  touch-action: none;
+}
+.tj-calc-header-title {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-muted);
+}
+.tj-calc-header-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.tj-calc-header-close:hover { background: var(--red-soft); color: var(--red); }
+.tj-calc-body { display: flex; flex-direction: column; gap: 10px; padding: 14px; }
 .tj-calc-display {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: flex-end;
+  gap: 2px;
+  min-height: 68px;
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: 10px;
-  padding: 16px 14px;
-  text-align: right;
-  font-size: 28px;
+  padding: 10px 14px;
+}
+.tj-calc-display-sub {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.tj-calc-display-value {
+  font-size: 30px;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+  max-width: 100%;
   overflow-x: auto;
   white-space: nowrap;
 }
+.tj-calc-display-result .tj-calc-display-value { color: var(--teal); }
 .tj-calc-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
 .tj-calc-btn {
-  border: 1px solid var(--border);
-  background: var(--surface);
+  border: none;
+  background: var(--bg);
   color: var(--text);
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 600;
   border-radius: 10px;
-  padding: 14px 0;
+  padding: 13px 0;
   cursor: pointer;
   font-variant-numeric: tabular-nums;
+  transition: background-color 0.12s ease, transform 0.05s ease;
 }
-.tj-calc-btn:hover { background: var(--bg); }
-.tj-calc-btn-fn { color: var(--accent); }
-.tj-calc-btn-op { color: var(--teal); }
-.tj-calc-btn-eq { grid-column: span 2; background: var(--teal); border-color: var(--teal); color: #fff; }
+.tj-calc-btn:hover { background: var(--border); }
+.tj-calc-btn:active { transform: scale(0.95); }
+.tj-calc-btn-fn { background: var(--accent-soft); color: var(--accent); }
+.tj-calc-btn-fn:hover { filter: brightness(0.97); }
+.tj-calc-btn-op { background: var(--teal-soft); color: var(--teal); }
+.tj-calc-btn-op:hover { filter: brightness(0.97); }
+.tj-calc-btn-op.active { background: var(--teal); color: #fff; }
+.tj-calc-btn-eq { grid-column: span 2; background: var(--teal); color: #fff; }
 .tj-calc-btn-eq:hover { filter: brightness(1.08); }
 .tj-calc-btn-zero { grid-column: span 2; }
 

@@ -762,22 +762,38 @@ function calcFormat(n: number): string {
   return String(Math.round(n * 1e10) / 1e10);
 }
 
-function CalculatorModal({ onClose }: { onClose: () => void }) {
+// Floating, not modal — the whole point is to keep the trading panels visible and interactive
+// underneath while checking trade math, so there's no backdrop and clicking outside never closes
+// it. Starts near the top-right corner rather than dead center, out of the way of the stats rail.
+const CALC_DEFAULT_MARGIN = 24;
+const CALC_WIDTH = 280;
+
+function CalculatorPopup({ onClose }: { onClose: () => void }) {
   const [display, setDisplay] = useState('0');
   const [prevValue, setPrevValue] = useState<number | null>(null);
   const [operator, setOperator] = useState<CalcOperator | null>(null);
   const [waitingForOperand, setWaitingForOperand] = useState(false);
+  const [justEvaluated, setJustEvaluated] = useState(false);
+
+  const [pos, setPos] = useState(() => ({
+    x: Math.max(CALC_DEFAULT_MARGIN, window.innerWidth - CALC_WIDTH - CALC_DEFAULT_MARGIN),
+    y: 88
+  }));
+  const dragRef = useRef<{ startX: number; startY: number; posX: number; posY: number } | null>(null);
+  const [dragging, setDragging] = useState(false);
 
   const inputDigit = (d: string) => {
     if (waitingForOperand) { setDisplay(d); setWaitingForOperand(false); }
     else setDisplay(display === '0' ? d : display + d);
+    setJustEvaluated(false);
   };
   const inputDecimal = () => {
     if (waitingForOperand) { setDisplay('0.'); setWaitingForOperand(false); return; }
     if (!display.includes('.')) setDisplay(display + '.');
+    setJustEvaluated(false);
   };
   const backspace = () => setDisplay(d => (d.length > 1 ? d.slice(0, -1) : '0'));
-  const clear = () => { setDisplay('0'); setPrevValue(null); setOperator(null); setWaitingForOperand(false); };
+  const clear = () => { setDisplay('0'); setPrevValue(null); setOperator(null); setWaitingForOperand(false); setJustEvaluated(false); };
   const toggleSign = () => setDisplay(d => (d === '0' ? d : d.startsWith('-') ? d.slice(1) : `-${d}`));
   const inputPercent = () => setDisplay(calcFormat(parseFloat(display) / 100));
 
@@ -791,6 +807,7 @@ function CalculatorModal({ onClose }: { onClose: () => void }) {
       setPrevValue(result);
     }
     setWaitingForOperand(true);
+    setJustEvaluated(false);
     setOperator(nextOp);
   };
   const equals = () => {
@@ -800,6 +817,7 @@ function CalculatorModal({ onClose }: { onClose: () => void }) {
     setPrevValue(null);
     setOperator(null);
     setWaitingForOperand(true);
+    setJustEvaluated(true);
   };
 
   useEffect(() => {
@@ -820,37 +838,82 @@ function CalculatorModal({ onClose }: { onClose: () => void }) {
     return () => window.removeEventListener('keydown', onKeyDown);
   });
 
+  const onHeaderPointerDown = (e: ReactPointerEvent) => {
+    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    dragRef.current = { startX: e.clientX, startY: e.clientY, posX: pos.x, posY: pos.y };
+    setDragging(true);
+  };
+  const onHeaderPointerMove = (e: ReactPointerEvent) => {
+    if (!dragRef.current) return;
+    const { startX, startY, posX, posY } = dragRef.current;
+    const margin = 8;
+    const maxX = window.innerWidth - CALC_WIDTH - margin;
+    const maxY = window.innerHeight - 48;
+    setPos({
+      x: Math.min(maxX, Math.max(margin, posX + (e.clientX - startX))),
+      y: Math.min(maxY, Math.max(margin, posY + (e.clientY - startY)))
+    });
+  };
+  const endHeaderDrag = () => {
+    dragRef.current = null;
+    setDragging(false);
+  };
+
   return (
-    <Modal eyebrow="Life OS" title="Calculator" onClose={onClose}>
-      <div className="tj-calc">
-        <div className="tj-calc-display">{display}</div>
+    <div className="tj-calc-popup" style={{ left: pos.x, top: pos.y, width: CALC_WIDTH }}>
+      <div
+        className="tj-calc-header"
+        onPointerDown={onHeaderPointerDown}
+        onPointerMove={onHeaderPointerMove}
+        onPointerUp={endHeaderDrag}
+        onPointerCancel={endHeaderDrag}
+        style={{ cursor: dragging ? 'grabbing' : 'grab' }}
+      >
+        <span className="tj-calc-header-title">Calculator</span>
+        <button
+          type="button"
+          className="tj-calc-header-close"
+          onPointerDown={e => e.stopPropagation()}
+          onClick={onClose}
+          aria-label="Close calculator"
+        >
+          <X size={14} />
+        </button>
+      </div>
+      <div className="tj-calc-body">
+        <div className={`tj-calc-display ${justEvaluated ? 'tj-calc-display-result' : ''}`}>
+          {operator && prevValue !== null && (
+            <span className="tj-calc-display-sub">{calcFormat(prevValue)} {operator}</span>
+          )}
+          <span className="tj-calc-display-value">{display}</span>
+        </div>
         <div className="tj-calc-grid">
           <button type="button" className="tj-calc-btn tj-calc-btn-fn" onClick={clear}>C</button>
           <button type="button" className="tj-calc-btn tj-calc-btn-fn" onClick={toggleSign}>±</button>
           <button type="button" className="tj-calc-btn tj-calc-btn-fn" onClick={inputPercent}>%</button>
-          <button type="button" className="tj-calc-btn tj-calc-btn-op" onClick={() => performOperator('÷')}>÷</button>
+          <button type="button" className={`tj-calc-btn tj-calc-btn-op ${operator === '÷' && waitingForOperand ? 'active' : ''}`} onClick={() => performOperator('÷')}>÷</button>
 
           <button type="button" className="tj-calc-btn" onClick={() => inputDigit('7')}>7</button>
           <button type="button" className="tj-calc-btn" onClick={() => inputDigit('8')}>8</button>
           <button type="button" className="tj-calc-btn" onClick={() => inputDigit('9')}>9</button>
-          <button type="button" className="tj-calc-btn tj-calc-btn-op" onClick={() => performOperator('×')}>×</button>
+          <button type="button" className={`tj-calc-btn tj-calc-btn-op ${operator === '×' && waitingForOperand ? 'active' : ''}`} onClick={() => performOperator('×')}>×</button>
 
           <button type="button" className="tj-calc-btn" onClick={() => inputDigit('4')}>4</button>
           <button type="button" className="tj-calc-btn" onClick={() => inputDigit('5')}>5</button>
           <button type="button" className="tj-calc-btn" onClick={() => inputDigit('6')}>6</button>
-          <button type="button" className="tj-calc-btn tj-calc-btn-op" onClick={() => performOperator('-')}>−</button>
+          <button type="button" className={`tj-calc-btn tj-calc-btn-op ${operator === '-' && waitingForOperand ? 'active' : ''}`} onClick={() => performOperator('-')}>−</button>
 
           <button type="button" className="tj-calc-btn" onClick={() => inputDigit('1')}>1</button>
           <button type="button" className="tj-calc-btn" onClick={() => inputDigit('2')}>2</button>
           <button type="button" className="tj-calc-btn" onClick={() => inputDigit('3')}>3</button>
-          <button type="button" className="tj-calc-btn tj-calc-btn-op" onClick={() => performOperator('+')}>+</button>
+          <button type="button" className={`tj-calc-btn tj-calc-btn-op ${operator === '+' && waitingForOperand ? 'active' : ''}`} onClick={() => performOperator('+')}>+</button>
 
           <button type="button" className="tj-calc-btn tj-calc-btn-zero" onClick={() => inputDigit('0')}>0</button>
           <button type="button" className="tj-calc-btn" onClick={inputDecimal}>.</button>
           <button type="button" className="tj-calc-btn tj-calc-btn-eq" onClick={equals}>=</button>
         </div>
       </div>
-    </Modal>
+    </div>
   );
 }
 
@@ -1585,7 +1648,7 @@ export function TradingJournal() {
           onRemovePreset={removePresetLabel}
         />
       )}
-      {showCalculator && <CalculatorModal onClose={() => setShowCalculator(false)} />}
+      {showCalculator && <CalculatorPopup onClose={() => setShowCalculator(false)} />}
     </>
   );
 }
