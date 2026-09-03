@@ -16,6 +16,9 @@ import { VaultOnboarding } from '../components/VaultOnboarding';
 import { htmlToMarkdown } from '../lib/htmlToMarkdown';
 
 const WIKILINK_PATTERN = /\[\[([^\]]+)\]\]/g;
+// A stable, never-reused number is what makes it safe to click a marker without re-checking
+// which photo it "really" points to — see Note.nextPhotoNumber.
+const PHOTO_MARKER_PATTERN = /\[Photo (\d+)\]/g;
 
 const PROJECT_STATUSES: ParaProjectStatus[] = ['Not Started', 'In Progress', 'Blocked', 'Completed'];
 const REVIEW_CADENCES: ReviewCadence[] = ['Weekly', 'Monthly', 'Quarterly'];
@@ -107,7 +110,7 @@ function extractLinkedTitles(body: string): string[] {
 }
 
 function snippet(body: string, max = 90): string {
-  const flat = body.replace(WIKILINK_PATTERN, '$1').replace(/\s+/g, ' ').trim();
+  const flat = body.replace(WIKILINK_PATTERN, '$1').replace(PHOTO_MARKER_PATTERN, '📷').replace(/\s+/g, ' ').trim();
   return flat.length > max ? `${flat.slice(0, max)}…` : flat || 'No content yet.';
 }
 
@@ -274,6 +277,10 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
   const [captureText, setCaptureText] = useState('');
   const bodyRef = useRef<HTMLTextAreaElement>(null);
   const imageFileRef = useRef<HTMLInputElement>(null);
+  // Captured on the toolbar button's mousedown (before the file picker steals focus) so the
+  // photo marker still lands where the cursor actually was, not wherever focus ends up after
+  // the OS dialog closes.
+  const pendingImageInsertRef = useRef<{ start: number; end: number } | null>(null);
   const [uploadingImage, setUploadingImage] = useState(false);
   const [imageLightboxSrc, setImageLightboxSrc] = useState<string | null>(null);
 
@@ -596,19 +603,33 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
   // A screenshot on the clipboard (Snipping Tool, Cmd+Shift+4, "Copy image") arrives as an image
   // file, not text/html — caught here before the HTML branch below, since a pasted image often
   // carries no text/html payload at all and would otherwise just silently do nothing in a plain
-  // <textarea>.
-  const addImageFile = async (file: File) => {
+  // <textarea>. Drops a "[Photo N]" marker at the given cursor position so the photo reads
+  // inline exactly where it was placed — e.g. right after the date it belongs to — instead of
+  // just landing in an unordered strip at the bottom with no link back to the surrounding text.
+  const addImageFile = async (file: File, insertAt: { start: number; end: number } | null) => {
     const targetId = note?.id;
     if (!targetId) return;
     setUploadingImage(true);
     try {
       const dataUrl = await fileToCompressedDataUrl(file);
       // Re-read from `notes` rather than trusting the closed-over `note` — compression takes a
-      // moment, and another field could have changed in the meantime.
+      // moment, and another field (including the body itself, if the marker below lands at a
+      // now-stale offset) could have changed in the meantime.
       const latest = notes.find(n => n.id === targetId);
       if (!latest) return;
-      const image: NoteImage = { src: dataUrl, addedAt: new Date().toISOString() };
-      void upsert('notes', { ...latest, images: [...(latest.images ?? []), image] });
+      const ordinal = latest.nextPhotoNumber ?? 1;
+      const image: NoteImage = { src: dataUrl, addedAt: new Date().toISOString(), ordinal };
+      const patch: Partial<Note> = { images: [...(latest.images ?? []), image], nextPhotoNumber: ordinal + 1 };
+      if (insertAt) {
+        const marker = `[Photo ${ordinal}] `;
+        patch.body = latest.body.slice(0, insertAt.start) + marker + latest.body.slice(insertAt.end);
+        const pos = insertAt.start + marker.length;
+        requestAnimationFrame(() => {
+          bodyRef.current?.focus();
+          bodyRef.current?.setSelectionRange(pos, pos);
+        });
+      }
+      void upsert('notes', { ...latest, ...patch });
     } catch {
       /* unreadable file — silently skip rather than block the rest of the paste/upload */
     } finally {
@@ -616,17 +637,50 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
     }
   };
 
-  const removeImage = (src: string) => {
+  // Keyed on ordinal, not src — two different photos can end up with the exact same compressed
+  // bytes (a genuine duplicate paste, or just very similar tiny images), and matching by src
+  // would then remove every photo sharing that data instead of only the one that was clicked.
+  const removeImage = (ordinal: number) => {
     if (!note) return;
-    patchNote({ images: (note.images ?? []).filter(img => img.src !== src) });
+    const removed = (note.images ?? []).find(img => img.ordinal === ordinal);
+    const images = (note.images ?? []).filter(img => img.ordinal !== ordinal);
+    // Strips every "[Photo N] " marker referencing the removed photo so the text doesn't keep
+    // pointing at a photo that's no longer there.
+    const body = removed ? note.body.replace(new RegExp(`\\[Photo ${removed.ordinal}\\] ?`, 'g'), '') : note.body;
+    patchNote({ images, body });
   };
 
-  const triggerImageUpload = () => imageFileRef.current?.click();
+  const triggerImageUpload = () => {
+    const ta = bodyRef.current;
+    pendingImageInsertRef.current = ta ? { start: ta.selectionStart, end: ta.selectionEnd } : null;
+    imageFileRef.current?.click();
+  };
 
   const onImageFileSelected = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = ''; // allow re-selecting the same file later
-    if (file) void addImageFile(file);
+    const insertAt = pendingImageInsertRef.current;
+    pendingImageInsertRef.current = null;
+    if (file) void addImageFile(file, insertAt);
+  };
+
+  // A click that lands inside a "[Photo N]" marker opens that photo instead of just placing the
+  // cursor there — textareas can't make part of their text a real link, so this checks where the
+  // browser's own click-to-cursor logic landed against the marker positions in the text.
+  const onBodyClick = () => {
+    if (!note) return;
+    const ta = bodyRef.current;
+    if (!ta) return;
+    const pos = ta.selectionStart;
+    for (const m of note.body.matchAll(PHOTO_MARKER_PATTERN)) {
+      const start = m.index ?? -1;
+      const end = start + m[0].length;
+      if (pos < start || pos > end) continue;
+      const ordinal = Number(m[1]);
+      const image = (note.images ?? []).find(img => img.ordinal === ordinal);
+      if (image) setImageLightboxSrc(image.src);
+      return;
+    }
   };
 
   // Pasted HTML (Google Docs, Word, browsers) gets rewritten to Markdown so paragraphs,
@@ -638,7 +692,7 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
     const imageFile = imageItem?.getAsFile();
     if (imageFile) {
       e.preventDefault();
-      void addImageFile(imageFile);
+      void addImageFile(imageFile, { start: e.currentTarget.selectionStart, end: e.currentTarget.selectionEnd });
       return;
     }
     const html = e.clipboardData.getData('text/html');
@@ -1213,19 +1267,20 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                 className={`sb-body-input ${note.resourceKind === 'Snippet' ? 'sb-body-code' : ''}`}
                 placeholder={note.resourceKind === 'Snippet'
                   ? 'Paste the snippet — a fenced ```lang block is a handy convention, even without a renderer.'
-                  : 'Start writing… use [[Note Title]] to link to another note. Paste from Docs/Word to keep paragraphs, lists, and bold/italic. Paste or upload a photo to attach it.'}
+                  : 'Start writing… use [[Note Title]] to link to another note. Paste or upload a photo to drop it in as a [Photo N] marker — click a marker to view that photo.'}
                 value={note.body}
                 onChange={e => patchNote({ body: e.target.value })}
                 onPaste={handleBodyPaste}
+                onClick={onBodyClick}
               />
               {((note.images ?? []).length > 0 || uploadingImage) && (
                 <div className="sb-note-photos">
                   {(note.images ?? []).map(img => (
-                    <div className="sb-note-photo" key={img.src}>
+                    <div className="sb-note-photo" key={img.ordinal}>
                       <button type="button" className="sb-note-photo-expand" onClick={() => setImageLightboxSrc(img.src)} aria-label="View full-size photo">
                         <img src={img.src} alt="" />
                       </button>
-                      <button type="button" className="sb-note-photo-remove" onClick={() => removeImage(img.src)} aria-label="Remove photo"><X size={11} /></button>
+                      <button type="button" className="sb-note-photo-remove" onClick={() => removeImage(img.ordinal)} aria-label="Remove photo"><X size={11} /></button>
                       {img.addedAt && <span className="sb-note-photo-date">{formatPhotoTimestamp(img.addedAt)}</span>}
                     </div>
                   ))}

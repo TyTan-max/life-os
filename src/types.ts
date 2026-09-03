@@ -217,6 +217,10 @@ export interface NoteImage {
   // When the photo was actually attached — shown next to the thumbnail so a photo added weeks
   // into a note's life reads as "added later," not "as old as the note."
   addedAt?: string;
+  // Referenced from an inline "[Photo N]" marker in the note's plain-text body — a stable,
+  // never-reused number (see Note.nextPhotoNumber) so an old marker can never end up pointing
+  // at a different photo than the one the user actually placed there.
+  ordinal: number;
 }
 
 export interface Note extends BaseRecord {
@@ -225,6 +229,9 @@ export interface Note extends BaseRecord {
   tags?: string[];
   pinned?: boolean;
   images?: NoteImage[];
+  // Next ordinal to hand out for an inline photo marker — increments forever, never reused, even
+  // across deletions, so "[Photo 2]" can never silently start pointing at an unrelated photo.
+  nextPhotoNumber?: number;
 
   paraType?: ParaType;
   // Archived is a status layered on top of paraType, not a separate type — kept
