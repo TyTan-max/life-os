@@ -525,6 +525,73 @@ async function dedupeLegacySeedDuplicatesV1(db: IDBPDatabase): Promise<void> {
   await db.put(META_STORE, true, 'seedDuplicatesDedupedV1');
 }
 
+// V1 above only collapsed habits whose stored content matched a canonical seed record *exactly*
+// — deliberately conservative, so it could never mistake a real user record for a duplicate. In
+// practice, plenty of the duplicated habits had already drifted slightly since being created
+// (a different `order` after being dragged in the list, or some other field nudged by unrelated
+// code), so V1 quietly left them all standing rather than risk a wrong guess: seen on a real
+// account, it took a 73-habit pileup down to 47, not 13. This pass is looser but still safe: this
+// app never seeds two habits with the same name, and a real user creating two genuinely distinct
+// habits that happen to share that exact name is effectively unheard of — so any group of stored
+// habits sharing a seed habit's name is treated as duplicates of that one logical habit, whatever
+// else about them has drifted.
+async function dedupeLegacySeedDuplicatesV2(db: IDBPDatabase): Promise<void> {
+  const done = await db.get(META_STORE, 'seedDuplicatesDedupedV2');
+  if (done) return;
+
+  const canonical = buildSeedData();
+  const canonicalHabitIdByName = new Map<string, string>();
+  for (const h of canonical.habits) canonicalHabitIdByName.set(h.name, h.id);
+
+  const storedHabits = await db.getAll('habits') as Habit[];
+  const groups = new Map<string, Habit[]>();
+  for (const h of storedHabits) {
+    if (!canonicalHabitIdByName.has(h.name)) continue; // not a known seed habit name — real user habit, leave alone
+    const arr = groups.get(h.name) ?? [];
+    arr.push(h);
+    groups.set(h.name, arr);
+  }
+
+  const tombstones: Tombstone[] = [];
+  const deletedAt = new Date().toISOString();
+
+  if (groups.size) {
+    const tx = db.transaction(['habits', META_STORE], 'readwrite');
+    for (const [name, matches] of groups) {
+      const canonicalId = canonicalHabitIdByName.get(name)!;
+      if (matches.length === 1 && matches[0].id === canonicalId) continue; // already correct
+
+      // Whichever copy was edited most recently wins for fields that might carry a real
+      // intentional edit (reminder time, order, active, etc.); check-ins are unioned across every
+      // copy instead, so a check-off recorded on any duplicate is never lost in the consolidation.
+      const mostRecent = [...matches].sort((a, b) => (b.updatedAt ?? b.createdAt).localeCompare(a.updatedAt ?? a.createdAt))[0];
+      const checkinsUnion = Array.from(new Set(matches.flatMap(m => m.checkins ?? []))).sort();
+
+      const consolidated: Habit = {
+        ...mostRecent,
+        id: canonicalId,
+        checkins: checkinsUnion,
+        createdAt: matches.map(m => m.createdAt).sort()[0],
+        updatedAt: matches.map(m => m.updatedAt ?? m.createdAt).sort().slice(-1)[0]
+      };
+
+      await tx.objectStore('habits').put(consolidated);
+      for (const m of matches) {
+        if (m.id === canonicalId) continue;
+        await tx.objectStore('habits').delete(m.id);
+        tombstones.push({ collection: 'habits', id: m.id, deletedAt });
+      }
+    }
+    await tx.done;
+  }
+
+  if (tombstones.length) {
+    const existing = ((await db.get(META_STORE, TOMBSTONES_KEY)) ?? []) as Tombstone[];
+    await db.put(META_STORE, [...existing, ...tombstones], TOMBSTONES_KEY);
+  }
+  await db.put(META_STORE, true, 'seedDuplicatesDedupedV2');
+}
+
 let loadPromise: Promise<AppData> | null = null;
 
 // React StrictMode double-invokes effects in dev, which would otherwise race two
@@ -553,8 +620,9 @@ async function loadAllInternal(): Promise<AppData> {
     await db.put(META_STORE, true, 'sleepQualityScaleMigratedV1');
     await db.put(META_STORE, true, 'tradingJournalMigratedV1');
     // A brand-new install seeds directly from the now-deterministic-id buildSeedData() — there's
-    // nothing to have duplicated yet, so there's nothing for this cleanup pass to do.
+    // nothing to have duplicated yet, so there's nothing for either cleanup pass to do.
     await db.put(META_STORE, true, 'seedDuplicatesDedupedV1');
+    await db.put(META_STORE, true, 'seedDuplicatesDedupedV2');
     return seedData;
   }
   await migrateFinanceV1(db);
@@ -566,6 +634,7 @@ async function loadAllInternal(): Promise<AppData> {
   await migrateSleepQualityScaleV1(db);
   await migrateTradingJournalV1(db);
   await dedupeLegacySeedDuplicatesV1(db);
+  await dedupeLegacySeedDuplicatesV2(db);
   return readAllCollections(db);
 }
 
