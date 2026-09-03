@@ -214,6 +214,9 @@ export type ReviewCadence = 'Weekly' | 'Monthly' | 'Quarterly';
 export interface NoteImage {
   src: string;
   label?: string;
+  // When the photo was actually attached — shown next to the thumbnail so a photo added weeks
+  // into a note's life reads as "added later," not "as old as the note."
+  addedAt?: string;
 }
 
 export interface Note extends BaseRecord {

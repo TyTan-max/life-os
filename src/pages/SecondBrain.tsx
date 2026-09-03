@@ -142,6 +142,11 @@ function fileToCompressedDataUrl(file: File, maxDim = NOTE_IMAGE_MAX_DIM, qualit
   });
 }
 
+function formatPhotoTimestamp(iso: string | undefined): string {
+  if (!iso) return '';
+  return new Date(iso).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+}
+
 function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
@@ -602,7 +607,7 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
       // moment, and another field could have changed in the meantime.
       const latest = notes.find(n => n.id === targetId);
       if (!latest) return;
-      const image: NoteImage = { src: dataUrl };
+      const image: NoteImage = { src: dataUrl, addedAt: new Date().toISOString() };
       void upsert('notes', { ...latest, images: [...(latest.images ?? []), image] });
     } catch {
       /* unreadable file — silently skip rather than block the rest of the paste/upload */
@@ -1221,6 +1226,7 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                         <img src={img.src} alt="" />
                       </button>
                       <button type="button" className="sb-note-photo-remove" onClick={() => removeImage(img.src)} aria-label="Remove photo"><X size={11} /></button>
+                      {img.addedAt && <span className="sb-note-photo-date">{formatPhotoTimestamp(img.addedAt)}</span>}
                     </div>
                   ))}
                   {uploadingImage && <div className="sb-note-photo sb-note-photo-uploading">Uploading…</div>}
