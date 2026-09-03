@@ -16,9 +16,12 @@ import { VaultOnboarding } from '../components/VaultOnboarding';
 import { htmlToMarkdown } from '../lib/htmlToMarkdown';
 
 const WIKILINK_PATTERN = /\[\[([^\]]+)\]\]/g;
-// A stable, never-reused number is what makes it safe to click a marker without re-checking
-// which photo it "really" points to — see Note.nextPhotoNumber.
-const PHOTO_MARKER_PATTERN = /\[Photo (\d+)\]/g;
+// The ordinal (group 1) is the only part that actually identifies the photo — stable and never
+// reused, which is what makes it safe to click a marker without re-checking which photo it
+// "really" points to (see Note.nextPhotoNumber). The optional ": label" suffix is purely
+// cosmetic: renaming a photo rewrites this same marker to show a name instead of a bare number,
+// without changing what it points to.
+const PHOTO_MARKER_PATTERN = /\[Photo (\d+)(?::[^\]]*)?\]/g;
 
 const PROJECT_STATUSES: ParaProjectStatus[] = ['Not Started', 'In Progress', 'Blocked', 'Completed'];
 const REVIEW_CADENCES: ReviewCadence[] = ['Weekly', 'Monthly', 'Quarterly'];
@@ -642,11 +645,21 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
   // would then remove every photo sharing that data instead of only the one that was clicked.
   const removeImage = (ordinal: number) => {
     if (!note) return;
-    const removed = (note.images ?? []).find(img => img.ordinal === ordinal);
     const images = (note.images ?? []).filter(img => img.ordinal !== ordinal);
-    // Strips every "[Photo N] " marker referencing the removed photo so the text doesn't keep
-    // pointing at a photo that's no longer there.
-    const body = removed ? note.body.replace(new RegExp(`\\[Photo ${removed.ordinal}\\] ?`, 'g'), '') : note.body;
+    // Strips every marker referencing the removed photo (renamed or not) so the text doesn't
+    // keep pointing at a photo that's no longer there.
+    const body = note.body.replace(new RegExp(`\\[Photo ${ordinal}(?::[^\\]]*)?\\] ?`, 'g'), '');
+    patchNote({ images, body });
+  };
+
+  // Rewrites the same marker in place to show a name instead of a bare number — the ordinal
+  // (and so what the marker actually points to) never changes, only how it reads.
+  const renameImage = (ordinal: number, label: string) => {
+    if (!note) return;
+    const trimmed = label.trim().replace(/]/g, ')'); // ']' would prematurely close the marker
+    const images = (note.images ?? []).map(img => (img.ordinal === ordinal ? { ...img, label: trimmed || undefined } : img));
+    const newMarker = trimmed ? `[Photo ${ordinal}: ${trimmed}]` : `[Photo ${ordinal}]`;
+    const body = note.body.replace(new RegExp(`\\[Photo ${ordinal}(?::[^\\]]*)?\\]`, 'g'), newMarker);
     patchNote({ images, body });
   };
 
@@ -1277,11 +1290,24 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                 <div className="sb-note-photos">
                   {(note.images ?? []).map(img => (
                     <div className="sb-note-photo" key={img.ordinal}>
-                      <button type="button" className="sb-note-photo-expand" onClick={() => setImageLightboxSrc(img.src)} aria-label="View full-size photo">
+                      <button
+                        type="button"
+                        className="sb-note-photo-expand"
+                        onClick={() => setImageLightboxSrc(img.src)}
+                        aria-label="View full-size photo"
+                        title={img.addedAt ? `Added ${formatPhotoTimestamp(img.addedAt)}` : undefined}
+                      >
                         <img src={img.src} alt="" />
                       </button>
                       <button type="button" className="sb-note-photo-remove" onClick={() => removeImage(img.ordinal)} aria-label="Remove photo"><X size={11} /></button>
-                      {img.addedAt && <span className="sb-note-photo-date">{formatPhotoTimestamp(img.addedAt)}</span>}
+                      <input
+                        type="text"
+                        className="sb-note-photo-name"
+                        value={img.label ?? ''}
+                        placeholder={`Photo ${img.ordinal}`}
+                        onChange={e => renameImage(img.ordinal, e.target.value)}
+                        aria-label="Name this photo"
+                      />
                     </div>
                   ))}
                   {uploadingImage && <div className="sb-note-photo sb-note-photo-uploading">Uploading…</div>}
