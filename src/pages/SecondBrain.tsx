@@ -19,7 +19,7 @@ const WIKILINK_PATTERN = /\[\[([^\]]+)\]\]/g;
 
 const PROJECT_STATUSES: ParaProjectStatus[] = ['Not Started', 'In Progress', 'Blocked', 'Completed'];
 const REVIEW_CADENCES: ReviewCadence[] = ['Weekly', 'Monthly', 'Quarterly'];
-const RESOURCE_KINDS: ResourceKind[] = ['Article', 'Snippet', 'Reference', 'Idea', 'Book Note', 'Repo'];
+const RESOURCE_KINDS: ResourceKind[] = ['Snippet', 'Reference', 'Idea'];
 const REVIEW_CADENCE_DAYS: Record<ReviewCadence, number> = { Weekly: 7, Monthly: 30, Quarterly: 90 };
 
 // Starting scaffolds for new Project/Area notes — Resources deliberately stay blank
