@@ -4070,7 +4070,7 @@ input, select, textarea { font-family: inherit; }
 .photo-lightbox-image {
   max-width: 90vw; max-height: 90vh; object-fit: contain;
   border-radius: 10px; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
-  cursor: default;
+  touch-action: none; user-select: none;
 }
 .photo-lightbox-close {
   position: fixed; top: 20px; right: 24px;
@@ -4080,6 +4080,12 @@ input, select, textarea { font-family: inherit; }
   cursor: pointer; backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
 }
 .photo-lightbox-close:hover { background: rgba(255, 255, 255, 0.2); }
+.photo-lightbox-zoom {
+  position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%);
+  background: rgba(255, 255, 255, 0.12); color: #fff;
+  font-size: 12.5px; font-weight: 700; padding: 4px 12px; border-radius: 999px;
+  pointer-events: none;
+}
 .bucket-journal-add-photo { display: flex; flex-wrap: wrap; gap: 6px; }
 .bucket-journal-add-photo input { flex: 1; min-width: 100px; font-size: 12px; }
 .bucket-journal-add-photo .btn { flex-shrink: 0; white-space: nowrap; }

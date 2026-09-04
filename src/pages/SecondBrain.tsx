@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { ChangeEvent, ClipboardEvent } from 'react';
+import type { ChangeEvent, ClipboardEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react';
 import {
   Archive, ArchiveRestore, Bold, BookMarked, Check, ChevronLeft, Code2, Command, Heading2,
   Italic, Layers, Link2, List, ListOrdered, Pin, PinOff, Plus, Quote, Search, Strikethrough, Trash2, Upload, X
@@ -1592,14 +1592,95 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
         </Modal>
       )}
       {imageLightboxSrc && (
-        <div className="photo-lightbox-overlay" onClick={() => setImageLightboxSrc(null)}>
-          <button type="button" className="photo-lightbox-close" onClick={() => setImageLightboxSrc(null)} aria-label="Close">
-            <X size={20} />
-          </button>
-          <img src={imageLightboxSrc} alt="" className="photo-lightbox-image" onClick={e => e.stopPropagation()} />
-        </div>
+        <PhotoLightbox src={imageLightboxSrc} onClose={() => setImageLightboxSrc(null)} />
       )}
       <input ref={imageFileRef} type="file" accept="image/*" hidden onChange={onImageFileSelected} />
     </>
+  );
+}
+
+const PHOTO_ZOOM_MIN = 1;
+const PHOTO_ZOOM_MAX = 4;
+const PHOTO_ZOOM_CLICK_STEP = 2.5;
+
+function PhotoLightbox({ src, onClose }: { src: string; onClose: () => void }) {
+  const [zoom, setZoom] = useState(1);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const dragRef = useRef<{ startX: number; startY: number; panX: number; panY: number } | null>(null);
+  const didDragRef = useRef(false);
+  const [dragging, setDragging] = useState(false);
+  const imgRef = useRef<HTMLImageElement>(null);
+
+  const resetZoom = () => { setZoom(1); setPan({ x: 0, y: 0 }); };
+
+  const onImageClick = (e: ReactMouseEvent) => {
+    e.stopPropagation();
+    if (didDragRef.current) { didDragRef.current = false; return; }
+    if (zoom > 1) resetZoom();
+    else setZoom(PHOTO_ZOOM_CLICK_STEP);
+  };
+
+  useEffect(() => {
+    const el = imgRef.current;
+    if (!el) return;
+    const handler = (e: WheelEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setZoom(z => {
+        const next = Math.min(PHOTO_ZOOM_MAX, Math.max(PHOTO_ZOOM_MIN, z - e.deltaY * 0.0025));
+        if (next === PHOTO_ZOOM_MIN) setPan({ x: 0, y: 0 });
+        return next;
+      });
+    };
+    el.addEventListener('wheel', handler, { passive: false });
+    return () => el.removeEventListener('wheel', handler);
+  }, []);
+
+  const onPointerDown = (e: ReactPointerEvent) => {
+    if (zoom <= 1) return;
+    e.stopPropagation();
+    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    dragRef.current = { startX: e.clientX, startY: e.clientY, panX: pan.x, panY: pan.y };
+    didDragRef.current = false;
+    setDragging(true);
+  };
+  const onPointerMove = (e: ReactPointerEvent) => {
+    if (!dragRef.current) return;
+    e.stopPropagation();
+    const { startX, startY, panX, panY } = dragRef.current;
+    if (Math.abs(e.clientX - startX) > 3 || Math.abs(e.clientY - startY) > 3) didDragRef.current = true;
+    setPan({ x: panX + (e.clientX - startX), y: panY + (e.clientY - startY) });
+  };
+  const endDrag = (e: ReactPointerEvent) => {
+    if (!dragRef.current) return;
+    e.stopPropagation();
+    dragRef.current = null;
+    setDragging(false);
+  };
+
+  return (
+    <div className="photo-lightbox-overlay" onClick={onClose}>
+      <button type="button" className="photo-lightbox-close" onClick={onClose} aria-label="Close"><X size={20} /></button>
+      <img
+        ref={imgRef}
+        src={src}
+        alt=""
+        className="photo-lightbox-image"
+        style={{
+          transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+          transition: dragging ? 'none' : 'transform 0.15s ease-out',
+          cursor: zoom > 1 ? (dragging ? 'grabbing' : 'grab') : 'zoom-in'
+        }}
+        onClick={onImageClick}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={endDrag}
+        onPointerCancel={endDrag}
+        draggable={false}
+      />
+      {zoom > 1 && (
+        <span className="photo-lightbox-zoom">{Math.round(zoom * 100)}%</span>
+      )}
+    </div>
   );
 }
