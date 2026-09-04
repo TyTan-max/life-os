@@ -112,6 +112,14 @@ function extractLinkedTitles(body: string): string[] {
   return Array.from(body.matchAll(WIKILINK_PATTERN), m => m[1].trim().toLowerCase());
 }
 
+// A Resource note's meaningful "type" is its Kind — the same value the Kind dropdown at the top
+// of its editor shows — not the generic paraType every Resource note shares. Every other note
+// falls back to its paraType (or "Inbox" once that's cleared to undefined).
+function noteTypeLabel(n: Note): string {
+  if (n.paraType !== 'Resource') return n.paraType || 'Inbox';
+  return n.resourceKind === 'Repo' ? 'Code Vault' : n.resourceKind ?? 'Reference';
+}
+
 function snippet(body: string, max = 90): string {
   // Photo markers are left as-is here — telling a real "[Photo 1]"/"[Trade Setup]" marker apart
   // from an unrelated "[something]" the user just typed needs the note's actual image list,
@@ -504,7 +512,6 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
   // explicit user choice, so once they pick one it wins outright — no silent pin-first tie-break
   // hiding underneath a sort they asked for.
   const sortedTableNotes = useMemo(() => {
-    const typeOf = (n: Note) => (n.resourceKind === 'Repo' && n.language) || n.paraType || 'Inbox';
     const dir = tableSort.dir === 'asc' ? 1 : -1;
     return [...filteredNotes].sort((a, b) => {
       switch (tableSort.key) {
@@ -513,7 +520,7 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
           return byPin || (b.updatedAt ?? '').localeCompare(a.updatedAt ?? '');
         }
         case 'title': return dir * (a.title || 'Untitled').localeCompare(b.title || 'Untitled');
-        case 'type': return dir * typeOf(a).localeCompare(typeOf(b));
+        case 'type': return dir * noteTypeLabel(a).localeCompare(noteTypeLabel(b));
         case 'tags': return dir * (a.tags ?? []).join(', ').localeCompare((b.tags ?? []).join(', '));
         default: return dir * (a.updatedAt ?? '').localeCompare(b.updatedAt ?? '');
       }
@@ -1025,7 +1032,7 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                       <tr key={n.id} onClick={() => setSelectedId(n.id)} className="sb-table-row">
                         <td>{n.pinned && <Pin size={12} />}</td>
                         <td>{n.title || 'Untitled'}</td>
-                        <td>{n.resourceKind === 'Repo' && n.language ? n.language : (n.paraType || 'Inbox')}</td>
+                        <td>{noteTypeLabel(n)}</td>
                         <td>{(n.tags ?? []).length ? (n.tags ?? []).join(', ') : <span className="grid-static-cell">—</span>}</td>
                         <td>{formatDate(n.updatedAt)}</td>
                       </tr>
