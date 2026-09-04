@@ -341,7 +341,7 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
   const [paraTab, setParaTab] = useState<ParaTab>(initialTab ?? 'Overview');
   const [projectView, setProjectView] = useState<'List' | 'Board'>('List');
   const [tableView, setTableView] = useState(false);
-  const [tableSort, setTableSort] = useState<SortState<'title' | 'type' | 'tags' | 'updated'>>({ key: 'updated', dir: 'desc' });
+  const [tableSort, setTableSort] = useState<SortState<'pinned' | 'title' | 'type' | 'tags' | 'updated'>>({ key: 'pinned', dir: 'desc' });
   const [linkPickerOpen, setLinkPickerOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [taskFilter, setTaskFilter] = useState<TaskFilter>('Open');
@@ -501,13 +501,18 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
       .sort((a, b) => (Number(b.pinned) - Number(a.pinned)) || (b.updatedAt ?? '').localeCompare(a.updatedAt ?? ''));
   }, [notes, query, tagFilter, paraTab, areaScopeId, resourceScope, languageFilter]);
 
-  // Table view drops the pin-first ordering in favor of whatever column the user picked — an
-  // explicit sort should win over the sidebar list's implicit "pinned, then most recent" default.
+  // Defaults to pinned-first (matching the sidebar list's own default), but any column here is an
+  // explicit user choice, so once they pick one it wins outright — no silent pin-first tie-break
+  // hiding underneath a sort they asked for.
   const sortedTableNotes = useMemo(() => {
     const typeOf = (n: Note) => (n.resourceKind === 'Repo' && n.language) || n.paraType || 'Inbox';
     const dir = tableSort.dir === 'asc' ? 1 : -1;
     return [...filteredNotes].sort((a, b) => {
       switch (tableSort.key) {
+        case 'pinned': {
+          const byPin = dir * (Number(a.pinned) - Number(b.pinned));
+          return byPin || (b.updatedAt ?? '').localeCompare(a.updatedAt ?? '');
+        }
         case 'title': return dir * (a.title || 'Untitled').localeCompare(b.title || 'Untitled');
         case 'type': return dir * typeOf(a).localeCompare(typeOf(b));
         case 'tags': return dir * (a.tags ?? []).join(', ').localeCompare((b.tags ?? []).join(', '));
@@ -1089,7 +1094,7 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                   <table className="grid-table">
                     <thead>
                       <tr>
-                        <th />
+                        <SortableTh label="Pin" sortKey="pinned" state={tableSort} onSort={k => setTableSort(s => toggleSort(s, k, 'desc'))} />
                         <SortableTh label="Title" sortKey="title" state={tableSort} onSort={k => setTableSort(s => toggleSort(s, k))} />
                         <SortableTh label="Type" sortKey="type" state={tableSort} onSort={k => setTableSort(s => toggleSort(s, k))} />
                         <SortableTh label="Tags" sortKey="tags" state={tableSort} onSort={k => setTableSort(s => toggleSort(s, k))} />
