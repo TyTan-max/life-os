@@ -3491,6 +3491,17 @@ input, select, textarea { font-family: inherit; }
   cursor: pointer;
 }
 .sb-list { flex: 1; min-height: 0; overflow-y: auto; padding: 6px; }
+.sb-list-item-wrap { position: relative; }
+.sb-list-item-delete {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  padding: 4px;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+  background: var(--surface);
+}
+.sb-list-item-wrap:hover .sb-list-item-delete { opacity: 1; }
 .sb-list-item {
   display: block;
   width: 100%;

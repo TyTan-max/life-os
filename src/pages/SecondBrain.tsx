@@ -1117,35 +1117,44 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
           )}
           <div className="sb-list">
             {filteredNotes.length ? filteredNotes.map(n => (
-              <button
-                type="button"
-                key={n.id}
-                className={`sb-list-item ${selectedId === n.id ? 'active' : ''}`}
-                onClick={() => setSelectedId(n.id)}
-              >
-                <div className="sb-list-item-head">
-                  {n.pinned && <Pin size={11} />}
-                  <b>{n.title || 'Untitled'}</b>
-                  {n.resourceKind === 'Repo' && n.language && <span className="sb-type-badge lang">{n.language}</span>}
-                  {n.paraType && <span className="sb-type-badge">{n.paraType}</span>}
-                </div>
-                {n.paraType === 'Project' && (
-                  <div className="sb-list-item-status-row">
-                    <span className={`sb-status-pill status-${(n.status ?? 'Not Started').replace(/\s+/g, '-').toLowerCase()}`}>{n.status ?? 'Not Started'}</span>
-                    {n.dueDate && <span className={`sb-due-chip ${isProjectOverdue(n) ? 'overdue' : ''}`}>{formatDate(n.dueDate)}</span>}
+              <div className="sb-list-item-wrap" key={n.id}>
+                <button
+                  type="button"
+                  className={`sb-list-item ${selectedId === n.id ? 'active' : ''}`}
+                  onClick={() => setSelectedId(n.id)}
+                >
+                  <div className="sb-list-item-head">
+                    {n.pinned && <Pin size={11} />}
+                    <b>{n.title || 'Untitled'}</b>
+                    {n.resourceKind === 'Repo' && n.language && <span className="sb-type-badge lang">{n.language}</span>}
+                    {n.paraType && <span className="sb-type-badge">{n.paraType}</span>}
                   </div>
-                )}
-                {n.paraType === 'Area' && isReviewDue(n) && (
-                  <div className="sb-list-item-status-row">
-                    <span className="sb-due-chip amber">Review due</span>
+                  {n.paraType === 'Project' && (
+                    <div className="sb-list-item-status-row">
+                      <span className={`sb-status-pill status-${(n.status ?? 'Not Started').replace(/\s+/g, '-').toLowerCase()}`}>{n.status ?? 'Not Started'}</span>
+                      {n.dueDate && <span className={`sb-due-chip ${isProjectOverdue(n) ? 'overdue' : ''}`}>{formatDate(n.dueDate)}</span>}
+                    </div>
+                  )}
+                  {n.paraType === 'Area' && isReviewDue(n) && (
+                    <div className="sb-list-item-status-row">
+                      <span className="sb-due-chip amber">Review due</span>
+                    </div>
+                  )}
+                  <p>{snippet(n.body)}</p>
+                  <div className="sb-list-item-meta">
+                    {(n.tags ?? []).slice(0, 3).map(t => <span key={t} className="sb-tag-chip static">{t}</span>)}
+                    <span className="sb-list-item-date">{formatDate(n.updatedAt)}</span>
                   </div>
-                )}
-                <p>{snippet(n.body)}</p>
-                <div className="sb-list-item-meta">
-                  {(n.tags ?? []).slice(0, 3).map(t => <span key={t} className="sb-tag-chip static">{t}</span>)}
-                  <span className="sb-list-item-date">{formatDate(n.updatedAt)}</span>
-                </div>
-              </button>
+                </button>
+                <button
+                  type="button"
+                  className="icon-btn danger sb-list-item-delete"
+                  onClick={e => { e.stopPropagation(); deleteNote(n.id); }}
+                  aria-label={`Delete ${n.title || 'Untitled'}`}
+                >
+                  <Trash2 size={12} />
+                </button>
+              </div>
             )) : <EmptyState>{notes.length ? 'No notes match.' : 'No notes yet — create your first one.'}</EmptyState>}
           </div>
         </aside>
