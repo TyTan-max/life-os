@@ -29,10 +29,13 @@ const PARA_TEMPLATES: Partial<Record<ParaType, string>> = {
   Area: '## Standard — what does "good" look like here?\n\n\n## Resources\n'
 };
 
-export type ParaTab = 'Overview' | 'All' | 'Tasks' | 'Inbox' | 'Goals' | 'Projects' | 'Areas' | 'Resources' | 'Archive';
-const PARA_TABS: ParaTab[] = ['Overview', 'All', 'Inbox', 'Tasks', 'Goals', 'Projects', 'Areas', 'Resources', 'Archive'];
+// Resources isn't a tab of its own — it lives as a card grid on the Overview tab instead (see
+// the Overview branch below), since Projects/Areas/Resources/Inbox all having both a dedicated
+// tab AND a jump-in card was redundant navigation to the same place.
+export type ParaTab = 'Overview' | 'All' | 'Tasks' | 'Inbox' | 'Goals' | 'Projects' | 'Areas' | 'Archive';
+const PARA_TABS: ParaTab[] = ['Overview', 'All', 'Inbox', 'Tasks', 'Goals', 'Projects', 'Areas', 'Archive'];
 // A tab's implied paraType, for defaulting new notes created while it's active.
-const TAB_PARA_TYPE: Partial<Record<ParaTab, ParaType>> = { Projects: 'Project', Areas: 'Area', Resources: 'Resource' };
+const TAB_PARA_TYPE: Partial<Record<ParaTab, ParaType>> = { Projects: 'Project', Areas: 'Area' };
 
 const TASK_STATUSES: TaskStatus[] = ['Not Started', 'In Progress', 'Completed'];
 const TASK_PRIORITIES: Priority[] = ['Low', 'Medium', 'High', 'Urgent'];
@@ -83,8 +86,7 @@ function matchesParaTab(n: Note, tab: ParaTab): boolean {
   if (tab === 'Tasks') return false; // Tasks are real Task records, not notes — handled separately.
   if (tab === 'Inbox') return !n.paraType;
   if (tab === 'Projects') return n.paraType === 'Project';
-  if (tab === 'Areas') return n.paraType === 'Area';
-  return n.paraType === 'Resource';
+  return n.paraType === 'Area'; // tab === 'Areas', the only case left — Resources isn't a tab
 }
 
 function localIso(): string {
@@ -830,12 +832,11 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
   // from the list for these, so on mobile they take the sidebar's place directly instead of
   // sliding over the whole screen the way an opened note does.
   const hubTabActive = !note && (
-    paraTab === 'Overview'
+    (paraTab === 'Overview' && !resourceScope)
     || paraTab === 'Tasks'
     || paraTab === 'Goals'
     || (paraTab === 'Projects' && projectView === 'Board' && !areaScopeId)
     || (paraTab === 'Areas' && !areaScopeId && !resourceScope)
-    || (paraTab === 'Resources' && !areaScopeId && !resourceScope)
   );
   useFabAction('Second Brain', 'New note', () => void createNote());
   const mobileNoteOpen = isMobile && !!note;
@@ -920,7 +921,7 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
           )}
           {(areaScopeId || resourceScope) && (
             <button type="button" className="sb-scope-back" onClick={exitScope}>
-              <ChevronLeft size={14} /> Back to {areaScopeId ? 'Areas' : 'Resources'}
+              <ChevronLeft size={14} /> Back to {areaScopeId ? 'Areas' : 'Overview'}
             </button>
           )}
           <div className="sb-search">
@@ -1023,7 +1024,7 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                 );
               })}
             </div>
-          ) : !note && paraTab === 'Overview' ? (
+          ) : !note && paraTab === 'Overview' && !resourceScope ? (
             <div className="sb-overview">
               <div className="sb-overview-grid">
                 <Kpi label="Needs attention" value={needsAttentionProjects.length} tone={needsAttentionProjects.length ? 'red' : 'green'} caption="overdue or blocked projects" />
@@ -1065,6 +1066,28 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                   </button>
                 )) : <EmptyState>No notes yet — create your first one.</EmptyState>}
               </Card>
+
+              <Card className="sb-overview-section">
+                <h3>Resources</h3>
+                <div className="sb-hub-grid">
+                  <button type="button" className="sb-hub-card accent" onClick={() => setResourceScope('CodeVault')}>
+                    <Code2 size={18} />
+                    <b>Code Vault</b>
+                    <p>Snippets and repositories in one place.</p>
+                    <span className="sb-hub-card-count">{resourceCounts.get('CodeVault') ?? 0} item{(resourceCounts.get('CodeVault') ?? 0) === 1 ? '' : 's'}</span>
+                  </button>
+                  {RESOURCE_KINDS.map(kind => {
+                    const count = resourceCounts.get(kind) ?? 0;
+                    return (
+                      <button type="button" key={kind} className="sb-hub-card" onClick={() => setResourceScope(kind)}>
+                        <BookMarked size={18} />
+                        <b>{kind}</b>
+                        <span className="sb-hub-card-count">{count} item{count === 1 ? '' : 's'}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </Card>
             </div>
           ) : !note && paraTab === 'Areas' && !areaScopeId && !resourceScope ? (
             <div className="sb-hub">
@@ -1087,29 +1110,6 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                     </button>
                   );
                 }) : <EmptyState>No areas yet — set a note's type to "Area" to create one.</EmptyState>}
-              </div>
-            </div>
-          ) : !note && paraTab === 'Resources' && !areaScopeId && !resourceScope ? (
-            <div className="sb-hub">
-              <h2 className="sb-hub-title">Resources</h2>
-              <p className="sb-hub-subtitle">Reference material, ideas, and the Code Vault. Click a card to browse it.</p>
-              <div className="sb-hub-grid">
-                <button type="button" className="sb-hub-card accent" onClick={() => setResourceScope('CodeVault')}>
-                  <Code2 size={18} />
-                  <b>Code Vault</b>
-                  <p>Snippets and repositories in one place.</p>
-                  <span className="sb-hub-card-count">{resourceCounts.get('CodeVault') ?? 0} item{(resourceCounts.get('CodeVault') ?? 0) === 1 ? '' : 's'}</span>
-                </button>
-                {RESOURCE_KINDS.map(kind => {
-                  const count = resourceCounts.get(kind) ?? 0;
-                  return (
-                    <button type="button" key={kind} className="sb-hub-card" onClick={() => setResourceScope(kind)}>
-                      <BookMarked size={18} />
-                      <b>{kind}</b>
-                      <span className="sb-hub-card-count">{count} item{count === 1 ? '' : 's'}</span>
-                    </button>
-                  );
-                })}
               </div>
             </div>
           ) : paraTab === 'Tasks' ? (
