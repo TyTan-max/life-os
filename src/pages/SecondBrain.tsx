@@ -133,9 +133,13 @@ function markerTextFor(img: NoteImage): string {
 // transparent` + `caret-color`), so what's actually visible is this overlay's coloring while
 // every keystroke, click, and selection still goes through the real, fully-editable textarea on
 // top. Order matters: [[Wikilink]] is tried before a bare [marker], and [text](url) before that
-// again, so a link's own [text] half is never re-classified as a plain marker. Groups: 1 =
-// wikilink (full [[...]]), 2 = link text, 3 = link URL, 4 = bare marker (full [...]).
-const BODY_TOKEN_PATTERN = /(\[\[[^\]]+\]\])|\[([^[\]]+)\]\((https?:\/\/[^\s)]+)\)|((?<!\[)\[[^[\]]+\](?!\]))/g;
+// again, so a link's own [text] half is never re-classified as a plain marker. A bare URL (no
+// brackets at all — just pasted straight into the text) is tried last, so it never fires on the
+// URL half already claimed by a [text](url) match. Its trailing-character class excludes common
+// sentence punctuation, so "...at https://x.com." doesn't pull the period into the link. Groups:
+// 1 = wikilink (full [[...]]), 2 = link text, 3 = link URL, 4 = bare marker (full [...]),
+// 5 = bare URL.
+const BODY_TOKEN_PATTERN = /(\[\[[^\]]+\]\])|\[([^[\]]+)\]\((https?:\/\/[^\s)]+)\)|((?<!\[)\[[^[\]]+\](?!\]))|(https?:\/\/[^\s]*[^\s.,;:!?'")\]])/g;
 
 function escapeHtmlForBody(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -149,7 +153,7 @@ function renderHighlightedBody(body: string, images: NoteImage[]): string {
     html += escapeHtmlForBody(body.slice(lastIndex, start));
     if (m[1]) {
       html += `<span class="sb-body-token-link">${escapeHtmlForBody(m[1])}</span>`;
-    } else if (m[3]) {
+    } else if (m[3] || m[5]) {
       html += `<span class="sb-body-token-url">${escapeHtmlForBody(m[0])}</span>`;
     } else if (m[4] && resolveMarkerImage(images, m[4].slice(1, -1))) {
       // Only colored when it actually resolves to a real photo — an unrelated "[something]" the
@@ -768,7 +772,7 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
       const start = m.index ?? -1;
       const end = start + m[0].length;
       if (pos < start || pos > end) continue;
-      if (m[3]) { window.open(m[3], '_blank', 'noopener,noreferrer'); return; }
+      if (m[3] || m[5]) { window.open((m[3] || m[5]) as string, '_blank', 'noopener,noreferrer'); return; }
       if (m[4]) {
         const image = resolveMarkerImage(note.images ?? [], m[4].slice(1, -1));
         if (image) setImageLightboxSrc(image.src);
