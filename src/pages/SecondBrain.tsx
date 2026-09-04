@@ -632,6 +632,16 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
     setConfirmDeleteNote(null);
   };
 
+  // The All-tab table skips the confirm modal — deleting straight from a scannable list of many
+  // notes is a deliberate, already-considered click, not a stray one worth double-checking twice.
+  const deleteNoteInstantly = async (id: string) => {
+    const target = notes.find(n => n.id === id);
+    const linkedProjects = target?.paraType === 'Area' ? notes.filter(n => n.paraType === 'Project' && n.areaId === id) : [];
+    for (const p of linkedProjects) await upsert('notes', { ...p, areaId: undefined });
+    await remove('notes', id);
+    if (selectedId === id) setSelectedId(null);
+  };
+
   const patchNote = (patch: Partial<Note>) => {
     if (!note) return;
     const oldTitle = note.title;
@@ -1037,7 +1047,7 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                         <td>{(n.tags ?? []).length ? (n.tags ?? []).join(', ') : <span className="grid-static-cell">—</span>}</td>
                         <td>{formatDate(n.updatedAt)}</td>
                         <td className="collection-table-actions" onClick={e => e.stopPropagation()}>
-                          <button type="button" className="icon-btn danger" onClick={() => deleteNote(n.id)} aria-label={`Delete ${n.title || 'Untitled'}`}>
+                          <button type="button" className="icon-btn danger" onClick={() => void deleteNoteInstantly(n.id)} aria-label={`Delete ${n.title || 'Untitled'}`}>
                             <Trash2 size={13} />
                           </button>
                         </td>
