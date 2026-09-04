@@ -3545,6 +3545,8 @@ input, select, textarea { font-family: inherit; }
 .sb-body-input {
   flex: 1;
   min-height: 160px;
+  margin: 0;
+  padding: 0;
   border: none;
   background: transparent;
   color: var(--text);
@@ -3554,6 +3556,36 @@ input, select, textarea { font-family: inherit; }
   resize: none;
   font-family: inherit;
 }
+/* The highlight overlay behind this textarea (see .sb-body-wrap) needs every text-affecting
+   property — font, size, line-height, padding, wrapping — to match exactly, or the colored text
+   drifts out of alignment with the real (invisible) text sitting on top of it. Only `color`
+   differs: made transparent so the overlay's coloring is the only thing actually seen, with the
+   blinking caret drawn separately via caret-color so there's still a visible cursor to type at. */
+.sb-body-wrap { position: relative; flex: 1; min-height: 160px; display: flex; }
+.sb-body-highlight {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  word-break: break-word;
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--text);
+  pointer-events: none;
+}
+.sb-body-token-link { color: var(--green); }
+.sb-body-token-url { color: var(--blue); }
+.sb-body-input-highlighted {
+  position: relative;
+  z-index: 1;
+  color: transparent;
+  caret-color: var(--text);
+}
+.sb-body-input-highlighted::selection { background: var(--accent-soft); }
 .sb-body-code {
   font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
   font-size: 13px;

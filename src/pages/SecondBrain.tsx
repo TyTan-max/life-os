@@ -132,6 +132,45 @@ function markerTextFor(img: NoteImage): string {
   return `[${img.label || `Photo ${img.ordinal}`}]`;
 }
 
+// A real <textarea> can only render its text in one uniform color — there's no way to make part
+// of its own content a different color. The highlight overlay works around that: this builds an
+// HTML mirror of the exact same text with wikilinks/URL-links/photo-markers wrapped in colored
+// spans, sat behind a textarea whose own text is made transparent (see .sb-body-input's `color:
+// transparent` + `caret-color`), so what's actually visible is this overlay's coloring while
+// every keystroke, click, and selection still goes through the real, fully-editable textarea on
+// top. Order matters: [[Wikilink]] is tried before a bare [marker], and [text](url) before that
+// again, so a link's own [text] half is never re-classified as a plain marker.
+const BODY_TOKEN_PATTERN = /(\[\[[^\]]+\]\])|(\[[^[\]]+\]\(https?:\/\/[^\s)]+\))|((?<!\[)\[[^[\]]+\](?!\]))/g;
+
+function escapeHtmlForBody(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function renderHighlightedBody(body: string, images: NoteImage[]): string {
+  let html = '';
+  let lastIndex = 0;
+  for (const m of body.matchAll(BODY_TOKEN_PATTERN)) {
+    const start = m.index ?? 0;
+    html += escapeHtmlForBody(body.slice(lastIndex, start));
+    if (m[1]) {
+      html += `<span class="sb-body-token-link">${escapeHtmlForBody(m[1])}</span>`;
+    } else if (m[2]) {
+      html += `<span class="sb-body-token-url">${escapeHtmlForBody(m[2])}</span>`;
+    } else if (m[3] && resolveMarkerImage(images, m[3].slice(1, -1))) {
+      // Only colored when it actually resolves to a real photo — an unrelated "[something]" the
+      // user typed for other reasons stays plain text, same as it always has.
+      html += `<span class="sb-body-token-link">${escapeHtmlForBody(m[3])}</span>`;
+    } else {
+      html += escapeHtmlForBody(m[0]);
+    }
+    lastIndex = start + m[0].length;
+  }
+  html += escapeHtmlForBody(body.slice(lastIndex));
+  // A trailing newline needs a following blank line to render at all in a div — without this the
+  // overlay's last line would collapse and drift out of sync with the textarea underneath it.
+  return body.endsWith('\n') ? `${html}\n` : html;
+}
+
 const NOTE_IMAGE_MAX_DIM = 1200;
 const NOTE_IMAGE_QUALITY = 0.82;
 
@@ -294,6 +333,7 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
   const [languageFilter, setLanguageFilter] = useState<string | null>(null);
   const [captureText, setCaptureText] = useState('');
   const bodyRef = useRef<HTMLTextAreaElement>(null);
+  const bodyHighlightRef = useRef<HTMLDivElement>(null);
   const imageFileRef = useRef<HTMLInputElement>(null);
   // Captured on the toolbar button's mousedown (before the file picker steals focus) so the
   // photo marker still lands where the cursor actually was, not wherever focus ends up after
@@ -1315,17 +1355,41 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                   <button type="button" onMouseDown={e => e.preventDefault()} onClick={triggerImageUpload} disabled={uploadingImage} title="Add a photo" aria-label="Add a photo"><Upload size={14} /></button>
                 </div>
               )}
-              <textarea
-                ref={bodyRef}
-                className={`sb-body-input ${note.resourceKind === 'Snippet' ? 'sb-body-code' : ''}`}
-                placeholder={note.resourceKind === 'Snippet'
-                  ? 'Paste the snippet — a fenced ```lang block is a handy convention, even without a renderer.'
-                  : 'Start writing… use [[Note Title]] to link to another note. Paste or upload a photo to drop it in as a [Photo N] marker — click a marker to view that photo.'}
-                value={note.body}
-                onChange={e => patchNote({ body: e.target.value })}
-                onPaste={handleBodyPaste}
-                onClick={onBodyClick}
-              />
+              {note.resourceKind === 'Snippet' ? (
+                <textarea
+                  ref={bodyRef}
+                  className="sb-body-input sb-body-code"
+                  placeholder='Paste the snippet — a fenced ```lang block is a handy convention, even without a renderer.'
+                  value={note.body}
+                  onChange={e => patchNote({ body: e.target.value })}
+                  onPaste={handleBodyPaste}
+                  onClick={onBodyClick}
+                />
+              ) : (
+                <div className="sb-body-wrap">
+                  <div
+                    ref={bodyHighlightRef}
+                    className="sb-body-highlight"
+                    aria-hidden="true"
+                    dangerouslySetInnerHTML={{ __html: renderHighlightedBody(note.body, note.images ?? []) }}
+                  />
+                  <textarea
+                    ref={bodyRef}
+                    className="sb-body-input sb-body-input-highlighted"
+                    placeholder="Start writing… use [[Note Title]] to link to another note. Paste or upload a photo to drop it in as a [Photo N] marker — click a marker to view that photo."
+                    value={note.body}
+                    onChange={e => patchNote({ body: e.target.value })}
+                    onPaste={handleBodyPaste}
+                    onClick={onBodyClick}
+                    onScroll={e => {
+                      const highlight = bodyHighlightRef.current;
+                      if (!highlight) return;
+                      highlight.scrollTop = e.currentTarget.scrollTop;
+                      highlight.scrollLeft = e.currentTarget.scrollLeft;
+                    }}
+                  />
+                </div>
+              )}
               {((note.images ?? []).length > 0 || uploadingImage) && (
                 <div className="sb-note-photos">
                   {(note.images ?? []).map(img => (
