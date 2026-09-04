@@ -156,13 +156,13 @@ function renderHighlightedBody(body: string, images: NoteImage[]): string {
     const start = m.index ?? 0;
     html += escapeHtmlForBody(body.slice(lastIndex, start));
     if (m[1]) {
-      html += `<span class="sb-body-token-link">${escapeHtmlForBody(m[1])}</span>`;
+      html += `<span class="sb-body-token-link" data-start="${start}">${escapeHtmlForBody(m[1])}</span>`;
     } else if (m[3] || m[5]) {
-      html += `<span class="sb-body-token-url">${escapeHtmlForBody(m[0])}</span>`;
+      html += `<span class="sb-body-token-url" data-start="${start}">${escapeHtmlForBody(m[0])}</span>`;
     } else if (m[4] && resolveMarkerImage(images, m[4].slice(1, -1))) {
       // Only colored when it actually resolves to a real photo — an unrelated "[something]" the
       // user typed for other reasons stays plain text, same as it always has.
-      html += `<span class="sb-body-token-link">${escapeHtmlForBody(m[4])}</span>`;
+      html += `<span class="sb-body-token-link" data-start="${start}">${escapeHtmlForBody(m[4])}</span>`;
     } else {
       html += escapeHtmlForBody(m[0]);
     }
@@ -770,7 +770,13 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
   // Boundaries are excluded (strict <, >) so a click that merely lands adjacent to the token —
   // right before its opening bracket or right after its closing one — just places the cursor
   // there instead of firing, even though the browser snaps the caret to that same edge index.
-  const onBodyClick = () => {
+  // Caret index alone still isn't enough: clicking in the blank space *below* the token's line
+  // snaps the caret to that line's column (row clamps to the nearest real line, column still
+  // follows the click's x), which can land inside the token's index range despite the click
+  // visually landing nowhere near it. So once the index range says "maybe", this confirms the
+  // click point actually falls within that token's own rendered rectangle in the highlight
+  // overlay before treating it as a deliberate hit.
+  const onBodyClick = (e: ReactMouseEvent<HTMLTextAreaElement>) => {
     if (!note) return;
     const ta = bodyRef.current;
     if (!ta) return;
@@ -779,11 +785,16 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
       const start = m.index ?? -1;
       const end = start + m[0].length;
       if (pos <= start || pos >= end) continue;
-      if (m[3] || m[5]) { window.open((m[3] || m[5]) as string, '_blank', 'noopener,noreferrer'); return; }
-      if (m[4]) {
-        const image = resolveMarkerImage(note.images ?? [], m[4].slice(1, -1));
-        if (image) setImageLightboxSrc(image.src);
+      const url = m[3] || m[5];
+      const image = m[4] ? resolveMarkerImage(note.images ?? [], m[4].slice(1, -1)) : undefined;
+      if (!url && !image) return;
+      const span = bodyHighlightRef.current?.querySelector<HTMLElement>(`[data-start="${start}"]`);
+      if (span) {
+        const rect = span.getBoundingClientRect();
+        if (e.clientX < rect.left || e.clientX > rect.right || e.clientY < rect.top || e.clientY > rect.bottom) return;
       }
+      if (url) { window.open(url, '_blank', 'noopener,noreferrer'); return; }
+      if (image) setImageLightboxSrc(image.src);
       return;
     }
   };
