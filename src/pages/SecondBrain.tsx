@@ -1371,16 +1371,30 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
               )}
               <div className="sb-meta-row">
                 <TagsField value={note.tags ?? []} onChange={tags => patchNote({ tags })} />
-                <select
-                  className="sb-type-select"
-                  value={note.paraType ?? ''}
-                  onChange={e => changeNoteType((e.target.value || undefined) as ParaType | undefined)}
-                >
-                  <option value="">Inbox</option>
-                  <option value="Project">Project</option>
-                  <option value="Area">Area</option>
-                  <option value="Resource">Resource</option>
-                </select>
+                {note.paraType === 'Resource' ? (
+                  note.resourceKind === 'Repo' ? (
+                    <input type="text" className="sb-type-select" value="Code Vault" disabled />
+                  ) : (
+                    <select
+                      className="sb-type-select"
+                      value={note.resourceKind ?? 'Reference'}
+                      onChange={e => patchNote({ resourceKind: e.target.value as ResourceKind })}
+                    >
+                      {RESOURCE_KINDS.map(k => <option key={k} value={k}>{k}</option>)}
+                    </select>
+                  )
+                ) : (
+                  <select
+                    className="sb-type-select"
+                    value={note.paraType ?? ''}
+                    onChange={e => changeNoteType((e.target.value || undefined) as ParaType | undefined)}
+                  >
+                    <option value="">Inbox</option>
+                    <option value="Project">Project</option>
+                    <option value="Area">Area</option>
+                    <option value="Resource">Resource</option>
+                  </select>
+                )}
               </div>
 
               {note.paraType === 'Project' && (
@@ -1433,19 +1447,6 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
 
               {note.paraType === 'Resource' && (
                 <div className="sb-para-fields">
-                  {note.resourceKind === 'Repo' ? (
-                    <label>
-                      <span>Kind</span>
-                      <input type="text" value="Code Vault" disabled />
-                    </label>
-                  ) : (
-                    <label>
-                      <span>Kind</span>
-                      <select value={note.resourceKind ?? 'Reference'} onChange={e => patchNote({ resourceKind: e.target.value as ResourceKind })}>
-                        {RESOURCE_KINDS.map(k => <option key={k} value={k}>{k}</option>)}
-                      </select>
-                    </label>
-                  )}
                   {note.resourceKind === 'Repo' ? (
                     <label>
                       <span>Language</span>
