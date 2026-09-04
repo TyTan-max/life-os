@@ -767,6 +767,9 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
   // can't make part of their text a real link, so this checks where the browser's own
   // click-to-cursor logic landed against the token positions in the text (same tokenizer the
   // highlight overlay uses, so a click always agrees with what's actually colored on screen).
+  // Boundaries are excluded (strict <, >) so a click that merely lands adjacent to the token —
+  // right before its opening bracket or right after its closing one — just places the cursor
+  // there instead of firing, even though the browser snaps the caret to that same edge index.
   const onBodyClick = () => {
     if (!note) return;
     const ta = bodyRef.current;
@@ -775,7 +778,7 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
     for (const m of note.body.matchAll(BODY_TOKEN_PATTERN)) {
       const start = m.index ?? -1;
       const end = start + m[0].length;
-      if (pos < start || pos > end) continue;
+      if (pos <= start || pos >= end) continue;
       if (m[3] || m[5]) { window.open((m[3] || m[5]) as string, '_blank', 'noopener,noreferrer'); return; }
       if (m[4]) {
         const image = resolveMarkerImage(note.images ?? [], m[4].slice(1, -1));
