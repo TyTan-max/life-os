@@ -3835,13 +3835,48 @@ input, select, textarea { font-family: inherit; }
 .sb-board-card-title { background: transparent; border: none; text-align: left; padding: 0; font-size: 13px; font-weight: 650; color: var(--text); cursor: pointer; }
 .sb-board-card select { font-size: 11px; padding: 4px 6px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); color: var(--text); }
 .sb-table-shell { display: flex; flex-direction: column; }
-.sb-table-toolbar { flex-shrink: 0; }
-.sb-table-view { flex: 1; min-height: 0; overflow: auto; padding: 4px 12px 12px; }
+.sb-table-toolbar {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 18px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.sb-table-toolbar-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+.sb-search-inline { border: 1px solid var(--border); border-bottom: 1px solid var(--border); border-radius: 10px; padding: 7px 12px; flex: 0 1 320px; }
+.sb-table-count { font-size: 12px; font-weight: 650; color: var(--text-faint); white-space: nowrap; }
+.sb-tag-row-inline { padding: 0; border-bottom: none; }
+
+.sb-table-view { flex: 1; min-height: 0; overflow: auto; padding: 16px 18px 18px; }
 .sb-table-view .grid-table-wrap { max-height: none; }
+
+/* All-tab table: airier rows, no vertical rules, and a colored accent bar on the hovered row —
+   reads as an editorial data grid rather than a plain spreadsheet dump. */
+.sb-all-table th, .sb-all-table td { border-right: none; padding: 10px 12px; }
+.sb-all-table-pin { width: 32px; text-align: center !important; }
+.sb-all-table-pin svg { color: var(--accent); }
+.sb-all-table-title { font-weight: 650; color: var(--text); }
+.sb-all-table-date { color: var(--text-faint); font-variant-numeric: tabular-nums; font-size: 12.5px; }
+.sb-all-table-tags { display: inline-flex; flex-wrap: wrap; gap: 4px; }
+
 .sb-table-row { cursor: pointer; }
+.sb-table-row td { transition: background 0.1s ease, box-shadow 0.1s ease; }
 .sb-table-row:hover td { background: var(--surface-hover); }
+.sb-table-row:hover td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
 .sb-table-row .collection-table-actions { opacity: 0; transition: opacity 0.12s ease; }
 .sb-table-row:hover .collection-table-actions { opacity: 1; }
+
+.sb-type-pill { display: inline-flex; align-items: center; font-size: 11px; font-weight: 650; padding: 3px 9px; border-radius: 999px; white-space: nowrap; }
+.sb-type-pill.tone-accent { background: var(--accent-soft); color: var(--accent); }
+.sb-type-pill.tone-amber { background: var(--amber-soft); color: var(--amber); }
+.sb-type-pill.tone-green { background: var(--green-soft); color: var(--green); }
+.sb-type-pill.tone-purple { background: var(--purple-soft); color: var(--purple); }
+.sb-type-pill.tone-blue { background: var(--blue-soft); color: var(--blue); }
+.sb-type-pill.tone-teal { background: var(--teal-soft); color: var(--teal); }
+.sb-type-pill.tone-muted { background: var(--surface-hover); color: var(--text-faint); }
+
+.sb-tag-chip.muted { color: var(--text-faint); }
 
 /* Travel & Bucket List */
 .bucket-toolbar {

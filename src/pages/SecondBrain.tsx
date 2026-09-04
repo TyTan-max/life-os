@@ -120,6 +120,22 @@ function noteTypeLabel(n: Note): string {
   return n.resourceKind === 'Repo' ? 'Code Vault' : n.resourceKind ?? 'Reference';
 }
 
+// A distinct accent per type/kind so the All-tab table's Type column reads as a color-coded
+// glance rather than a wall of identical text — Code Vault's teal matches its existing hub-card
+// accent, Snippet's purple matches its existing language-badge color; the rest just fill out a
+// coherent set from the same token palette.
+function noteTypeTone(n: Note): string {
+  if (n.paraType === 'Resource') {
+    if (n.resourceKind === 'Repo') return 'teal';
+    if (n.resourceKind === 'Snippet') return 'purple';
+    if (n.resourceKind === 'Reference') return 'blue';
+    return 'green';
+  }
+  if (n.paraType === 'Project') return 'accent';
+  if (n.paraType === 'Area') return 'amber';
+  return 'muted';
+}
+
 function snippet(body: string, max = 90): string {
   // Photo markers are left as-is here — telling a real "[Photo 1]"/"[Trade Setup]" marker apart
   // from an unrelated "[something]" the user just typed needs the note's actual image list,
@@ -1000,12 +1016,15 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
       {showAllTable ? (
         <div className={`sb-shell sb-table-shell ${mobileHubActive ? 'sb-hub-active' : ''}`}>
           <div className="sb-table-toolbar">
-            <div className="sb-search">
-              <Search size={14} />
-              <input type="text" placeholder="Search notes…" value={query} onChange={e => setQuery(e.target.value)} />
+            <div className="sb-table-toolbar-row">
+              <div className="sb-search sb-search-inline">
+                <Search size={14} />
+                <input type="text" placeholder="Search notes…" value={query} onChange={e => setQuery(e.target.value)} />
+              </div>
+              <span className="sb-table-count">{sortedTableNotes.length} note{sortedTableNotes.length === 1 ? '' : 's'}</span>
             </div>
             {allTags.length > 0 && (
-              <div className="sb-tag-row">
+              <div className="sb-tag-row sb-tag-row-inline">
                 {allTags.map(t => (
                   <button
                     key={t}
@@ -1027,7 +1046,7 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
           <div className="sb-table-view">
             {sortedTableNotes.length ? (
               <div className="grid-table-wrap grid-table-scroll">
-                <table className="grid-table">
+                <table className="grid-table sb-all-table">
                   <thead>
                     <tr>
                       <SortableTh label="Pin" sortKey="pinned" state={tableSort} onSort={k => setTableSort(s => toggleSort(s, k, 'desc'))} />
@@ -1039,20 +1058,33 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                     </tr>
                   </thead>
                   <tbody>
-                    {sortedTableNotes.map(n => (
-                      <tr key={n.id} onClick={() => setSelectedId(n.id)} className="sb-table-row">
-                        <td>{n.pinned && <Pin size={12} />}</td>
-                        <td>{n.title || 'Untitled'}</td>
-                        <td>{noteTypeLabel(n)}</td>
-                        <td>{(n.tags ?? []).length ? (n.tags ?? []).join(', ') : <span className="grid-static-cell">—</span>}</td>
-                        <td>{formatDate(n.updatedAt)}</td>
-                        <td className="collection-table-actions" onClick={e => e.stopPropagation()}>
-                          <button type="button" className="icon-btn danger" onClick={() => void deleteNoteInstantly(n.id)} aria-label={`Delete ${n.title || 'Untitled'}`}>
-                            <Trash2 size={13} />
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
+                    {sortedTableNotes.map(n => {
+                      const visibleTags = (n.tags ?? []).slice(0, 3);
+                      const hiddenTagCount = (n.tags ?? []).length - visibleTags.length;
+                      return (
+                        <tr key={n.id} onClick={() => setSelectedId(n.id)} className="sb-table-row">
+                          <td className="sb-all-table-pin">{n.pinned && <Pin size={12} />}</td>
+                          <td className="sb-all-table-title">{n.title || 'Untitled'}</td>
+                          <td>
+                            <span className={`sb-type-pill tone-${noteTypeTone(n)}`}>{noteTypeLabel(n)}</span>
+                          </td>
+                          <td>
+                            {visibleTags.length ? (
+                              <span className="sb-all-table-tags">
+                                {visibleTags.map(t => <span key={t} className="sb-tag-chip static">{t}</span>)}
+                                {hiddenTagCount > 0 && <span className="sb-tag-chip static muted">+{hiddenTagCount}</span>}
+                              </span>
+                            ) : <span className="grid-static-cell">—</span>}
+                          </td>
+                          <td className="sb-all-table-date">{formatDate(n.updatedAt)}</td>
+                          <td className="collection-table-actions" onClick={e => e.stopPropagation()}>
+                            <button type="button" className="icon-btn danger" onClick={() => void deleteNoteInstantly(n.id)} aria-label={`Delete ${n.title || 'Untitled'}`}>
+                              <Trash2 size={13} />
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
