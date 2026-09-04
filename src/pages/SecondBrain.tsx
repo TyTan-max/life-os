@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ChangeEvent, ClipboardEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react';
 import {
   Archive, ArchiveRestore, Bold, BookMarked, Check, ChevronLeft, Code2, Command, Heading2,
-  Italic, Layers, Link2, List, ListOrdered, Pin, PinOff, Plus, Quote, Search, Strikethrough, Table2, Trash2, Upload, X
+  Italic, Layers, Link2, List, ListOrdered, Pin, PinOff, Plus, Quote, Search, Strikethrough, Trash2, Upload, X
 } from 'lucide-react';
 import { useStore, newRecord } from '../store';
 import type { Frequency, Goal, GoalHorizon, GoalProgressMode, GoalStatus, Note, NoteImage, ParaProjectStatus, ParaType, Priority, ResourceKind, ReviewCadence, Task, TaskStatus } from '../types';
@@ -340,7 +340,6 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
   const [tagFilter, setTagFilter] = useState<string | null>(null);
   const [paraTab, setParaTab] = useState<ParaTab>(initialTab ?? 'Overview');
   const [projectView, setProjectView] = useState<'List' | 'Board'>('List');
-  const [tableView, setTableView] = useState(false);
   const [tableSort, setTableSort] = useState<SortState<'pinned' | 'title' | 'type' | 'tags' | 'updated'>>({ key: 'pinned', dir: 'desc' });
   const [linkPickerOpen, setLinkPickerOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -906,13 +905,18 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
   // renders tab-root content (a hub/dashboard) rather than a note. Nothing was drilled into
   // from the list for these, so on mobile they take the sidebar's place directly instead of
   // sliding over the whole screen the way an opened note does.
+  const isAllTab = paraTab === 'All' && !areaScopeId && !resourceScope;
   const hubTabActive = !note && (
     (paraTab === 'Overview' && !resourceScope)
     || paraTab === 'Tasks'
     || paraTab === 'Goals'
     || (paraTab === 'Projects' && projectView === 'Board' && !areaScopeId)
     || (paraTab === 'Areas' && !areaScopeId && !resourceScope)
+    || isAllTab
   );
+  // All is the table tab: a full-width sortable grid replaces the sidebar+editor split until a
+  // row is clicked, at which point `note` becomes truthy and the normal split takes back over.
+  const showAllTable = isAllTab && !note;
   useFabAction('Second Brain', 'New note', () => void createNote());
   const mobileNoteOpen = isMobile && !!note;
   const mobileHubActive = isMobile && hubTabActive;
@@ -942,16 +946,6 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
             <button type="button" className="btn ghost" onClick={() => setPaletteOpen(true)} title="Jump to note (Ctrl+K)">
               <Command size={15} /> Jump to…
             </button>
-            {paraTab !== 'Tasks' && paraTab !== 'Goals' && (
-              <button
-                type="button"
-                className={`btn ghost ${tableView ? 'on' : ''}`}
-                onClick={() => setTableView(v => !v)}
-                title="Table view"
-              >
-                <Table2 size={15} /> Table
-              </button>
-            )}
             {paraTab === 'Tasks' ? (
               <button className="btn primary" onClick={startAddTask}><Plus size={16} /> Add task</button>
             ) : paraTab === 'Goals' ? (
@@ -986,6 +980,63 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
         )}
       </div>
 
+      {showAllTable ? (
+        <div className={`sb-shell sb-table-shell ${mobileHubActive ? 'sb-hub-active' : ''}`}>
+          <div className="sb-table-toolbar">
+            <div className="sb-search">
+              <Search size={14} />
+              <input type="text" placeholder="Search notes…" value={query} onChange={e => setQuery(e.target.value)} />
+            </div>
+            {allTags.length > 0 && (
+              <div className="sb-tag-row">
+                {allTags.map(t => (
+                  <button
+                    key={t}
+                    type="button"
+                    className={`sb-tag-chip ${tagFilter === t ? 'on' : ''}`}
+                    onClick={() => setTagFilter(prev => (prev === t ? null : t))}
+                  >
+                    {t}
+                  </button>
+                ))}
+                {tagFilter && (
+                  <button type="button" className="sb-tag-chip-clear" onClick={() => setTagFilter(null)} aria-label="Clear tag filter">
+                    <X size={12} />
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+          <div className="sb-table-view">
+            {sortedTableNotes.length ? (
+              <div className="grid-table-wrap grid-table-scroll">
+                <table className="grid-table">
+                  <thead>
+                    <tr>
+                      <SortableTh label="Pin" sortKey="pinned" state={tableSort} onSort={k => setTableSort(s => toggleSort(s, k, 'desc'))} />
+                      <SortableTh label="Title" sortKey="title" state={tableSort} onSort={k => setTableSort(s => toggleSort(s, k))} />
+                      <SortableTh label="Type" sortKey="type" state={tableSort} onSort={k => setTableSort(s => toggleSort(s, k))} />
+                      <SortableTh label="Tags" sortKey="tags" state={tableSort} onSort={k => setTableSort(s => toggleSort(s, k))} />
+                      <SortableTh label="Updated" sortKey="updated" state={tableSort} onSort={k => setTableSort(s => toggleSort(s, k, 'desc'))} />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {sortedTableNotes.map(n => (
+                      <tr key={n.id} onClick={() => setSelectedId(n.id)} className="sb-table-row">
+                        <td>{n.pinned && <Pin size={12} />}</td>
+                        <td>{n.title || 'Untitled'}</td>
+                        <td>{n.resourceKind === 'Repo' && n.language ? n.language : (n.paraType || 'Inbox')}</td>
+                        <td>{(n.tags ?? []).length ? (n.tags ?? []).join(', ') : <span className="grid-static-cell">—</span>}</td>
+                        <td>{formatDate(n.updatedAt)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : <EmptyState>{notes.length ? 'No notes match.' : 'No notes yet — create your first one.'}</EmptyState>}
+          </div>
+        </div>
+      ) : (
       <div className={`sb-shell ${mobileHubActive ? 'sb-hub-active' : ''} ${mobileSplitActive ? 'sb-split-active' : ''}`}>
         <aside className="sb-sidebar">
           {/* The centre FAB already captures to this same inbox, so on a phone this box is a
@@ -1087,38 +1138,7 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
         </aside>
 
         <main className={editorClass}>
-          {tableView ? (
-            <div className="sb-table-view">
-              {sortedTableNotes.length ? (
-                <div className="grid-table-wrap grid-table-scroll">
-                  <table className="grid-table">
-                    <thead>
-                      <tr>
-                        <SortableTh label="Pin" sortKey="pinned" state={tableSort} onSort={k => setTableSort(s => toggleSort(s, k, 'desc'))} />
-                        <SortableTh label="Title" sortKey="title" state={tableSort} onSort={k => setTableSort(s => toggleSort(s, k))} />
-                        <SortableTh label="Type" sortKey="type" state={tableSort} onSort={k => setTableSort(s => toggleSort(s, k))} />
-                        <SortableTh label="Tags" sortKey="tags" state={tableSort} onSort={k => setTableSort(s => toggleSort(s, k))} />
-                        <SortableTh label="Updated" sortKey="updated" state={tableSort} onSort={k => setTableSort(s => toggleSort(s, k, 'desc'))} />
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {sortedTableNotes.map(n => (
-                        <tr key={n.id} onClick={() => { setSelectedId(n.id); setTableView(false); }} className="sb-table-row">
-                          <td>{n.pinned && <Pin size={12} />}</td>
-                          <td>{n.title || 'Untitled'}</td>
-                          <td>
-                            {n.resourceKind === 'Repo' && n.language ? n.language : (n.paraType || 'Inbox')}
-                          </td>
-                          <td>{(n.tags ?? []).length ? (n.tags ?? []).join(', ') : <span className="grid-static-cell">—</span>}</td>
-                          <td>{formatDate(n.updatedAt)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              ) : <EmptyState>{notes.length ? 'No notes match.' : 'No notes yet — create your first one.'}</EmptyState>}
-            </div>
-          ) : paraTab === 'Projects' && projectView === 'Board' && !note && !areaScopeId ? (
+          {paraTab === 'Projects' && projectView === 'Board' && !note && !areaScopeId ? (
             <div className="sb-board">
               {PROJECT_STATUSES.map(status => {
                 const items = projectsForBoard.filter(p => (p.status ?? 'Not Started') === status);
@@ -1562,6 +1582,7 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
           )}
         </main>
       </div>
+      )}
 
       {linkPickerOpen && note && (
         <LinkPickerModal notes={notes.filter(n => n.id !== note.id)} onPick={insertLink} onClose={() => setLinkPickerOpen(false)} />
