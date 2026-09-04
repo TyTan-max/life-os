@@ -3586,6 +3586,7 @@ input, select, textarea { font-family: inherit; }
   caret-color: var(--text);
 }
 .sb-body-input-highlighted::selection { background: var(--accent-soft); }
+.sb-body-input-pointer { cursor: pointer; }
 .sb-body-code {
   font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
   font-size: 13px;

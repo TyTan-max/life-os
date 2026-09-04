@@ -158,11 +158,11 @@ function renderHighlightedBody(body: string, images: NoteImage[]): string {
     if (m[1]) {
       html += `<span class="sb-body-token-link" data-start="${start}">${escapeHtmlForBody(m[1])}</span>`;
     } else if (m[3] || m[5]) {
-      html += `<span class="sb-body-token-url" data-start="${start}">${escapeHtmlForBody(m[0])}</span>`;
+      html += `<span class="sb-body-token-url" data-start="${start}" data-actionable="true">${escapeHtmlForBody(m[0])}</span>`;
     } else if (m[4] && resolveMarkerImage(images, m[4].slice(1, -1))) {
       // Only colored when it actually resolves to a real photo — an unrelated "[something]" the
       // user typed for other reasons stays plain text, same as it always has.
-      html += `<span class="sb-body-token-link" data-start="${start}">${escapeHtmlForBody(m[4])}</span>`;
+      html += `<span class="sb-body-token-link" data-start="${start}" data-actionable="true">${escapeHtmlForBody(m[4])}</span>`;
     } else {
       html += escapeHtmlForBody(m[0]);
     }
@@ -337,6 +337,7 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
   const [captureText, setCaptureText] = useState('');
   const bodyRef = useRef<HTMLTextAreaElement>(null);
   const bodyHighlightRef = useRef<HTMLDivElement>(null);
+  const [bodyHoverPointer, setBodyHoverPointer] = useState(false);
   const imageFileRef = useRef<HTMLInputElement>(null);
   // Captured on the toolbar button's mousedown (before the file picker steals focus) so the
   // photo marker still lands where the cursor actually was, not wherever focus ends up after
@@ -797,6 +798,20 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
       if (image) setImageLightboxSrc(image.src);
       return;
     }
+  };
+
+  // Swaps the caret for a pointer cursor while hovering a URL or photo marker, purely by
+  // geometry against the same [data-actionable] spans onBodyClick hit-tests against — a click
+  // and a hover should always agree on what counts as "on" the token.
+  const onBodyMouseMove = (e: ReactMouseEvent<HTMLTextAreaElement>) => {
+    const overlay = bodyHighlightRef.current;
+    if (!overlay) { if (bodyHoverPointer) setBodyHoverPointer(false); return; }
+    let hit = false;
+    for (const span of overlay.querySelectorAll<HTMLElement>('[data-actionable]')) {
+      const r = span.getBoundingClientRect();
+      if (e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom) { hit = true; break; }
+    }
+    if (hit !== bodyHoverPointer) setBodyHoverPointer(hit);
   };
 
   // Pasted HTML (Google Docs, Word, browsers) gets rewritten to Markdown so paragraphs,
@@ -1377,12 +1392,14 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                   />
                   <textarea
                     ref={bodyRef}
-                    className="sb-body-input sb-body-input-highlighted"
+                    className={`sb-body-input sb-body-input-highlighted ${bodyHoverPointer ? 'sb-body-input-pointer' : ''}`}
                     placeholder="Start writing… use [[Note Title]] to link to another note. Paste or upload a photo to drop it in as a [Photo N] marker — click a marker to view that photo."
                     value={note.body}
                     onChange={e => patchNote({ body: e.target.value })}
                     onPaste={handleBodyPaste}
                     onClick={onBodyClick}
+                    onMouseMove={onBodyMouseMove}
+                    onMouseLeave={() => setBodyHoverPointer(false)}
                     onScroll={e => {
                       const highlight = bodyHighlightRef.current;
                       if (!highlight) return;
