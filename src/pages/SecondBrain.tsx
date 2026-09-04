@@ -71,11 +71,13 @@ function blankGoal(): Partial<Goal> {
   return { title: '', horizon: 'Weekly', progress: 0, status: 'Not Started', progressMode: 'percent' };
 }
 
-// A Resources Hub "kind" scope — either one real ResourceKind, or the pinned
-// Code Vault shortcut, which spans both 'Snippet' and 'Repo' at once.
+// A Resources Hub "kind" scope — either one real ResourceKind, or the pinned Code Vault
+// shortcut. Code Vault is the code-editor-treated kind (language field, monospace body, no rich
+// text toolbar) — backed by 'Repo' internally so 'Snippet' stays free to be an ordinary plain
+// note kind, same treatment as Idea/Reference.
 type ResourceScope = ResourceKind | 'CodeVault';
 function matchesResourceScope(n: Note, scope: ResourceScope): boolean {
-  if (scope === 'CodeVault') return n.resourceKind === 'Snippet' || n.resourceKind === 'Repo';
+  if (scope === 'CodeVault') return n.resourceKind === 'Repo';
   return n.resourceKind === scope;
 }
 
@@ -452,11 +454,11 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
     [notes]
   );
 
-  // Distinct languages among Snippets — only meaningful inside the Code Vault scope.
+  // Distinct languages among Code Vault entries — only meaningful inside that scope.
   const codeLanguages = useMemo(() => {
     const set = new Set<string>();
     for (const n of notes) {
-      if (n.paraType === 'Resource' && n.resourceKind === 'Snippet' && n.language && !n.archived) set.add(n.language);
+      if (n.paraType === 'Resource' && n.resourceKind === 'Repo' && n.language && !n.archived) set.add(n.language);
     }
     return Array.from(set).sort((a, b) => a.localeCompare(b));
   }, [notes]);
@@ -485,13 +487,13 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
     return counts;
   }, [notes]);
 
-  // Resources Hub rollup: live count per kind, plus the combined Code Vault count.
+  // Resources Hub rollup: live count per kind, plus the Code Vault count.
   const resourceCounts = useMemo(() => {
     const counts = new Map<ResourceScope, number>();
     for (const n of notes) {
       if (n.paraType !== 'Resource' || n.archived || !n.resourceKind) continue;
       counts.set(n.resourceKind, (counts.get(n.resourceKind) ?? 0) + 1);
-      if (n.resourceKind === 'Snippet' || n.resourceKind === 'Repo') {
+      if (n.resourceKind === 'Repo') {
         counts.set('CodeVault', (counts.get('CodeVault') ?? 0) + 1);
       }
     }
@@ -548,7 +550,7 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
     const scopePatch: Partial<Note> = areaScopeId
       ? { paraType: 'Project', areaId: areaScopeId }
       : resourceScope
-        ? { paraType: 'Resource', resourceKind: resourceScope === 'CodeVault' ? 'Snippet' : resourceScope }
+        ? { paraType: 'Resource', resourceKind: resourceScope === 'CodeVault' ? 'Repo' : resourceScope }
         : { paraType: typeOverride ?? TAB_PARA_TYPE[paraTab] };
     const body = scopePatch.paraType ? (PARA_TEMPLATES[scopePatch.paraType] ?? '') : '';
     const record = newRecord<Note>({ title: '', body, tags: [], pinned: false, ...scopePatch });
@@ -787,7 +789,7 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
   // nested lists, and bold/italic/links survive instead of collapsing into one plain-text
   // run — skipped for code snippets, which should paste verbatim.
   const handleBodyPaste = (e: ClipboardEvent<HTMLTextAreaElement>) => {
-    if (!note || note.resourceKind === 'Snippet') return;
+    if (!note || note.resourceKind === 'Repo') return;
     const imageItem = Array.from(e.clipboardData.items).find(item => item.type.startsWith('image/'));
     const imageFile = imageItem?.getAsFile();
     if (imageFile) {
@@ -977,7 +979,7 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                 <div className="sb-list-item-head">
                   {n.pinned && <Pin size={11} />}
                   <b>{n.title || 'Untitled'}</b>
-                  {n.resourceKind === 'Snippet' && n.language && <span className="sb-type-badge lang">{n.language}</span>}
+                  {n.resourceKind === 'Repo' && n.language && <span className="sb-type-badge lang">{n.language}</span>}
                   {n.paraType && <span className="sb-type-badge">{n.paraType}</span>}
                 </div>
                 {n.paraType === 'Project' && (
@@ -1083,7 +1085,7 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                   <button type="button" className="sb-hub-card accent" onClick={() => setResourceScope('CodeVault')}>
                     <Code2 size={18} />
                     <b>Code Vault</b>
-                    <p>Snippets and repositories in one place.</p>
+                    <p>Your code snippets, all in one place.</p>
                     <span className="sb-hub-card-count">{resourceCounts.get('CodeVault') ?? 0} item{(resourceCounts.get('CodeVault') ?? 0) === 1 ? '' : 's'}</span>
                   </button>
                 </div>
@@ -1303,22 +1305,11 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                       {RESOURCE_KINDS.map(k => <option key={k} value={k}>{k}</option>)}
                     </select>
                   </label>
-                  {note.resourceKind === 'Snippet' ? (
+                  {note.resourceKind === 'Repo' ? (
                     <label>
                       <span>Language</span>
                       <input type="text" value={note.language ?? ''} placeholder="typescript, python…" onChange={e => patchNote({ language: e.target.value })} />
                     </label>
-                  ) : note.resourceKind === 'Repo' ? (
-                    <>
-                      <label>
-                        <span>Repo URL</span>
-                        <input type="text" value={note.repoUrl ?? ''} placeholder="https://github.com/…" onChange={e => patchNote({ repoUrl: e.target.value })} />
-                      </label>
-                      <label>
-                        <span>Docs URL</span>
-                        <input type="text" value={note.docsUrl ?? ''} placeholder="https://…" onChange={e => patchNote({ docsUrl: e.target.value })} />
-                      </label>
-                    </>
                   ) : (
                     <label className="wide">
                       <span>Source URL</span>
@@ -1328,7 +1319,7 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                 </div>
               )}
 
-              {note.resourceKind !== 'Snippet' && (
+              {note.resourceKind !== 'Repo' && (
                 <div className="rte-toolbar sb-format-toolbar">
                   <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => wrapSelection('**')} title="Bold" aria-label="Bold"><Bold size={14} /></button>
                   <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => wrapSelection('*')} title="Italic" aria-label="Italic"><Italic size={14} /></button>
@@ -1345,7 +1336,7 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                   <button type="button" onMouseDown={e => e.preventDefault()} onClick={triggerImageUpload} disabled={uploadingImage} title="Add a photo" aria-label="Add a photo"><Upload size={14} /></button>
                 </div>
               )}
-              {note.resourceKind === 'Snippet' ? (
+              {note.resourceKind === 'Repo' ? (
                 <textarea
                   ref={bodyRef}
                   className="sb-body-input sb-body-code"
