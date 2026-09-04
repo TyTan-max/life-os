@@ -16,12 +16,6 @@ import { VaultOnboarding } from '../components/VaultOnboarding';
 import { htmlToMarkdown } from '../lib/htmlToMarkdown';
 
 const WIKILINK_PATTERN = /\[\[([^\]]+)\]\]/g;
-// A photo marker is any single-bracket segment that isn't part of a [[Wikilink]] (the negative
-// look-around excludes brackets nested inside a double-bracket pair). Its text is either the
-// default "Photo N" or, once renamed, the photo's own label — there's no fixed shape to match on
-// beyond "some single-bracket text," so resolving a match to an actual photo (see
-// resolveMarkerImage) checks the "Photo N" pattern first and falls back to a label lookup.
-const PHOTO_MARKER_PATTERN = /(?<!\[)\[([^[\]]+)\](?!\])/g;
 
 const PROJECT_STATUSES: ParaProjectStatus[] = ['Not Started', 'In Progress', 'Blocked', 'Completed'];
 const REVIEW_CADENCES: ReviewCadence[] = ['Weekly', 'Monthly', 'Quarterly'];
@@ -139,8 +133,9 @@ function markerTextFor(img: NoteImage): string {
 // transparent` + `caret-color`), so what's actually visible is this overlay's coloring while
 // every keystroke, click, and selection still goes through the real, fully-editable textarea on
 // top. Order matters: [[Wikilink]] is tried before a bare [marker], and [text](url) before that
-// again, so a link's own [text] half is never re-classified as a plain marker.
-const BODY_TOKEN_PATTERN = /(\[\[[^\]]+\]\])|(\[[^[\]]+\]\(https?:\/\/[^\s)]+\))|((?<!\[)\[[^[\]]+\](?!\]))/g;
+// again, so a link's own [text] half is never re-classified as a plain marker. Groups: 1 =
+// wikilink (full [[...]]), 2 = link text, 3 = link URL, 4 = bare marker (full [...]).
+const BODY_TOKEN_PATTERN = /(\[\[[^\]]+\]\])|\[([^[\]]+)\]\((https?:\/\/[^\s)]+)\)|((?<!\[)\[[^[\]]+\](?!\]))/g;
 
 function escapeHtmlForBody(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -154,12 +149,12 @@ function renderHighlightedBody(body: string, images: NoteImage[]): string {
     html += escapeHtmlForBody(body.slice(lastIndex, start));
     if (m[1]) {
       html += `<span class="sb-body-token-link">${escapeHtmlForBody(m[1])}</span>`;
-    } else if (m[2]) {
-      html += `<span class="sb-body-token-url">${escapeHtmlForBody(m[2])}</span>`;
-    } else if (m[3] && resolveMarkerImage(images, m[3].slice(1, -1))) {
+    } else if (m[3]) {
+      html += `<span class="sb-body-token-url">${escapeHtmlForBody(m[0])}</span>`;
+    } else if (m[4] && resolveMarkerImage(images, m[4].slice(1, -1))) {
       // Only colored when it actually resolves to a real photo — an unrelated "[something]" the
       // user typed for other reasons stays plain text, same as it always has.
-      html += `<span class="sb-body-token-link">${escapeHtmlForBody(m[3])}</span>`;
+      html += `<span class="sb-body-token-link">${escapeHtmlForBody(m[4])}</span>`;
     } else {
       html += escapeHtmlForBody(m[0]);
     }
@@ -707,7 +702,8 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
     const images = (note.images ?? []).filter(img => img.ordinal !== ordinal);
     // Strips every marker referencing the removed photo (renamed or not) so the text doesn't
     // keep pointing at a photo that's no longer there. The look-around guard matches
-    // PHOTO_MARKER_PATTERN's own — never touch a bracket that's actually part of a [[Wikilink]].
+    // BODY_TOKEN_PATTERN's own bare-marker branch — never touch a bracket that's actually part
+    // of a [[Wikilink]].
     const escaped = escapeRegExp(markerTextFor(target));
     const body = note.body.replace(new RegExp(`(?<!\\[)${escaped}(?!\\]) ?`, 'g'), '');
     patchNote({ images, body });
@@ -758,20 +754,25 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
     if (file) void addImageFile(file, insertAt);
   };
 
-  // A click that lands inside a "[Photo N]" marker opens that photo instead of just placing the
-  // cursor there — textareas can't make part of their text a real link, so this checks where the
-  // browser's own click-to-cursor logic landed against the marker positions in the text.
+  // A click that lands inside a "[text](url)" link opens that URL, and one inside a "[Photo N]"
+  // marker opens that photo — either way, instead of just placing the cursor there. Textareas
+  // can't make part of their text a real link, so this checks where the browser's own
+  // click-to-cursor logic landed against the token positions in the text (same tokenizer the
+  // highlight overlay uses, so a click always agrees with what's actually colored on screen).
   const onBodyClick = () => {
     if (!note) return;
     const ta = bodyRef.current;
     if (!ta) return;
     const pos = ta.selectionStart;
-    for (const m of note.body.matchAll(PHOTO_MARKER_PATTERN)) {
+    for (const m of note.body.matchAll(BODY_TOKEN_PATTERN)) {
       const start = m.index ?? -1;
       const end = start + m[0].length;
       if (pos < start || pos > end) continue;
-      const image = resolveMarkerImage(note.images ?? [], m[1]);
-      if (image) setImageLightboxSrc(image.src);
+      if (m[3]) { window.open(m[3], '_blank', 'noopener,noreferrer'); return; }
+      if (m[4]) {
+        const image = resolveMarkerImage(note.images ?? [], m[4].slice(1, -1));
+        if (image) setImageLightboxSrc(image.src);
+      }
       return;
     }
   };
