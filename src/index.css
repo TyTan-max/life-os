@@ -3829,6 +3829,8 @@ input, select, textarea { font-family: inherit; }
 .sb-table-view .grid-table-wrap { max-height: none; }
 .sb-table-row { cursor: pointer; }
 .sb-table-row:hover td { background: var(--surface-hover); }
+.sb-table-row .collection-table-actions { opacity: 0; transition: opacity 0.12s ease; }
+.sb-table-row:hover .collection-table-actions { opacity: 1; }
 
 /* Travel & Bucket List */
 .bucket-toolbar {

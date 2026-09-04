@@ -1025,6 +1025,7 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                       <SortableTh label="Type" sortKey="type" state={tableSort} onSort={k => setTableSort(s => toggleSort(s, k))} />
                       <SortableTh label="Tags" sortKey="tags" state={tableSort} onSort={k => setTableSort(s => toggleSort(s, k))} />
                       <SortableTh label="Updated" sortKey="updated" state={tableSort} onSort={k => setTableSort(s => toggleSort(s, k, 'desc'))} />
+                      <th />
                     </tr>
                   </thead>
                   <tbody>
@@ -1035,6 +1036,11 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                         <td>{noteTypeLabel(n)}</td>
                         <td>{(n.tags ?? []).length ? (n.tags ?? []).join(', ') : <span className="grid-static-cell">—</span>}</td>
                         <td>{formatDate(n.updatedAt)}</td>
+                        <td className="collection-table-actions" onClick={e => e.stopPropagation()}>
+                          <button type="button" className="icon-btn danger" onClick={() => deleteNote(n.id)} aria-label={`Delete ${n.title || 'Untitled'}`}>
+                            <Trash2 size={13} />
+                          </button>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
