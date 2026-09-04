@@ -149,6 +149,25 @@ function escapeHtmlForBody(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+// Catches a link left structurally broken by editing (a stray character deleted mid-domain, a
+// truncated TLD) even though it still matches BODY_TOKEN_PATTERN's loose "starts with http(s)://,
+// no whitespace" shape. Deliberately shallow — it can't know a domain is unreachable or a typo of
+// the one you meant, only that what's there doesn't parse as a real absolute URL with a real-looking
+// host, so a link some retyping made this obviously malformed unlinks itself instead of staying lit.
+function isValidUrl(candidate: string): boolean {
+  let url: URL;
+  try {
+    url = new URL(candidate);
+  } catch {
+    return false;
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') return false;
+  const host = url.hostname;
+  if (!host.includes('.')) return false;
+  const tld = host.slice(host.lastIndexOf('.') + 1);
+  return /^[a-zA-Z]{2,}$/.test(tld);
+}
+
 function renderHighlightedBody(body: string, images: NoteImage[]): string {
   let html = '';
   let lastIndex = 0;
@@ -157,7 +176,7 @@ function renderHighlightedBody(body: string, images: NoteImage[]): string {
     html += escapeHtmlForBody(body.slice(lastIndex, start));
     if (m[1]) {
       html += `<span class="sb-body-token-link" data-start="${start}">${escapeHtmlForBody(m[1])}</span>`;
-    } else if (m[3] || m[5]) {
+    } else if ((m[3] || m[5]) && isValidUrl((m[3] || m[5]) as string)) {
       html += `<span class="sb-body-token-url" data-start="${start}" data-actionable="true">${escapeHtmlForBody(m[0])}</span>`;
     } else if (m[4] && resolveMarkerImage(images, m[4].slice(1, -1))) {
       // Only colored when it actually resolves to a real photo — an unrelated "[something]" the
@@ -786,7 +805,8 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
       const start = m.index ?? -1;
       const end = start + m[0].length;
       if (pos <= start || pos >= end) continue;
-      const url = m[3] || m[5];
+      const urlCandidate = m[3] || m[5];
+      const url = urlCandidate && isValidUrl(urlCandidate) ? urlCandidate : undefined;
       const image = m[4] ? resolveMarkerImage(note.images ?? [], m[4].slice(1, -1)) : undefined;
       if (!url && !image) return;
       const span = bodyHighlightRef.current?.querySelector<HTMLElement>(`[data-start="${start}"]`);
