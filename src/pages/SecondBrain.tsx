@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ChangeEvent, ClipboardEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react';
 import {
-  Archive, ArchiveRestore, Bold, BookMarked, Check, ChevronLeft, Code2, Command, Heading2,
-  Italic, Layers, Link2, List, ListOrdered, Pin, PinOff, Plus, Quote, Search, Strikethrough, Trash2, Upload, X
+  Archive, ArchiveRestore, Bold, BookMarked, Check, ChevronLeft, Clock, Code2, Command, Heading2,
+  Italic, Layers, Link2, List, ListOrdered, Pin, PinOff, Plus, Quote, Search, Strikethrough, Trash2, TrendingUp, Upload, X
 } from 'lucide-react';
 import { useStore, newRecord } from '../store';
 import type { Frequency, Goal, GoalHorizon, GoalProgressMode, GoalStatus, Note, NoteImage, ParaProjectStatus, ParaType, Priority, ResourceKind, ReviewCadence, Task, TaskStatus } from '../types';
-import { Badge, Card, EmptyState, Kpi, Modal, PageHeader, formatDate } from '../components/UI';
+import { Badge, Card, EmptyState, Kpi, Modal, PageHeader, ProgressBar, formatDate } from '../components/UI';
 import { SortableTh, toggleSort } from '../components/SortableTh';
 import type { SortState } from '../components/SortableTh';
 import { DatePicker } from '../components/DatePicker';
@@ -587,6 +587,40 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
   const recentNotes = useMemo(
     () => [...notes].filter(n => !n.archived).sort((a, b) => (b.updatedAt ?? '').localeCompare(a.updatedAt ?? '')).slice(0, 5),
     [notes]
+  );
+
+  // "Coming up" merges the two things that actually carry due dates — open Tasks and
+  // in-flight Projects — into one chronological view, capped to the near future so it reads
+  // as "what's next" rather than a dump of every date that's ever been set.
+  const upcomingItems = useMemo(() => {
+    const cutoff = new Date(Date.now() + 8 * 86400000).toISOString().slice(0, 10);
+    const today = localIso();
+    type Upcoming = { id: string; kind: 'Task' | 'Project'; title: string; dueDate: string; overdue: boolean };
+    const items: Upcoming[] = [];
+    for (const t of data.tasks) {
+      if (t.status === 'Completed' || !t.dueDate || t.dueDate > cutoff) continue;
+      items.push({ id: t.id, kind: 'Task', title: t.title, dueDate: t.dueDate, overdue: t.dueDate < today });
+    }
+    for (const n of notes) {
+      if (n.paraType !== 'Project' || n.archived || n.status === 'Completed' || !n.dueDate || n.dueDate > cutoff) continue;
+      items.push({ id: n.id, kind: 'Project', title: n.title || 'Untitled', dueDate: n.dueDate, overdue: isProjectOverdue(n) });
+    }
+    return items.sort((a, b) => a.dueDate.localeCompare(b.dueDate)).slice(0, 6);
+  }, [data.tasks, notes]);
+
+  const tasksDueSoonCount = useMemo(() => {
+    const cutoff = new Date(Date.now() + 8 * 86400000).toISOString().slice(0, 10);
+    return data.tasks.filter(t => t.status !== 'Completed' && t.dueDate && t.dueDate <= cutoff).length;
+  }, [data.tasks]);
+
+  const activeGoals = useMemo(() => data.goals.filter(g => g.status !== 'Completed'), [data.goals]);
+  const goalProgressAvg = useMemo(
+    () => activeGoals.length ? Math.round(activeGoals.reduce((s, g) => s + (g.progress ?? 0), 0) / activeGoals.length) : null,
+    [activeGoals]
+  );
+  const goalHighlights = useMemo(
+    () => activeGoals.slice().sort((a, b) => (a.targetDate ?? '9999').localeCompare(b.targetDate ?? '9999')).slice(0, 4),
+    [activeGoals]
   );
 
   const note = notes.find(n => n.id === selectedId) ?? null;
@@ -1246,9 +1280,42 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
             <div className="sb-overview">
               <div className="sb-overview-grid">
                 <Kpi label="Needs attention" value={needsAttentionProjects.length} tone={needsAttentionProjects.length ? 'red' : 'green'} caption="overdue or blocked projects" />
+                <Kpi label="Due this week" value={tasksDueSoonCount} tone={tasksDueSoonCount ? 'amber' : 'green'} caption="open tasks" />
                 <Kpi label="Areas due for review" value={reviewDueAreas.length} tone={reviewDueAreas.length ? 'amber' : 'green'} />
+                <Kpi
+                  label="Goal progress"
+                  value={goalProgressAvg === null ? '—' : `${goalProgressAvg}%`}
+                  tone={goalProgressAvg === null ? 'default' : goalProgressAvg >= 60 ? 'green' : goalProgressAvg >= 30 ? 'amber' : 'red'}
+                  caption="avg. across active goals"
+                />
                 <Kpi label="Inbox" value={inboxCount} tone={inboxCount ? 'default' : 'green'} caption="awaiting triage" />
               </div>
+
+              {upcomingItems.length > 0 && (
+                <Card className="sb-overview-section">
+                  <h3><Clock size={12} /> Coming up</h3>
+                  {upcomingItems.map(item => (
+                    <button
+                      type="button"
+                      key={`${item.kind}-${item.id}`}
+                      className="sb-overview-row"
+                      onClick={() => {
+                        if (item.kind === 'Task') {
+                          const task = data.tasks.find(t => t.id === item.id);
+                          changeTab('Tasks');
+                          if (task) startEditTask(task);
+                        } else {
+                          setSelectedId(item.id);
+                        }
+                      }}
+                    >
+                      <span className={`sb-type-pill tone-${item.kind === 'Task' ? 'blue' : 'accent'}`}>{item.kind}</span>
+                      <b>{item.title}</b>
+                      <span className={`sb-due-chip ${item.overdue ? 'overdue' : ''}`}>{formatDate(item.dueDate)}</span>
+                    </button>
+                  ))}
+                </Card>
+              )}
 
               {needsAttentionProjects.length > 0 && (
                 <Card className="sb-overview-section">
@@ -1275,10 +1342,29 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                 </Card>
               )}
 
+              {goalHighlights.length > 0 && (
+                <Card className="sb-overview-section">
+                  <h3><TrendingUp size={12} /> Goal progress</h3>
+                  {goalHighlights.map(g => {
+                    const pct = g.progressMode === 'range' ? goalRangeProgress(g.rangeStart ?? 0, g.rangeTarget ?? 100, g.rangeValue ?? 0) : g.progress;
+                    return (
+                      <div key={g.id} className="sb-overview-goal-row">
+                        <div className="sb-overview-goal-head">
+                          <b>{g.title}</b>
+                          <span>{g.progress}{g.progressMode === 'range' ? (g.rangeUnit ?? '') : '%'}</span>
+                        </div>
+                        <ProgressBar value={pct} />
+                      </div>
+                    );
+                  })}
+                </Card>
+              )}
+
               <Card className="sb-overview-section">
                 <h3>Recently updated</h3>
                 {recentNotes.length ? recentNotes.map(n => (
                   <button type="button" key={n.id} className="sb-overview-row" onClick={() => setSelectedId(n.id)}>
+                    <span className={`sb-type-pill tone-${noteTypeTone(n)}`}>{noteTypeLabel(n)}</span>
                     <b>{n.title || 'Untitled'}</b>
                     <span className="sb-list-item-date">{formatDate(n.updatedAt)}</span>
                   </button>
