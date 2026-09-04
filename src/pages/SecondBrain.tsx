@@ -19,7 +19,7 @@ const WIKILINK_PATTERN = /\[\[([^\]]+)\]\]/g;
 
 const PROJECT_STATUSES: ParaProjectStatus[] = ['Not Started', 'In Progress', 'Blocked', 'Completed'];
 const REVIEW_CADENCES: ReviewCadence[] = ['Weekly', 'Monthly', 'Quarterly'];
-const RESOURCE_KINDS: ResourceKind[] = ['Snippet', 'Reference', 'Idea'];
+const RESOURCE_KINDS: ResourceKind[] = ['Idea', 'Snippet', 'Reference'];
 const REVIEW_CADENCE_DAYS: Record<ReviewCadence, number> = { Weekly: 7, Monthly: 30, Quarterly: 90 };
 
 // Starting scaffolds for new Project/Area notes — Resources deliberately stay blank
@@ -1070,12 +1070,6 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
               <Card className="sb-overview-section">
                 <h3>Resources</h3>
                 <div className="sb-hub-grid">
-                  <button type="button" className="sb-hub-card accent" onClick={() => setResourceScope('CodeVault')}>
-                    <Code2 size={18} />
-                    <b>Code Vault</b>
-                    <p>Snippets and repositories in one place.</p>
-                    <span className="sb-hub-card-count">{resourceCounts.get('CodeVault') ?? 0} item{(resourceCounts.get('CodeVault') ?? 0) === 1 ? '' : 's'}</span>
-                  </button>
                   {RESOURCE_KINDS.map(kind => {
                     const count = resourceCounts.get(kind) ?? 0;
                     return (
@@ -1086,6 +1080,12 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                       </button>
                     );
                   })}
+                  <button type="button" className="sb-hub-card accent" onClick={() => setResourceScope('CodeVault')}>
+                    <Code2 size={18} />
+                    <b>Code Vault</b>
+                    <p>Snippets and repositories in one place.</p>
+                    <span className="sb-hub-card-count">{resourceCounts.get('CodeVault') ?? 0} item{(resourceCounts.get('CodeVault') ?? 0) === 1 ? '' : 's'}</span>
+                  </button>
                 </div>
               </Card>
             </div>
