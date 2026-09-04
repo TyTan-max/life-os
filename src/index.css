@@ -3828,7 +3828,21 @@ input, select, textarea { font-family: inherit; }
 .sb-overview-row { display: flex; align-items: center; gap: 10px; width: calc(100% + 20px); text-align: left; background: transparent; border: none; border-radius: 8px; padding: 8px 10px; cursor: pointer; color: var(--text); margin: 0 -10px; }
 .sb-overview-row:hover { background: var(--accent-soft); }
 .sb-overview-row b { flex: 1; font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.sb-overview-goal-row { padding: 8px 0; }
+/* Capped to roughly 4 rows tall — every active goal is in the list underneath, the rest are
+   reached by scrolling this one card instead of growing the whole Overview page to fit them. */
+.sb-overview-goals-scroll { max-height: 228px; overflow-y: auto; }
+.sb-overview-goal-row {
+  display: block;
+  width: calc(100% + 20px);
+  text-align: left;
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  padding: 8px 10px;
+  margin: 0 -10px;
+  cursor: pointer;
+}
+.sb-overview-goal-row:hover { background: var(--accent-soft); }
 .sb-overview-goal-row + .sb-overview-goal-row { border-top: 1px solid var(--border); }
 .sb-overview-goal-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 6px; }
 .sb-overview-goal-head b { font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

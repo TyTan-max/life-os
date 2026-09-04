@@ -618,8 +618,11 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
     () => activeGoals.length ? Math.round(activeGoals.reduce((s, g) => s + (g.progress ?? 0), 0) / activeGoals.length) : null,
     [activeGoals]
   );
+  // Sorted by nearest target date first, but not capped — the card itself stays sized to
+  // roughly 4 rows and scrolls internally, so every active goal is reachable without the
+  // rest of the Overview page growing to fit them all.
   const goalHighlights = useMemo(
-    () => activeGoals.slice().sort((a, b) => (a.targetDate ?? '9999').localeCompare(b.targetDate ?? '9999')).slice(0, 4),
+    () => activeGoals.slice().sort((a, b) => (a.targetDate ?? '9999').localeCompare(b.targetDate ?? '9999')),
     [activeGoals]
   );
 
@@ -1345,18 +1348,25 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
               {goalHighlights.length > 0 && (
                 <Card className="sb-overview-section">
                   <h3><TrendingUp size={12} /> Goal progress</h3>
-                  {goalHighlights.map(g => {
-                    const pct = g.progressMode === 'range' ? goalRangeProgress(g.rangeStart ?? 0, g.rangeTarget ?? 100, g.rangeValue ?? 0) : g.progress;
-                    return (
-                      <div key={g.id} className="sb-overview-goal-row">
-                        <div className="sb-overview-goal-head">
-                          <b>{g.title}</b>
-                          <span>{g.progress}{g.progressMode === 'range' ? (g.rangeUnit ?? '') : '%'}</span>
-                        </div>
-                        <ProgressBar value={pct} />
-                      </div>
-                    );
-                  })}
+                  <div className="sb-overview-goals-scroll">
+                    {goalHighlights.map(g => {
+                      const pct = g.progressMode === 'range' ? goalRangeProgress(g.rangeStart ?? 0, g.rangeTarget ?? 100, g.rangeValue ?? 0) : g.progress;
+                      return (
+                        <button
+                          type="button"
+                          key={g.id}
+                          className="sb-overview-goal-row"
+                          onClick={() => { changeTab('Goals'); startEditGoal(g); }}
+                        >
+                          <div className="sb-overview-goal-head">
+                            <b>{g.title}</b>
+                            <span>{g.progress}{g.progressMode === 'range' ? (g.rangeUnit ?? '') : '%'}</span>
+                          </div>
+                          <ProgressBar value={pct} />
+                        </button>
+                      );
+                    })}
+                  </div>
                 </Card>
               )}
 
