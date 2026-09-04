@@ -4625,6 +4625,10 @@ input, select, textarea { font-family: inherit; }
   }
   .sb-para-tabs::-webkit-scrollbar { display: none; }
   .sb-para-tabs > * { flex: none; scroll-snap-align: start; white-space: nowrap; }
+  /* The sidebar list's delete button only reveals on :hover, which a touch screen never fires —
+     SwipeRow (wired in on isMobile) is the real delete gesture here, but per its own rule a
+     swipe is never the only way to reach a destructive action, so the icon stays visible too. */
+  .sb-list-item-delete { opacity: 1; background: transparent; }
   .tj-charts-grid { grid-template-columns: 1fr; }
   /* min-width:0 for the same reason as .sb-sidebar and the tab strips earlier this pass — a
      grid item defaults to min-width:auto, floors at its content's intrinsic size, and the

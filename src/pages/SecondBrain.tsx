@@ -14,6 +14,7 @@ import { RichTextEditor } from '../components/RichTextEditor';
 import { useIsMobile, useIsMobileLandscape } from '../hooks/useIsMobile';
 import { useFabAction } from '../hooks/useFabAction';
 import { SwipeRow } from '../components/SwipeRow';
+import { MobileRecordList } from '../components/MobileRecordList';
 import { VaultOnboarding } from '../components/VaultOnboarding';
 import { htmlToMarkdown } from '../lib/htmlToMarkdown';
 
@@ -1044,7 +1045,19 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
             )}
           </div>
           <div className="sb-table-view">
-            {sortedTableNotes.length ? (
+            {isMobile ? (
+              <MobileRecordList
+                items={sortedTableNotes}
+                primary={n => <>{n.pinned && <Pin size={12} className="mrl-pin-icon" />} {n.title || 'Untitled'}</>}
+                secondary={n => noteTypeLabel(n)}
+                trailing={n => formatDate(n.updatedAt)}
+                fields={[{ label: 'Tags', value: n => ((n.tags ?? []).length ? (n.tags ?? []).join(', ') : '—') }]}
+                onOpen={n => setSelectedId(n.id)}
+                onDelete={n => void deleteNoteInstantly(n.id)}
+                deleteLabel={n => `Delete ${n.title || 'Untitled'}`}
+                empty={notes.length ? 'No notes match.' : 'No notes yet — create your first one.'}
+              />
+            ) : sortedTableNotes.length ? (
               <div className="grid-table-wrap grid-table-scroll">
                 <table className="grid-table sb-all-table">
                   <thead>
@@ -1160,34 +1173,39 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
           <div className="sb-list">
             {filteredNotes.length ? filteredNotes.map(n => (
               <div className="sb-list-item-wrap" key={n.id}>
-                <button
-                  type="button"
-                  className={`sb-list-item ${selectedId === n.id ? 'active' : ''}`}
-                  onClick={() => setSelectedId(n.id)}
+                <SwipeRow
+                  disabled={!isMobile}
+                  trailing={{ label: 'Delete', icon: <Trash2 size={16} />, onTrigger: () => deleteNote(n.id) }}
                 >
-                  <div className="sb-list-item-head">
-                    {n.pinned && <Pin size={11} />}
-                    <b>{n.title || 'Untitled'}</b>
-                    {n.resourceKind === 'Repo' && n.language && <span className="sb-type-badge lang">{n.language}</span>}
-                    {n.paraType && <span className="sb-type-badge">{n.paraType}</span>}
-                  </div>
-                  {n.paraType === 'Project' && (
-                    <div className="sb-list-item-status-row">
-                      <span className={`sb-status-pill status-${(n.status ?? 'Not Started').replace(/\s+/g, '-').toLowerCase()}`}>{n.status ?? 'Not Started'}</span>
-                      {n.dueDate && <span className={`sb-due-chip ${isProjectOverdue(n) ? 'overdue' : ''}`}>{formatDate(n.dueDate)}</span>}
+                  <button
+                    type="button"
+                    className={`sb-list-item ${selectedId === n.id ? 'active' : ''}`}
+                    onClick={() => setSelectedId(n.id)}
+                  >
+                    <div className="sb-list-item-head">
+                      {n.pinned && <Pin size={11} />}
+                      <b>{n.title || 'Untitled'}</b>
+                      {n.resourceKind === 'Repo' && n.language && <span className="sb-type-badge lang">{n.language}</span>}
+                      {n.paraType && <span className="sb-type-badge">{n.paraType}</span>}
                     </div>
-                  )}
-                  {n.paraType === 'Area' && isReviewDue(n) && (
-                    <div className="sb-list-item-status-row">
-                      <span className="sb-due-chip amber">Review due</span>
+                    {n.paraType === 'Project' && (
+                      <div className="sb-list-item-status-row">
+                        <span className={`sb-status-pill status-${(n.status ?? 'Not Started').replace(/\s+/g, '-').toLowerCase()}`}>{n.status ?? 'Not Started'}</span>
+                        {n.dueDate && <span className={`sb-due-chip ${isProjectOverdue(n) ? 'overdue' : ''}`}>{formatDate(n.dueDate)}</span>}
+                      </div>
+                    )}
+                    {n.paraType === 'Area' && isReviewDue(n) && (
+                      <div className="sb-list-item-status-row">
+                        <span className="sb-due-chip amber">Review due</span>
+                      </div>
+                    )}
+                    <p>{snippet(n.body)}</p>
+                    <div className="sb-list-item-meta">
+                      {(n.tags ?? []).slice(0, 3).map(t => <span key={t} className="sb-tag-chip static">{t}</span>)}
+                      <span className="sb-list-item-date">{formatDate(n.updatedAt)}</span>
                     </div>
-                  )}
-                  <p>{snippet(n.body)}</p>
-                  <div className="sb-list-item-meta">
-                    {(n.tags ?? []).slice(0, 3).map(t => <span key={t} className="sb-tag-chip static">{t}</span>)}
-                    <span className="sb-list-item-date">{formatDate(n.updatedAt)}</span>
-                  </div>
-                </button>
+                  </button>
+                </SwipeRow>
                 <button
                   type="button"
                   className="icon-btn danger sb-list-item-delete"
