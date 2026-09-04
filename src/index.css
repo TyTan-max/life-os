@@ -3811,7 +3811,6 @@ input, select, textarea { font-family: inherit; }
 .sb-overview-row { display: flex; align-items: center; gap: 10px; width: calc(100% + 20px); text-align: left; background: transparent; border: none; border-radius: 8px; padding: 8px 10px; cursor: pointer; color: var(--text); margin: 0 -10px; }
 .sb-overview-row:hover { background: var(--accent-soft); }
 .sb-overview-row b { flex: 1; font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.sb-overview-jump { margin-top: 4px; }
 
 /* Board */
 .sb-board { display: flex; gap: 14px; overflow-x: auto; flex: 1; min-height: 0; padding: 4px 4px 12px; }

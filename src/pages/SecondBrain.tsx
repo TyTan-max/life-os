@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ChangeEvent, ClipboardEvent } from 'react';
 import {
-  Archive, ArchiveRestore, Bold, BookMarked, Check, ChevronLeft, Code2, Command, Heading2, Inbox as InboxIcon,
+  Archive, ArchiveRestore, Bold, BookMarked, Check, ChevronLeft, Code2, Command, Heading2,
   Italic, Layers, Link2, List, ListOrdered, Pin, PinOff, Plus, Quote, Search, Strikethrough, Trash2, Upload, X
 } from 'lucide-react';
 import { useStore, newRecord } from '../store';
@@ -1065,21 +1065,6 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                   </button>
                 )) : <EmptyState>No notes yet — create your first one.</EmptyState>}
               </Card>
-
-              <div className="sb-hub-grid sb-overview-jump">
-                <button type="button" className="sb-hub-card" onClick={() => changeTab('Projects')}>
-                  <Layers size={18} /><b>Projects</b><p>Things with an end state.</p>
-                </button>
-                <button type="button" className="sb-hub-card" onClick={() => changeTab('Areas')}>
-                  <Layers size={18} /><b>Areas</b><p>Ongoing responsibilities.</p>
-                </button>
-                <button type="button" className="sb-hub-card" onClick={() => changeTab('Resources')}>
-                  <BookMarked size={18} /><b>Resources</b><p>Reference material &amp; ideas.</p>
-                </button>
-                <button type="button" className="sb-hub-card" onClick={() => changeTab('Inbox')}>
-                  <InboxIcon size={18} /><b>Inbox</b><p>{inboxCount} awaiting triage.</p>
-                </button>
-              </div>
             </div>
           ) : !note && paraTab === 'Areas' && !areaScopeId && !resourceScope ? (
             <div className="sb-hub">
