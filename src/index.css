@@ -3491,7 +3491,12 @@ input, select, textarea { font-family: inherit; }
   cursor: pointer;
 }
 .sb-list { flex: 1; min-height: 0; overflow-y: auto; padding: 6px; }
-.sb-list-item-wrap { position: relative; }
+/* Spacing between rows lives here rather than on .sb-list-item itself: on mobile that button
+   sits inside SwipeRow's .swipe-row-body, and a margin on the button (inside that container)
+   would leave an unpainted gap at the row's bottom edge — exposing the trailing delete action's
+   red background through it even at rest. A margin on the wrap, outside the swipe row entirely,
+   can't do that. */
+.sb-list-item-wrap { position: relative; margin-bottom: 2px; }
 .sb-list-item-delete {
   position: absolute;
   top: 8px;
@@ -3511,7 +3516,6 @@ input, select, textarea { font-family: inherit; }
   border-radius: 10px;
   padding: 10px 10px;
   cursor: pointer;
-  margin-bottom: 2px;
 }
 .sb-list-item:hover { background: var(--surface); }
 .sb-list-item.active { background: var(--accent-soft); }
