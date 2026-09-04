@@ -4629,6 +4629,16 @@ input, select, textarea { font-family: inherit; }
      SwipeRow (wired in on isMobile) is the real delete gesture here, but per its own rule a
      swipe is never the only way to reach a destructive action, so the icon stays visible too. */
   .sb-list-item-delete { opacity: 1; background: transparent; }
+  /* A goal row's title, slider, %, status pill, and delete button all fit on one line on
+     desktop, but that's ~450px of content — wider than the phone itself. Wrap the row onto two
+     lines: title/status/delete stay together up top, and the slider — the widest, least
+     compressible piece — drops to a full-width line of its own instead of clipping off-screen. */
+  .task-row:has(.sb-goal-row-title) { flex-wrap: wrap; row-gap: 8px; }
+  .sb-goal-row-title { flex: 1 1 auto; order: 1; min-width: 0; }
+  .goal-status { order: 2; }
+  .task-row:has(.sb-goal-row-title) > .icon-btn.danger { order: 3; }
+  .sb-goal-row-slider { order: 4; flex: 1 1 100%; }
+  .sb-goal-row-pct { order: 5; }
   .tj-charts-grid { grid-template-columns: 1fr; }
   /* min-width:0 for the same reason as .sb-sidebar and the tab strips earlier this pass — a
      grid item defaults to min-width:auto, floors at its content's intrinsic size, and the
