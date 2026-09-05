@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import { useStore, newRecord } from '../store';
 import type { Frequency, Goal, GoalHorizon, GoalProgressMode, GoalStatus, Note, NoteImage, ParaProjectStatus, ParaType, Priority, ResourceKind, ReviewCadence, Task, TaskStatus } from '../types';
-import { Badge, Card, EmptyState, Kpi, Modal, PageHeader, ProgressBar, formatDate } from '../components/UI';
+import { Badge, Card, EmptyState, Kpi, Modal, PageHeader, formatDate } from '../components/UI';
 import { SortableTh, toggleSort } from '../components/SortableTh';
 import type { SortState } from '../components/SortableTh';
 import { DatePicker } from '../components/DatePicker';
@@ -1350,20 +1350,29 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                   <h3><TrendingUp size={12} /> Goal progress</h3>
                   <div className="sb-overview-goals-scroll">
                     {goalHighlights.map(g => {
-                      const pct = g.progressMode === 'range' ? goalRangeProgress(g.rangeStart ?? 0, g.rangeTarget ?? 100, g.rangeValue ?? 0) : g.progress;
+                      const isRange = g.progressMode === 'range';
+                      const rangeStart = g.rangeStart ?? 0;
+                      const rangeTarget = g.rangeTarget ?? 100;
+                      const rangeValue = g.rangeValue ?? rangeStart;
+                      const sliderMin = Math.min(rangeStart, rangeTarget);
+                      const sliderMax = Math.max(rangeStart, rangeTarget);
                       return (
-                        <button
-                          type="button"
-                          key={g.id}
-                          className="sb-overview-goal-row"
-                          onClick={() => { changeTab('Goals'); startEditGoal(g); }}
-                        >
+                        <div key={g.id} className="sb-overview-goal-row">
                           <div className="sb-overview-goal-head">
                             <b>{g.title}</b>
-                            <span>{g.progress}{g.progressMode === 'range' ? (g.rangeUnit ?? '') : '%'}</span>
+                            <span>{g.progress}{isRange ? (g.rangeUnit ?? '') : '%'}</span>
                           </div>
-                          <ProgressBar value={pct} />
-                        </button>
+                          <input
+                            type="range"
+                            className="range-slider"
+                            min={isRange ? sliderMin : 0}
+                            max={isRange ? sliderMax : 100}
+                            value={isRange ? rangeValue : g.progress}
+                            onChange={e => (isRange ? setGoalRangeValue(g, Number(e.target.value)) : setGoalProgress(g, Number(e.target.value)))}
+                            aria-label={`Progress for ${g.title}`}
+                            style={{ background: `linear-gradient(to right, var(--teal) ${g.progress}%, var(--border) ${g.progress}%)` }}
+                          />
+                        </div>
                       );
                     })}
                   </div>
