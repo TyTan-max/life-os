@@ -825,6 +825,13 @@ function CalculatorPopup({ onClose }: { onClose: () => void }) {
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
+      // The popup's keyboard shortcuts double as global window shortcuts, but that means
+      // typing a digit into any other field on the page (like Daily P/L) also fed the
+      // calculator. Skip entirely whenever focus is actually inside a real form control —
+      // its own keystrokes should go only to that field, not to this popup as well.
+      const target = e.target as HTMLElement | null;
+      const tag = target?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target?.isContentEditable) return;
       if (e.key >= '0' && e.key <= '9') inputDigit(e.key);
       else if (e.key === '.') inputDecimal();
       else if (e.key === '+') performOperator('+');
