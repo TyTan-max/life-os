@@ -1330,6 +1330,29 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                 <Kpi label="Inbox" value={inboxCount} tone={inboxCount ? 'default' : 'green'} caption="awaiting triage" />
               </div>
 
+              <Card className="sb-overview-section">
+                <h3>Resources</h3>
+                <div className="sb-hub-grid">
+                  {RESOURCE_KINDS.map(kind => {
+                    const count = resourceCounts.get(kind) ?? 0;
+                    const Icon = RESOURCE_KIND_ICONS[kind];
+                    return (
+                      <button type="button" key={kind} className="sb-hub-card" onClick={() => setResourceScope(kind)}>
+                        <Icon size={18} />
+                        <b>{kind}</b>
+                        <span className="sb-hub-card-count">{count} item{count === 1 ? '' : 's'}</span>
+                      </button>
+                    );
+                  })}
+                  <button type="button" className="sb-hub-card accent" onClick={() => setResourceScope('CodeVault')}>
+                    <Code2 size={18} />
+                    <b>Code Vault</b>
+                    <p>Your code snippets, all in one place.</p>
+                    <span className="sb-hub-card-count">{resourceCounts.get('CodeVault') ?? 0} item{(resourceCounts.get('CodeVault') ?? 0) === 1 ? '' : 's'}</span>
+                  </button>
+                </div>
+              </Card>
+
               {upcomingItems.length > 0 && (
                 <Card className="sb-overview-section">
                   <h3><Clock size={12} /> Coming up</h3>
@@ -1426,29 +1449,6 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                     <span className="sb-list-item-date">{formatDate(n.updatedAt)}</span>
                   </button>
                 )) : <EmptyState>No notes yet — create your first one.</EmptyState>}
-              </Card>
-
-              <Card className="sb-overview-section">
-                <h3>Resources</h3>
-                <div className="sb-hub-grid">
-                  {RESOURCE_KINDS.map(kind => {
-                    const count = resourceCounts.get(kind) ?? 0;
-                    const Icon = RESOURCE_KIND_ICONS[kind];
-                    return (
-                      <button type="button" key={kind} className="sb-hub-card" onClick={() => setResourceScope(kind)}>
-                        <Icon size={18} />
-                        <b>{kind}</b>
-                        <span className="sb-hub-card-count">{count} item{count === 1 ? '' : 's'}</span>
-                      </button>
-                    );
-                  })}
-                  <button type="button" className="sb-hub-card accent" onClick={() => setResourceScope('CodeVault')}>
-                    <Code2 size={18} />
-                    <b>Code Vault</b>
-                    <p>Your code snippets, all in one place.</p>
-                    <span className="sb-hub-card-count">{resourceCounts.get('CodeVault') ?? 0} item{(resourceCounts.get('CodeVault') ?? 0) === 1 ? '' : 's'}</span>
-                  </button>
-                </div>
               </Card>
             </div>
           ) : !note && paraTab === 'Areas' && !areaScopeId && !resourceScope ? (
