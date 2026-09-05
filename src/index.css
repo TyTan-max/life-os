@@ -3087,7 +3087,14 @@ input, select, textarea { font-family: inherit; }
   max-width: 100%;
   overflow-x: auto;
   white-space: nowrap;
+  /* A long result still needs to overflow-scroll rather than clip or wrap, but Windows draws
+     its own step-arrow buttons on a visible horizontal scrollbar — exactly the "arrows next to
+     the number" that look like part of the calculator but aren't. Hide the scrollbar chrome
+     itself; the content still scrolls (via drag, wheel, or arrow keys), just without a visible
+     track drawn over the display. */
+  scrollbar-width: none;
 }
+.tj-calc-display-value::-webkit-scrollbar { display: none; }
 .tj-calc-display-result .tj-calc-display-value { color: var(--teal); }
 .tj-calc-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
 .tj-calc-btn {
