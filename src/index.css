@@ -3811,6 +3811,31 @@ input, select, textarea { font-family: inherit; }
 .sb-hub-card.accent { background: var(--teal-soft); border-color: var(--teal); }
 .sb-hub-card.accent svg { color: var(--teal); }
 
+/* Overview's Resources panel gets a compact horizontal-row card instead of the tall
+   icon-over-title-over-count .sb-hub-card used on the full Areas hub — the Overview already has
+   five other sections competing for vertical space, so this row of four just needs to be a
+   quick way in, not a showcase. */
+.sb-resources-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; }
+.sb-resource-mini-card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-align: left;
+  border: 1px solid var(--border);
+  background: var(--surface-hover);
+  border-radius: 10px;
+  padding: 8px 10px;
+  cursor: pointer;
+  min-width: 0;
+}
+.sb-resource-mini-card:hover { background: var(--accent-soft); border-color: var(--accent); }
+.sb-resource-mini-card svg { color: var(--teal); flex-shrink: 0; }
+.sb-resource-mini-card.accent { background: var(--teal-soft); border-color: var(--teal); }
+.sb-resource-mini-card.accent svg { color: var(--teal); }
+.sb-resource-mini-card-text { display: flex; flex-direction: column; min-width: 0; gap: 1px; }
+.sb-resource-mini-card-text b { font-size: 12.5px; font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sb-resource-mini-card-text span { font-size: 10.5px; color: var(--text-muted); }
+
 .sb-dash-area { border-top: 1px solid var(--border); margin-top: 10px; padding-top: 10px; }
 .sb-dash-area > span { display: block; font-size: 11px; color: var(--text-faint); font-weight: 650; text-transform: uppercase; letter-spacing: 0.03em; margin-bottom: 4px; }
 .sb-dash-area b { display: block; font-size: 14px; }

@@ -1332,23 +1332,31 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
 
               <Card className="sb-overview-section">
                 <h3>Resources</h3>
-                <div className="sb-hub-grid">
+                <div className="sb-resources-grid">
                   {RESOURCE_KINDS.map(kind => {
                     const count = resourceCounts.get(kind) ?? 0;
                     const Icon = RESOURCE_KIND_ICONS[kind];
                     return (
-                      <button type="button" key={kind} className="sb-hub-card" onClick={() => setResourceScope(kind)}>
-                        <Icon size={18} />
-                        <b>{kind}</b>
-                        <span className="sb-hub-card-count">{count} item{count === 1 ? '' : 's'}</span>
+                      <button type="button" key={kind} className="sb-resource-mini-card" onClick={() => setResourceScope(kind)}>
+                        <Icon size={16} />
+                        <span className="sb-resource-mini-card-text">
+                          <b>{kind}</b>
+                          <span>{count} item{count === 1 ? '' : 's'}</span>
+                        </span>
                       </button>
                     );
                   })}
-                  <button type="button" className="sb-hub-card accent" onClick={() => setResourceScope('CodeVault')}>
-                    <Code2 size={18} />
-                    <b>Code Vault</b>
-                    <p>Your code snippets, all in one place.</p>
-                    <span className="sb-hub-card-count">{resourceCounts.get('CodeVault') ?? 0} item{(resourceCounts.get('CodeVault') ?? 0) === 1 ? '' : 's'}</span>
+                  <button
+                    type="button"
+                    className="sb-resource-mini-card accent"
+                    onClick={() => setResourceScope('CodeVault')}
+                    title="Your code snippets, all in one place."
+                  >
+                    <Code2 size={16} />
+                    <span className="sb-resource-mini-card-text">
+                      <b>Code Vault</b>
+                      <span>{resourceCounts.get('CodeVault') ?? 0} item{(resourceCounts.get('CodeVault') ?? 0) === 1 ? '' : 's'}</span>
+                    </span>
                   </button>
                 </div>
               </Card>
