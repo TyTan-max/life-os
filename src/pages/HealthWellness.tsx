@@ -94,6 +94,13 @@ export function HealthWellness() {
             {HEALTH_PERIODS.map(p => <option key={p} value={p}>{p}</option>)}
           </select>
           <div className="tj-period-nav">
+            <button type="button" className="icon-btn" onClick={() => shiftPeriod(-1)} aria-label={`Previous ${period.toLowerCase()}`}><ChevronLeft size={16} /></button>
+            <DatePicker
+              value={activeDate}
+              onChange={onActiveDateChange}
+              displayLabel={periodLabel}
+            />
+            <button type="button" className="icon-btn" onClick={() => shiftPeriod(1)} aria-label={`Next ${period.toLowerCase()}`}><ChevronRight size={16} /></button>
             {!isCurrentPeriod(period, anchorDate) && (
               <button
                 type="button"
@@ -105,13 +112,6 @@ export function HealthWellness() {
                 <RotateCcw size={15} />
               </button>
             )}
-            <button type="button" className="icon-btn" onClick={() => shiftPeriod(-1)} aria-label={`Previous ${period.toLowerCase()}`}><ChevronLeft size={16} /></button>
-            <DatePicker
-              value={activeDate}
-              onChange={onActiveDateChange}
-              displayLabel={periodLabel}
-            />
-            <button type="button" className="icon-btn" onClick={() => shiftPeriod(1)} aria-label={`Next ${period.toLowerCase()}`}><ChevronRight size={16} /></button>
           </div>
         </div>
       </div>
