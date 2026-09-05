@@ -3029,6 +3029,7 @@ input, select, textarea { font-family: inherit; }
   overflow: hidden;
   user-select: none;
 }
+.tj-calc-popup:focus { outline: none; }
 .tj-calc-header {
   display: flex;
   align-items: center;

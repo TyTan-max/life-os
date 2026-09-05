@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
-import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, ReactNode } from 'react';
+import type { KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, ReactNode } from 'react';
 import { Calculator as CalculatorIcon, Calendar as CalendarIcon, ChevronDown, ChevronLeft, ChevronRight, ImagePlus, Minus, Plus, RotateCcw, StickyNote, Table2, TrendingDown, TrendingUp, Trash2, Upload, X } from 'lucide-react';
 import { useStore, newRecord } from '../store';
 import type { DailyLog, TradingScreenshot } from '../types';
@@ -823,30 +823,24 @@ function CalculatorPopup({ onClose }: { onClose: () => void }) {
     setJustEvaluated(true);
   };
 
-  useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      // The popup's keyboard shortcuts double as global window shortcuts, but that means
-      // typing a digit into any other field on the page (like Daily P/L) also fed the
-      // calculator. Skip entirely whenever focus is actually inside a real form control —
-      // its own keystrokes should go only to that field, not to this popup as well.
-      const target = e.target as HTMLElement | null;
-      const tag = target?.tagName;
-      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target?.isContentEditable) return;
-      if (e.key >= '0' && e.key <= '9') inputDigit(e.key);
-      else if (e.key === '.') inputDecimal();
-      else if (e.key === '+') performOperator('+');
-      else if (e.key === '-') performOperator('-');
-      else if (e.key === '*') performOperator('×');
-      else if (e.key === '/') { e.preventDefault(); performOperator('÷'); }
-      else if (e.key === 'Enter' || e.key === '=') equals();
-      else if (e.key === 'Backspace') backspace();
-      else if (e.key.toLowerCase() === 'c') clear();
-      else return;
-      e.stopPropagation();
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  });
+  // Bound to the popup itself (via onKeyDown below) rather than window — a bare global
+  // listener fed keystrokes typed into any other field on the page (Daily P/L, Notes, …)
+  // straight into the calculator too. Keeping it scoped to this element means it only ever
+  // sees a keystroke once the popup — or something inside it — actually has focus, which a
+  // click on the popup (its own buttons included) already gives it via normal DOM bubbling.
+  const onCalcKeyDown = (e: ReactKeyboardEvent) => {
+    if (e.key >= '0' && e.key <= '9') inputDigit(e.key);
+    else if (e.key === '.') inputDecimal();
+    else if (e.key === '+') performOperator('+');
+    else if (e.key === '-') performOperator('-');
+    else if (e.key === '*') performOperator('×');
+    else if (e.key === '/') { e.preventDefault(); performOperator('÷'); }
+    else if (e.key === 'Enter' || e.key === '=') equals();
+    else if (e.key === 'Backspace') backspace();
+    else if (e.key.toLowerCase() === 'c') clear();
+    else return;
+    e.stopPropagation();
+  };
 
   const onHeaderPointerDown = (e: ReactPointerEvent) => {
     (e.target as HTMLElement).setPointerCapture(e.pointerId);
@@ -870,7 +864,7 @@ function CalculatorPopup({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <div className="tj-calc-popup" style={{ left: pos.x, top: pos.y, width: CALC_WIDTH }}>
+    <div className="tj-calc-popup" style={{ left: pos.x, top: pos.y, width: CALC_WIDTH }} tabIndex={-1} onKeyDown={onCalcKeyDown}>
       <div
         className="tj-calc-header"
         onPointerDown={onHeaderPointerDown}
