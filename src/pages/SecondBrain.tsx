@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ChangeEvent, ClipboardEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react';
 import {
   Archive, ArchiveRestore, Bold, BookMarked, Check, ChevronLeft, Clock, Code2, Command, Heading2,
-  Italic, Layers, Link2, List, ListOrdered, Pin, PinOff, Plus, Quote, Search, Strikethrough, Trash2, TrendingUp, Upload, X
+  Italic, Layers, Lightbulb, Link2, List, ListOrdered, Pin, PinOff, Plus, Quote, Search, StickyNote, Strikethrough, Trash2, TrendingUp, Upload, X
 } from 'lucide-react';
 import { useStore, newRecord } from '../store';
 import type { Frequency, Goal, GoalHorizon, GoalProgressMode, GoalStatus, Note, NoteImage, ParaProjectStatus, ParaType, Priority, ResourceKind, ReviewCadence, Task, TaskStatus } from '../types';
@@ -23,6 +23,18 @@ const WIKILINK_PATTERN = /\[\[([^\]]+)\]\]/g;
 const PROJECT_STATUSES: ParaProjectStatus[] = ['Not Started', 'In Progress', 'Blocked', 'Completed'];
 const REVIEW_CADENCES: ReviewCadence[] = ['Weekly', 'Monthly', 'Quarterly'];
 const RESOURCE_KINDS: ResourceKind[] = ['Idea', 'Snippet', 'Reference'];
+// A distinct icon per Kind so the Resources hub reads at a glance instead of three identical
+// bookmark icons — Idea gets the obvious lightbulb, Snippet a sticky-note (it's a plain quick
+// note now, not code — Code Vault owns the code-editor treatment), Reference keeps the bookmark
+// since "saved for later" is exactly what that icon already means everywhere else in the app.
+const RESOURCE_KIND_ICONS: Record<ResourceKind, typeof Lightbulb> = {
+  Idea: Lightbulb,
+  Snippet: StickyNote,
+  Reference: BookMarked,
+  Repo: Code2,
+  'Book Note': BookMarked,
+  Article: BookMarked
+};
 const REVIEW_CADENCE_DAYS: Record<ReviewCadence, number> = { Weekly: 7, Monthly: 30, Quarterly: 90 };
 
 // Starting scaffolds for new Project/Area notes — Resources deliberately stay blank
@@ -1421,9 +1433,10 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                 <div className="sb-hub-grid">
                   {RESOURCE_KINDS.map(kind => {
                     const count = resourceCounts.get(kind) ?? 0;
+                    const Icon = RESOURCE_KIND_ICONS[kind];
                     return (
                       <button type="button" key={kind} className="sb-hub-card" onClick={() => setResourceScope(kind)}>
-                        <BookMarked size={18} />
+                        <Icon size={18} />
                         <b>{kind}</b>
                         <span className="sb-hub-card-count">{count} item{count === 1 ? '' : 's'}</span>
                       </button>
