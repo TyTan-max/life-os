@@ -70,6 +70,18 @@ function goalRangeProgress(start: number, target: number, value: number): number
   return clampPct(((value - start) / (target - start)) * 100);
 }
 
+// The slider's fill needs to track where the *thumb* actually sits on the track (min..max, in
+// raw units), not the goal's completion percentage — those only agree when target > start. For
+// a "lose weight" goal (start 200, target 150), min/max are (150, 200) so the thumb's own
+// position runs the opposite direction from completion: sitting at value 200 (0% done) is the
+// far *right* end of the track, not the left. Filling by completion % there paints an empty bar
+// under a thumb sitting at the far end — exactly backwards. Filling by track position instead
+// keeps the visual fill honest about where the thumb is, for either direction.
+function goalSliderFillPct(min: number, max: number, value: number): number {
+  if (min === max) return 0;
+  return clampPct(((value - min) / (max - min)) * 100);
+}
+
 function blankGoal(): Partial<Goal> {
   return { title: '', horizon: 'Weekly', progress: 0, status: 'Not Started', progressMode: 'percent' };
 }
@@ -1356,11 +1368,12 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                       const rangeValue = g.rangeValue ?? rangeStart;
                       const sliderMin = Math.min(rangeStart, rangeTarget);
                       const sliderMax = Math.max(rangeStart, rangeTarget);
+                      const fillPct = isRange ? goalSliderFillPct(sliderMin, sliderMax, rangeValue) : g.progress;
                       return (
                         <div key={g.id} className="sb-overview-goal-row">
                           <div className="sb-overview-goal-head">
                             <b>{g.title}</b>
-                            <span>{g.progress}{isRange ? (g.rangeUnit ?? '') : '%'}</span>
+                            <span>{isRange ? `${rangeValue}${g.rangeUnit ?? ''}` : `${g.progress}%`}</span>
                           </div>
                           <input
                             type="range"
@@ -1370,7 +1383,7 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                             value={isRange ? rangeValue : g.progress}
                             onChange={e => (isRange ? setGoalRangeValue(g, Number(e.target.value)) : setGoalProgress(g, Number(e.target.value)))}
                             aria-label={`Progress for ${g.title}`}
-                            style={{ background: `linear-gradient(to right, var(--teal) ${g.progress}%, var(--border) ${g.progress}%)` }}
+                            style={{ background: `linear-gradient(to right, var(--teal) ${fillPct}%, var(--border) ${fillPct}%)` }}
                           />
                         </div>
                       );
@@ -1492,6 +1505,7 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                       const rangeValue = goal.rangeValue ?? rangeStart;
                       const sliderMin = Math.min(rangeStart, rangeTarget);
                       const sliderMax = Math.max(rangeStart, rangeTarget);
+                      const fillPct = isRange ? goalSliderFillPct(sliderMin, sliderMax, rangeValue) : goal.progress;
                       return (
                         <div className="task-row" key={goal.id}>
                           <div className="task-row-main sb-goal-row-title" onClick={() => startEditGoal(goal)}>
@@ -1506,9 +1520,9 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                             value={isRange ? rangeValue : goal.progress}
                             onChange={e => (isRange ? setGoalRangeValue(goal, Number(e.target.value)) : setGoalProgress(goal, Number(e.target.value)))}
                             aria-label={`Progress for ${goal.title}`}
-                            style={{ background: `linear-gradient(to right, var(--teal) ${goal.progress}%, var(--border) ${goal.progress}%)` }}
+                            style={{ background: `linear-gradient(to right, var(--teal) ${fillPct}%, var(--border) ${fillPct}%)` }}
                           />
-                          <span className="sb-goal-row-pct">{goal.progress}{isRange ? goal.rangeUnit ?? '' : '%'}</span>
+                          <span className="sb-goal-row-pct">{isRange ? `${rangeValue}${goal.rangeUnit ?? ''}` : `${goal.progress}%`}</span>
                           <span className={`goal-status status-${goalStatusSlug(goal.status)}`}>{goal.status ?? 'Not Started'}</span>
                           <button className="icon-btn danger" onClick={() => void remove('goals', goal.id)} aria-label="Delete">
                             <Trash2 size={15} />
