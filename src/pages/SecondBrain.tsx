@@ -70,16 +70,26 @@ function goalRangeProgress(start: number, target: number, value: number): number
   return clampPct(((value - start) / (target - start)) * 100);
 }
 
-// The slider's fill needs to track where the *thumb* actually sits on the track (min..max, in
-// raw units), not the goal's completion percentage — those only agree when target > start. For
-// a "lose weight" goal (start 200, target 150), min/max are (150, 200) so the thumb's own
-// position runs the opposite direction from completion: sitting at value 200 (0% done) is the
-// far *right* end of the track, not the left. Filling by completion % there paints an empty bar
-// under a thumb sitting at the far end — exactly backwards. Filling by track position instead
-// keeps the visual fill honest about where the thumb is, for either direction.
-function goalSliderFillPct(min: number, max: number, value: number): number {
-  if (min === max) return 0;
-  return clampPct(((value - min) / (max - min)) * 100);
+// A range goal's slider always needs "drag right = more progress," regardless of which
+// direction the actual numbers run. That's automatic when target > start (e.g. saving toward a
+// number), but for a "lose weight" goal (start 200, target 150) the raw value itself decreases
+// as you progress — a plain min/max/value slider would have dragging right move you *away* from
+// the goal. Instead of exposing the raw value as the slider's own value, the slider works in
+// "distance traveled from start toward target" (always 0 at start, always the full span at
+// target), and these two helpers convert to and from that so dragging right is always progress
+// and the fill always lines up with the thumb.
+function goalSliderSpan(start: number, target: number): number {
+  return Math.abs(target - start);
+}
+function goalSliderNativeValue(start: number, target: number, value: number): number {
+  const span = goalSliderSpan(start, target);
+  if (span === 0) return 0;
+  const dir = target >= start ? 1 : -1;
+  return Math.max(0, Math.min(span, (value - start) * dir));
+}
+function goalSliderActualValue(start: number, target: number, nativeValue: number): number {
+  const dir = target >= start ? 1 : -1;
+  return start + dir * nativeValue;
 }
 
 function blankGoal(): Partial<Goal> {
@@ -1366,9 +1376,8 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                       const rangeStart = g.rangeStart ?? 0;
                       const rangeTarget = g.rangeTarget ?? 100;
                       const rangeValue = g.rangeValue ?? rangeStart;
-                      const sliderMin = Math.min(rangeStart, rangeTarget);
-                      const sliderMax = Math.max(rangeStart, rangeTarget);
-                      const fillPct = isRange ? goalSliderFillPct(sliderMin, sliderMax, rangeValue) : g.progress;
+                      const sliderSpan = goalSliderSpan(rangeStart, rangeTarget);
+                      const sliderNativeValue = goalSliderNativeValue(rangeStart, rangeTarget, rangeValue);
                       return (
                         <div key={g.id} className="sb-overview-goal-row">
                           <div className="sb-overview-goal-head">
@@ -1378,12 +1387,14 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                           <input
                             type="range"
                             className="range-slider"
-                            min={isRange ? sliderMin : 0}
-                            max={isRange ? sliderMax : 100}
-                            value={isRange ? rangeValue : g.progress}
-                            onChange={e => (isRange ? setGoalRangeValue(g, Number(e.target.value)) : setGoalProgress(g, Number(e.target.value)))}
+                            min={0}
+                            max={isRange ? sliderSpan : 100}
+                            value={isRange ? sliderNativeValue : g.progress}
+                            onChange={e => (isRange
+                              ? setGoalRangeValue(g, goalSliderActualValue(rangeStart, rangeTarget, Number(e.target.value)))
+                              : setGoalProgress(g, Number(e.target.value)))}
                             aria-label={`Progress for ${g.title}`}
-                            style={{ background: `linear-gradient(to right, var(--teal) ${fillPct}%, var(--border) ${fillPct}%)` }}
+                            style={{ background: `linear-gradient(to right, var(--teal) ${g.progress}%, var(--border) ${g.progress}%)` }}
                           />
                         </div>
                       );
@@ -1503,9 +1514,9 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                       const rangeStart = goal.rangeStart ?? 0;
                       const rangeTarget = goal.rangeTarget ?? 100;
                       const rangeValue = goal.rangeValue ?? rangeStart;
-                      const sliderMin = Math.min(rangeStart, rangeTarget);
-                      const sliderMax = Math.max(rangeStart, rangeTarget);
-                      const fillPct = isRange ? goalSliderFillPct(sliderMin, sliderMax, rangeValue) : goal.progress;
+                      const sliderSpan = goalSliderSpan(rangeStart, rangeTarget);
+                      const sliderNativeValue = goalSliderNativeValue(rangeStart, rangeTarget, rangeValue);
+                      const fillPct = goal.progress;
                       return (
                         <div className="task-row" key={goal.id}>
                           <div className="task-row-main sb-goal-row-title" onClick={() => startEditGoal(goal)}>
@@ -1515,10 +1526,12 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                           <input
                             type="range"
                             className="range-slider sb-goal-row-slider"
-                            min={isRange ? sliderMin : 0}
-                            max={isRange ? sliderMax : 100}
-                            value={isRange ? rangeValue : goal.progress}
-                            onChange={e => (isRange ? setGoalRangeValue(goal, Number(e.target.value)) : setGoalProgress(goal, Number(e.target.value)))}
+                            min={0}
+                            max={isRange ? sliderSpan : 100}
+                            value={isRange ? sliderNativeValue : goal.progress}
+                            onChange={e => (isRange
+                              ? setGoalRangeValue(goal, goalSliderActualValue(rangeStart, rangeTarget, Number(e.target.value)))
+                              : setGoalProgress(goal, Number(e.target.value)))}
                             aria-label={`Progress for ${goal.title}`}
                             style={{ background: `linear-gradient(to right, var(--teal) ${fillPct}%, var(--border) ${fillPct}%)` }}
                           />
