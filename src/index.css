@@ -3838,7 +3838,11 @@ input, select, textarea { font-family: inherit; }
 .sb-overview-row b { flex: 1; font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* Capped to roughly 4 rows tall — every active goal is in the list underneath, the rest are
    reached by scrolling this one card instead of growing the whole Overview page to fit them. */
-.sb-overview-goals-scroll { max-height: 228px; overflow-y: auto; }
+/* overflow-x needs to be set explicitly — leaving it at its default `visible` while overflow-y
+   is non-visible makes the browser treat both axes as `auto` per spec, and the rows' own
+   `calc(100% + 20px)` hover-bleed (matching every other .sb-overview-row) is just wide enough
+   past this container's edge to count as horizontal overflow, drawing a scrollbar for it. */
+.sb-overview-goals-scroll { max-height: 228px; overflow-y: auto; overflow-x: hidden; }
 .sb-overview-goal-row {
   display: block;
   width: calc(100% + 20px);
