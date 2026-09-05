@@ -3713,6 +3713,7 @@ input, select, textarea { font-family: inherit; }
 }
 .sb-para-tab:hover:not(.on) { background: var(--surface-hover); }
 .sb-para-tab.on { background: var(--teal); border-color: var(--teal); color: #fff; }
+.sb-para-tab-icon { display: inline-flex; align-items: center; padding: 7px 10px; }
 
 .sb-type-badge {
   font-size: 9.5px;

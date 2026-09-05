@@ -1058,10 +1058,12 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
             <button
               key={tab}
               type="button"
-              className={`sb-para-tab ${paraTab === tab && !areaScopeId && !resourceScope ? 'on' : ''}`}
+              className={`sb-para-tab ${tab === 'Archive' ? 'sb-para-tab-icon' : ''} ${paraTab === tab && !areaScopeId && !resourceScope ? 'on' : ''}`}
               onClick={() => changeTab(tab)}
+              title={tab === 'Archive' ? 'Archive' : undefined}
+              aria-label={tab === 'Archive' ? 'Archive' : undefined}
             >
-              {tab}
+              {tab === 'Archive' ? <Archive size={14} /> : tab}
             </button>
           ))}
         </div>
