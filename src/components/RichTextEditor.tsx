@@ -59,13 +59,45 @@ function escapeHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+const URL_PATTERN = /(https?:\/\/[^\s<>"']+|www\.[^\s<>"']+)/gi;
+
+// Turns bare URLs in plain text into real <a> tags — used both for pasted plain text and for
+// the auto-link-as-you-type check in handleKeyDown below. Trailing punctuation (a period ending
+// the sentence, a comma, a closing paren) is peeled off the link so "check example.com." doesn't
+// swallow the full stop into the href.
+function linkifyPlainText(text: string): string {
+  // URL_PATTERN is a single shared `g`-flagged regex also driven by .exec() elsewhere
+  // (tryAutoLinkAtCaret) — matchAll() picks up whatever lastIndex that left behind, which
+  // silently skips matches earlier in the string. Reset before every independent use.
+  URL_PATTERN.lastIndex = 0;
+  let out = '';
+  let lastIndex = 0;
+  for (const m of text.matchAll(URL_PATTERN)) {
+    const start = m.index ?? 0;
+    out += escapeHtml(text.slice(lastIndex, start));
+    let url = m[0];
+    const trailMatch = url.match(/[),.!?;:'"]+$/);
+    let trail = '';
+    if (trailMatch) {
+      trail = trailMatch[0];
+      url = url.slice(0, -trail.length);
+    }
+    if (!url) { out += escapeHtml(m[0]); lastIndex = start + m[0].length; continue; }
+    const href = /^https?:\/\//i.test(url) ? url : `https://${url}`;
+    out += `<a href="${escapeHtml(href)}">${escapeHtml(url)}</a>${escapeHtml(trail)}`;
+    lastIndex = start + m[0].length;
+  }
+  out += escapeHtml(text.slice(lastIndex));
+  return out;
+}
+
 // Plain-text paste (no text/html on the clipboard) still deserves paragraph breaks — a bare
 // insertText of "\n" doesn't render as a line break in a contentEditable, so blank-line-
 // separated blocks become <p> and single line breaks become <br>.
 function plainTextToHtml(text: string): string {
   return text
     .split(/\n{2,}/)
-    .map(block => `<p>${escapeHtml(block).split('\n').map(l => l || '&nbsp;').join('<br>')}</p>`)
+    .map(block => `<p>${linkifyPlainText(block).split('\n').map(l => l || '&nbsp;').join('<br>')}</p>`)
     .join('');
 }
 
@@ -398,10 +430,56 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [linkPopover]);
 
+  // Auto-links a URL the moment it's "finished" — i.e. the user just typed the space or Enter
+  // that follows it — the same convention Slack/Docs/Notion use. Walks back from the caret over
+  // a single run of non-whitespace text looking for a URL_PATTERN match that reaches all the way
+  // to the caret; wrapping mid-word would be wrong (e.g. someone still typing after a bare "www.").
+  const tryAutoLinkAtCaret = (): boolean => {
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0 || !sel.isCollapsed) return false;
+    const range = sel.getRangeAt(0);
+    const container = range.startContainer;
+    if (container.nodeType !== Node.TEXT_NODE) return false;
+    if ((container.parentElement)?.closest('a')) return false;
+    const text = container.textContent ?? '';
+    const before = text.slice(0, range.startOffset);
+    const wordStart = Math.max(before.lastIndexOf(' '), before.lastIndexOf('\n')) + 1;
+    const word = before.slice(wordStart);
+    URL_PATTERN.lastIndex = 0;
+    const m = URL_PATTERN.exec(word);
+    URL_PATTERN.lastIndex = 0;
+    if (!m || m[0] !== word) return false;
+    let url = word;
+    const trailMatch = url.match(/[),.!?;:'"]+$/);
+    if (trailMatch) url = url.slice(0, -trailMatch[0].length);
+    if (!url) return false;
+    const linkEnd = wordStart + url.length;
+    const href = /^https?:\/\//i.test(url) ? url : `https://${url}`;
+    const linkRange = document.createRange();
+    linkRange.setStart(container, wordStart);
+    linkRange.setEnd(container, linkEnd);
+    const a = document.createElement('a');
+    a.setAttribute('href', href);
+    a.textContent = url;
+    linkRange.deleteContents();
+    linkRange.insertNode(a);
+    const after = document.createRange();
+    after.setStartAfter(a);
+    after.collapse(true);
+    sel.removeAllRanges();
+    sel.addRange(after);
+    return true;
+  };
+
   // The conventional trio (bold/italic/underline) — not relying on the browser's own
   // contentEditable defaults, which don't reliably fire the same way across browsers/OSes.
   const KEY_COMMANDS: Record<string, string> = { b: 'bold', i: 'italic', u: 'underline' };
   const handleKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    if ((e.key === ' ' || e.key === 'Enter') && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      // Not prevented — the space/newline itself still lands normally right after the caret is
+      // moved to just past the new <a>, same as if the browser had typed it there itself.
+      if (tryAutoLinkAtCaret()) commit();
+    }
     if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
     if (e.shiftKey) {
       // Google Docs/Word convention. Prefer e.code (the physical key) since Shift turns e.key
