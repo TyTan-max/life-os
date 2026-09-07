@@ -1394,6 +1394,15 @@ input, select, textarea { font-family: inherit; }
    compact controls (e.g. a quick log row) instead of its own full form section. */
 .rte-compact .rte-body { min-height: 34px; max-height: 160px; padding: 7px 10px; }
 .rte-compact .rte-placeholder { top: 7px; left: 10px; }
+/* A Project/Area/Resource's main body — grows to fill the remaining page height instead of the
+   default's fixed ~340px cap, matching how the old plain textarea used to fill this same spot. */
+.sb-body-rte { display: flex; flex-direction: column; flex: 1; min-height: 200px; }
+.sb-body-rte .rte-body-wrap { flex: 1; display: flex; }
+.sb-body-rte .rte-body { flex: 1; max-height: none; }
+/* A subtask's own notes field — a bit taller than the default modal-field size, but still capped
+   since it sits inside a fixed-size modal rather than a scrolling page. */
+.sb-subtask-notes-rte .rte-body { min-height: 140px; max-height: 260px; }
+.sb-note-photos-legacy-hint { flex-basis: 100%; font-size: 11px; color: var(--text-faint); margin: 0 0 2px; }
 .rte-link-popover {
   z-index: 200;
   display: flex;
@@ -3565,7 +3574,6 @@ input, select, textarea { font-family: inherit; }
   margin-bottom: 12px;
   flex-shrink: 0;
 }
-.sb-format-toolbar { flex-shrink: 0; margin-bottom: 4px; }
 .sb-body-input {
   flex: 1;
   min-height: 160px;
@@ -3580,42 +3588,6 @@ input, select, textarea { font-family: inherit; }
   resize: none;
   font-family: inherit;
 }
-/* The highlight overlay behind this textarea (see .sb-body-wrap) needs every text-affecting
-   property — font, size, line-height, padding, wrapping — to match exactly, or the colored text
-   drifts out of alignment with the real (invisible) text sitting on top of it. Only `color`
-   differs: made transparent so the overlay's coloring is the only thing actually seen, with the
-   blinking caret drawn separately via caret-color so there's still a visible cursor to type at. */
-.sb-body-wrap { position: relative; flex: 1; min-height: 160px; display: flex; }
-.sb-body-highlight {
-  position: absolute;
-  inset: 0;
-  margin: 0;
-  padding: 0;
-  overflow: hidden;
-  white-space: pre-wrap;
-  word-wrap: break-word;
-  word-break: break-word;
-  font-family: inherit;
-  font-size: 14px;
-  line-height: 1.6;
-  color: var(--text);
-  pointer-events: none;
-}
-.sb-body-token-link { color: var(--green); }
-.sb-body-token-url { color: var(--blue); }
-.sb-body-input-highlighted {
-  position: relative;
-  z-index: 1;
-  color: transparent;
-  caret-color: var(--text);
-}
-.sb-body-input-highlighted::selection { background: var(--accent-soft); }
-.sb-body-input-pointer { cursor: pointer; }
-/* The same overlay technique, boxed to fit a modal field rather than a full editor page — used
-   for a subtask's own Notes textarea. */
-.sb-body-wrap.sb-subtask-notes-wrap { min-height: 120px; border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; background: var(--surface); }
-.sb-body-wrap.sb-subtask-notes-wrap .sb-body-input,
-.sb-body-wrap.sb-subtask-notes-wrap .sb-body-highlight { min-height: 100px; font-size: 13px; line-height: 1.55; }
 .sb-body-code {
   font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
   font-size: 13px;

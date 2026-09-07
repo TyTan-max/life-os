@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { ChangeEvent, ClipboardEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react';
+import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react';
 import {
-  Archive, ArchiveRestore, Bold, BookMarked, Check, ChevronLeft, Clock, Code2, Command, Heading2,
-  Italic, Layers, Lightbulb, Link2, List, ListOrdered, Pin, PinOff, Plus, Quote, Search, StickyNote, Strikethrough, Trash2, TrendingUp, Upload, X
+  Archive, ArchiveRestore, BookMarked, Check, ChevronLeft, Clock, Code2, Command,
+  Layers, Lightbulb, Link2, Pin, PinOff, Plus, Search, StickyNote, Trash2, TrendingUp, X
 } from 'lucide-react';
 import { useStore, newRecord } from '../store';
 import type { Frequency, Goal, GoalHorizon, GoalProgressMode, GoalStatus, Note, NoteImage, ParaProjectStatus, ParaType, Priority, ProjectBoardColumn, ProjectSubtask, ResourceKind, ReviewCadence, Task, TaskStatus } from '../types';
@@ -12,12 +12,12 @@ import { SortableTh, toggleSort } from '../components/SortableTh';
 import type { SortState } from '../components/SortableTh';
 import { DatePicker } from '../components/DatePicker';
 import { RichTextEditor } from '../components/RichTextEditor';
+import type { RichTextEditorHandle } from '../components/RichTextEditor';
 import { useIsMobile, useIsMobileLandscape } from '../hooks/useIsMobile';
 import { useFabAction } from '../hooks/useFabAction';
 import { SwipeRow } from '../components/SwipeRow';
 import { MobileRecordList } from '../components/MobileRecordList';
 import { VaultOnboarding } from '../components/VaultOnboarding';
-import { htmlToMarkdown } from '../lib/htmlToMarkdown';
 
 const WIKILINK_PATTERN = /\[\[([^\]]+)\]\]/g;
 
@@ -48,8 +48,8 @@ const REVIEW_CADENCE_DAYS: Record<ReviewCadence, number> = { Weekly: 7, Monthly:
 // Starting scaffolds for new Project/Area notes — Resources deliberately stay blank
 // since their shape varies too much (article vs. snippet vs. idea) for one template.
 const PARA_TEMPLATES: Partial<Record<ParaType, string>> = {
-  Project: '## Goal\n\n\n## Next action\n\n\n## Notes\n',
-  Area: '## Standard — what does "good" look like here?\n\n\n## Resources\n'
+  Project: '<h2>Goal</h2><p></p><h2>Next action</h2><p></p><h2>Notes</h2><p></p>',
+  Area: '<h2>Standard — what does &quot;good&quot; look like here?</h2><p></p><h2>Resources</h2><p></p>'
 };
 
 // Resources isn't a tab of its own — it lives as a card grid on the Overview tab instead (see
@@ -191,100 +191,26 @@ function noteTypeTone(n: Note): string {
   return 'muted';
 }
 
+// Body is HTML now (the rich text editor's own format) for every note except Code Vault
+// snippets, which stay plain text — stripping tags first keeps this one function correct for
+// both. Photo markers are left as bracket text here — telling a real "[Photo 1]"/"[Trade Setup]"
+// marker apart from an unrelated "[something]" the user just typed needs the note's actual image
+// list, which this function doesn't have; showing the bracket text verbatim is a harmless fallback.
 function snippet(body: string, max = 90): string {
-  // Photo markers are left as-is here — telling a real "[Photo 1]"/"[Trade Setup]" marker apart
-  // from an unrelated "[something]" the user just typed needs the note's actual image list,
-  // which this function doesn't have; showing the bracket text verbatim is a harmless fallback.
-  const flat = body.replace(WIKILINK_PATTERN, '$1').replace(/\s+/g, ' ').trim();
-  return flat.length > max ? `${flat.slice(0, max)}…` : flat || 'No content yet.';
-}
-
-// "Photo N" resolves directly by ordinal; anything else is checked against the note's current
-// photo labels — the only two shapes a marker's bracket text can ever actually be.
-function resolveMarkerImage(images: NoteImage[], innerText: string): NoteImage | undefined {
-  const numMatch = innerText.match(/^Photo (\d+)$/);
-  if (numMatch) return images.find(img => img.ordinal === Number(numMatch[1]));
-  return images.find(img => img.label === innerText);
+  const flat = body
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+    .replace(WIKILINK_PATTERN, '$1')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (flat.length > max) return `${flat.slice(0, max)}…`;
+  if (flat) return flat;
+  return /<img[\s>]/i.test(body) ? 'Photo' : 'No content yet.';
 }
 
 function markerTextFor(img: NoteImage): string {
   return `[${img.label || `Photo ${img.ordinal}`}]`;
-}
-
-// A real <textarea> can only render its text in one uniform color — there's no way to make part
-// of its own content a different color. The highlight overlay works around that: this builds an
-// HTML mirror of the exact same text with wikilinks/URL-links/photo-markers wrapped in colored
-// spans, sat behind a textarea whose own text is made transparent (see .sb-body-input's `color:
-// transparent` + `caret-color`), so what's actually visible is this overlay's coloring while
-// every keystroke, click, and selection still goes through the real, fully-editable textarea on
-// top. Order matters: [[Wikilink]] is tried before a bare [marker], and [text](url) before that
-// again, so a link's own [text] half is never re-classified as a plain marker. A bare URL (no
-// brackets at all — just pasted straight into the text) is tried last, so it never fires on the
-// URL half already claimed by a [text](url) match. Its trailing-character class excludes common
-// sentence punctuation, so "...at https://x.com." doesn't pull the period into the link. Groups:
-// 1 = wikilink (full [[...]]), 2 = link text, 3 = link URL, 4 = bare marker (full [...]),
-// 5 = bare URL. Bold/strike/italic (6-8) are appended last, after every existing group, so none
-// of the click/hover logic keyed to groups 1/3/4/5 needs to change — a click landing inside one
-// of them just falls through to "not actionable" exactly like any other non-link plain text did.
-// Bold is tried before italic so "**x**" commits to the double-star alternative first; italic's
-// character class excludes '*' so it can never swallow a neighboring bold run. All three allow
-// newlines in their content (selecting a whole multi-line note and clicking Bold is the common
-// case, not an edge case) and are lazy so a stray unmatched marker can't swallow everything up to
-// the next occurrence of its closer many paragraphs away.
-const BODY_TOKEN_PATTERN = /(\[\[[^\]]+\]\])|\[([^[\]]+)\]\((https?:\/\/[^\s)]+)\)|((?<!\[)\[[^[\]]+\](?!\]))|(https?:\/\/[^\s]*[^\s.,;:!?'")\]])|(\*\*[^*]+?\*\*)|(~~[^~]+?~~)|(\*[^*]+?\*)/g;
-
-function escapeHtmlForBody(s: string): string {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-}
-
-// Catches a link left structurally broken by editing (a stray character deleted mid-domain, a
-// truncated TLD) even though it still matches BODY_TOKEN_PATTERN's loose "starts with http(s)://,
-// no whitespace" shape. Deliberately shallow — it can't know a domain is unreachable or a typo of
-// the one you meant, only that what's there doesn't parse as a real absolute URL with a real-looking
-// host, so a link some retyping made this obviously malformed unlinks itself instead of staying lit.
-function isValidUrl(candidate: string): boolean {
-  let url: URL;
-  try {
-    url = new URL(candidate);
-  } catch {
-    return false;
-  }
-  if (url.protocol !== 'http:' && url.protocol !== 'https:') return false;
-  const host = url.hostname;
-  if (!host.includes('.')) return false;
-  const tld = host.slice(host.lastIndexOf('.') + 1);
-  return /^[a-zA-Z]{2,}$/.test(tld);
-}
-
-function renderHighlightedBody(body: string, images: NoteImage[]): string {
-  let html = '';
-  let lastIndex = 0;
-  for (const m of body.matchAll(BODY_TOKEN_PATTERN)) {
-    const start = m.index ?? 0;
-    html += escapeHtmlForBody(body.slice(lastIndex, start));
-    if (m[1]) {
-      html += `<span class="sb-body-token-link" data-start="${start}">${escapeHtmlForBody(m[1])}</span>`;
-    } else if ((m[3] || m[5]) && isValidUrl((m[3] || m[5]) as string)) {
-      html += `<span class="sb-body-token-url" data-start="${start}" data-actionable="true">${escapeHtmlForBody(m[0])}</span>`;
-    } else if (m[4] && resolveMarkerImage(images, m[4].slice(1, -1))) {
-      // Only colored when it actually resolves to a real photo — an unrelated "[something]" the
-      // user typed for other reasons stays plain text, same as it always has.
-      html += `<span class="sb-body-token-link" data-start="${start}" data-actionable="true">${escapeHtmlForBody(m[4])}</span>`;
-    } else if (m[6]) {
-      html += `<strong>${escapeHtmlForBody(m[6])}</strong>`;
-    } else if (m[7]) {
-      html += `<s>${escapeHtmlForBody(m[7])}</s>`;
-    } else if (m[8]) {
-      html += `<em>${escapeHtmlForBody(m[8])}</em>`;
-    } else {
-      html += escapeHtmlForBody(m[0]);
-    }
-    lastIndex = start + m[0].length;
-  }
-  html += escapeHtmlForBody(body.slice(lastIndex));
-  // A trailing newline needs a following blank line to render at all in a div — without this the
-  // overlay's last line would collapse and drift out of sync with the textarea underneath it.
-  return body.endsWith('\n') ? `${html}\n` : html;
 }
 
 const NOTE_IMAGE_MAX_DIM = 1200;
@@ -465,26 +391,15 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
   const [resourceScope, setResourceScope] = useState<ResourceScope | null>(null);
   const [languageFilter, setLanguageFilter] = useState<string | null>(null);
   const [captureText, setCaptureText] = useState('');
-  const bodyRef = useRef<HTMLTextAreaElement>(null);
-  const bodyHighlightRef = useRef<HTMLDivElement>(null);
-  const [bodyHoverPointer, setBodyHoverPointer] = useState(false);
-  const imageFileRef = useRef<HTMLInputElement>(null);
-  // Captured on the toolbar button's mousedown (before the file picker steals focus) so the
-  // photo marker still lands where the cursor actually was, not wherever focus ends up after
-  // the OS dialog closes.
-  const pendingImageInsertRef = useRef<{ start: number; end: number } | null>(null);
-  const [uploadingImage, setUploadingImage] = useState(false);
+  // Imperative handles onto the two RichTextEditor instances (a Project's own body, and
+  // whichever subtask's notes field is open) — used to insert a [[Wikilink]] or an inline photo
+  // at the cursor from outside the editor's own toolbar (the link picker, a compress-then-insert
+  // photo upload).
+  const bodyEditorRef = useRef<RichTextEditorHandle>(null);
+  const subtaskNotesEditorRef = useRef<RichTextEditorHandle>(null);
   const [imageLightboxSrc, setImageLightboxSrc] = useState<string | null>(null);
   const [dragImageOrdinal, setDragImageOrdinal] = useState<number | null>(null);
   const [dragOverImageOrdinal, setDragOverImageOrdinal] = useState<number | null>(null);
-  // Same formatting-toolbar/paste/photo machinery as the main note body, scoped to whichever
-  // subtask's notes field is open in the Edit subtask modal. Shares imageLightboxSrc above —
-  // "show this photo full-size" doesn't need its own copy of that state.
-  const subtaskNotesRef = useRef<HTMLTextAreaElement>(null);
-  const subtaskNotesHighlightRef = useRef<HTMLDivElement>(null);
-  const subtaskImageFileRef = useRef<HTMLInputElement>(null);
-  const pendingSubtaskImageInsertRef = useRef<{ start: number; end: number } | null>(null);
-  const [uploadingSubtaskImage, setUploadingSubtaskImage] = useState(false);
   // Shared by both Kanban boards in this file (the cross-project Projects board and a single
   // Project's own subtask board below) — safe to share since only one of the two is ever
   // mounted at once (the former only renders with no note open, the latter only inside one).
@@ -912,91 +827,10 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
     setEditingSubtaskId(prev => (prev === id ? null : prev));
   };
 
-  // A subtask's notes field gets the same formatting toolbar, HTML-aware paste, and inline photo
-  // support as a full note's body — just scoped to whichever subtask is open in the Edit subtask
-  // modal (editingSubtask) instead of the Project note itself.
-  const wrapSubtaskSelection = (before: string, after: string = before) => {
-    if (!editingSubtask) return;
-    const ta = subtaskNotesRef.current;
-    const body = editingSubtask.notes ?? '';
-    const start = ta?.selectionStart ?? body.length;
-    const end = ta?.selectionEnd ?? body.length;
-    const selected = body.slice(start, end);
-    const nextBody = body.slice(0, start) + before + selected + after + body.slice(end);
-    updateSubtask(editingSubtask.id, { notes: nextBody });
-    requestAnimationFrame(() => {
-      ta?.focus();
-      ta?.setSelectionRange(start + before.length, start + before.length + selected.length);
-    });
-  };
-
-  const prefixSubtaskLines = (prefix: string | ((lineIndex: number) => string)) => {
-    if (!editingSubtask) return;
-    const ta = subtaskNotesRef.current;
-    const body = editingSubtask.notes ?? '';
-    const start = ta?.selectionStart ?? body.length;
-    const end = ta?.selectionEnd ?? body.length;
-    const lineStart = body.lastIndexOf('\n', start - 1) + 1;
-    const nextNewline = body.indexOf('\n', end);
-    const lineEnd = nextNewline === -1 ? body.length : nextNewline;
-    const prefixed = body.slice(lineStart, lineEnd)
-      .split('\n')
-      .map((line, i) => `${typeof prefix === 'function' ? prefix(i) : prefix}${line}`)
-      .join('\n');
-    const nextBody = body.slice(0, lineStart) + prefixed + body.slice(lineEnd);
-    updateSubtask(editingSubtask.id, { notes: nextBody });
-    requestAnimationFrame(() => {
-      ta?.focus();
-      ta?.setSelectionRange(lineStart, lineStart + prefixed.length);
-    });
-  };
-
-  const insertSubtaskMarkdownLink = () => {
-    const url = window.prompt('Link URL (https://…)');
-    if (!url) return;
-    const safe = /^https?:\/\//i.test(url) ? url : `https://${url}`;
-    wrapSubtaskSelection('[', `](${safe})`);
-  };
-
-  // Mirrors addImageFile, but the compressed-photo write lands on the subtask (inside the
-  // Project's own subtasks array) rather than the Project note directly — re-reads both the note
-  // and the subtask fresh at write time since the async compression could outlast either.
-  const addSubtaskImageFile = async (file: File, insertAt: { start: number; end: number } | null) => {
-    if (!note || !editingSubtask) return;
-    const noteId = note.id;
-    const subtaskId = editingSubtask.id;
-    setUploadingSubtaskImage(true);
-    try {
-      const dataUrl = await fileToCompressedDataUrl(file);
-      const latest = notes.find(n => n.id === noteId);
-      const latestSubtask = latest?.subtasks?.find(s => s.id === subtaskId);
-      if (!latest || !latestSubtask) return;
-      const ordinal = latestSubtask.nextPhotoNumber ?? 1;
-      const image: NoteImage = { src: dataUrl, addedAt: new Date().toISOString(), ordinal };
-      let notesText = latestSubtask.notes ?? '';
-      if (insertAt) {
-        const marker = `[Photo ${ordinal}] `;
-        notesText = notesText.slice(0, insertAt.start) + marker + notesText.slice(insertAt.end);
-        const pos = insertAt.start + marker.length;
-        requestAnimationFrame(() => {
-          subtaskNotesRef.current?.focus();
-          subtaskNotesRef.current?.setSelectionRange(pos, pos);
-        });
-      }
-      const updatedSubtask: ProjectSubtask = {
-        ...latestSubtask,
-        images: [...(latestSubtask.images ?? []), image],
-        nextPhotoNumber: ordinal + 1,
-        notes: notesText
-      };
-      void upsert('notes', { ...latest, subtasks: (latest.subtasks ?? []).map(s => (s.id === subtaskId ? updatedSubtask : s)) });
-    } catch {
-      /* unreadable file — silently skip rather than block the rest of the paste/upload */
-    } finally {
-      setUploadingSubtaskImage(false);
-    }
-  };
-
+  // A subtask's notes field is its own RichTextEditor instance now — formatting, HTML-aware
+  // paste, and inline photos all come from that component directly (see the onImageFile/
+  // onBodyClick props where it's rendered). What's left here is upkeep for a subtask's *legacy*
+  // marker-based photos (from before that switch) — remove/rename/reorder still work on them.
   const removeSubtaskImage = (ordinal: number) => {
     if (!editingSubtask) return;
     const target = (editingSubtask.images ?? []).find(img => img.ordinal === ordinal);
@@ -1032,146 +866,17 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
     updateSubtask(editingSubtask.id, { images });
   };
 
-  const triggerSubtaskImageUpload = () => {
-    const ta = subtaskNotesRef.current;
-    pendingSubtaskImageInsertRef.current = ta ? { start: ta.selectionStart, end: ta.selectionEnd } : null;
-    subtaskImageFileRef.current?.click();
-  };
-
-  const onSubtaskImageFileSelected = (e: ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    e.target.value = '';
-    const insertAt = pendingSubtaskImageInsertRef.current;
-    pendingSubtaskImageInsertRef.current = null;
-    if (file) void addSubtaskImageFile(file, insertAt);
-  };
-
-  const handleSubtaskNotesPaste = (e: ClipboardEvent<HTMLTextAreaElement>) => {
-    if (!editingSubtask) return;
-    const imageItem = Array.from(e.clipboardData.items).find(item => item.type.startsWith('image/'));
-    const imageFile = imageItem?.getAsFile();
-    if (imageFile) {
-      e.preventDefault();
-      void addSubtaskImageFile(imageFile, { start: e.currentTarget.selectionStart, end: e.currentTarget.selectionEnd });
-      return;
-    }
-    const html = e.clipboardData.getData('text/html');
-    if (!html) return;
-    e.preventDefault();
-    const markdown = htmlToMarkdown(html);
-    const ta = e.currentTarget;
-    const start = ta.selectionStart;
-    const end = ta.selectionEnd;
-    const body = editingSubtask.notes ?? '';
-    const nextBody = body.slice(0, start) + markdown + body.slice(end);
-    updateSubtask(editingSubtask.id, { notes: nextBody });
-    requestAnimationFrame(() => {
-      ta.focus();
-      const pos = start + markdown.length;
-      ta.setSelectionRange(pos, pos);
-    });
-  };
-
   // Archiving stays a single reversible click — flips the status and stamps/clears the timestamp.
   const toggleArchive = () => {
     if (!note) return;
     patchNote(note.archived ? { archived: false, archivedAt: undefined } : { archived: true, archivedAt: new Date().toISOString() });
   };
 
+  // Inserted as plain [[Title]] text at the cursor inside the rich text body — the editor has no
+  // idea what a wikilink is, it's just text to it, same as it always was inside the old textarea.
   const insertLink = (title: string) => {
-    if (!note) return;
-    const ta = bodyRef.current;
-    const linkText = `[[${title}]]`;
-    const start = ta?.selectionStart ?? note.body.length;
-    const end = ta?.selectionEnd ?? note.body.length;
-    const nextBody = note.body.slice(0, start) + linkText + note.body.slice(end);
-    patchNote({ body: nextBody });
+    bodyEditorRef.current?.insertText(`[[${title}]]`);
     setLinkPickerOpen(false);
-    requestAnimationFrame(() => {
-      ta?.focus();
-      const pos = start + linkText.length;
-      ta?.setSelectionRange(pos, pos);
-    });
-  };
-
-  // Markdown formatting toolbar — wraps/prefixes the current textarea selection, the same
-  // selection-based approach insertLink already uses above, so it composes cleanly with it.
-  const wrapSelection = (before: string, after: string = before) => {
-    if (!note) return;
-    const ta = bodyRef.current;
-    const start = ta?.selectionStart ?? note.body.length;
-    const end = ta?.selectionEnd ?? note.body.length;
-    const selected = note.body.slice(start, end);
-    const nextBody = note.body.slice(0, start) + before + selected + after + note.body.slice(end);
-    patchNote({ body: nextBody });
-    requestAnimationFrame(() => {
-      ta?.focus();
-      ta?.setSelectionRange(start + before.length, start + before.length + selected.length);
-    });
-  };
-
-  const prefixLines = (prefix: string | ((lineIndex: number) => string)) => {
-    if (!note) return;
-    const ta = bodyRef.current;
-    const start = ta?.selectionStart ?? note.body.length;
-    const end = ta?.selectionEnd ?? note.body.length;
-    const lineStart = note.body.lastIndexOf('\n', start - 1) + 1;
-    const nextNewline = note.body.indexOf('\n', end);
-    const lineEnd = nextNewline === -1 ? note.body.length : nextNewline;
-    const prefixed = note.body.slice(lineStart, lineEnd)
-      .split('\n')
-      .map((line, i) => `${typeof prefix === 'function' ? prefix(i) : prefix}${line}`)
-      .join('\n');
-    const nextBody = note.body.slice(0, lineStart) + prefixed + note.body.slice(lineEnd);
-    patchNote({ body: nextBody });
-    requestAnimationFrame(() => {
-      ta?.focus();
-      ta?.setSelectionRange(lineStart, lineStart + prefixed.length);
-    });
-  };
-
-  const insertMarkdownLink = () => {
-    const url = window.prompt('Link URL (https://…)');
-    if (!url) return;
-    const safe = /^https?:\/\//i.test(url) ? url : `https://${url}`;
-    wrapSelection('[', `](${safe})`);
-  };
-
-  // A screenshot on the clipboard (Snipping Tool, Cmd+Shift+4, "Copy image") arrives as an image
-  // file, not text/html — caught here before the HTML branch below, since a pasted image often
-  // carries no text/html payload at all and would otherwise just silently do nothing in a plain
-  // <textarea>. Drops a "[Photo N]" marker at the given cursor position so the photo reads
-  // inline exactly where it was placed — e.g. right after the date it belongs to — instead of
-  // just landing in an unordered strip at the bottom with no link back to the surrounding text.
-  const addImageFile = async (file: File, insertAt: { start: number; end: number } | null) => {
-    const targetId = note?.id;
-    if (!targetId) return;
-    setUploadingImage(true);
-    try {
-      const dataUrl = await fileToCompressedDataUrl(file);
-      // Re-read from `notes` rather than trusting the closed-over `note` — compression takes a
-      // moment, and another field (including the body itself, if the marker below lands at a
-      // now-stale offset) could have changed in the meantime.
-      const latest = notes.find(n => n.id === targetId);
-      if (!latest) return;
-      const ordinal = latest.nextPhotoNumber ?? 1;
-      const image: NoteImage = { src: dataUrl, addedAt: new Date().toISOString(), ordinal };
-      const patch: Partial<Note> = { images: [...(latest.images ?? []), image], nextPhotoNumber: ordinal + 1 };
-      if (insertAt) {
-        const marker = `[Photo ${ordinal}] `;
-        patch.body = latest.body.slice(0, insertAt.start) + marker + latest.body.slice(insertAt.end);
-        const pos = insertAt.start + marker.length;
-        requestAnimationFrame(() => {
-          bodyRef.current?.focus();
-          bodyRef.current?.setSelectionRange(pos, pos);
-        });
-      }
-      void upsert('notes', { ...latest, ...patch });
-    } catch {
-      /* unreadable file — silently skip rather than block the rest of the paste/upload */
-    } finally {
-      setUploadingImage(false);
-    }
   };
 
   // Keyed on ordinal, not src — two different photos can end up with the exact same compressed
@@ -1222,98 +927,35 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
     patchNote({ images });
   };
 
-  const triggerImageUpload = () => {
-    const ta = bodyRef.current;
-    pendingImageInsertRef.current = ta ? { start: ta.selectionStart, end: ta.selectionEnd } : null;
-    imageFileRef.current?.click();
-  };
-
-  const onImageFileSelected = (e: ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    e.target.value = ''; // allow re-selecting the same file later
-    const insertAt = pendingImageInsertRef.current;
-    pendingImageInsertRef.current = null;
-    if (file) void addImageFile(file, insertAt);
-  };
-
-  // A click that lands inside a "[text](url)" link opens that URL, and one inside a "[Photo N]"
-  // marker opens that photo — either way, instead of just placing the cursor there. Textareas
-  // can't make part of their text a real link, so this checks where the browser's own
-  // click-to-cursor logic landed against the token positions in the text (same tokenizer the
-  // highlight overlay uses, so a click always agrees with what's actually colored on screen).
-  // Boundaries are excluded (strict <, >) so a click that merely lands adjacent to the token —
-  // right before its opening bracket or right after its closing one — just places the cursor
-  // there instead of firing, even though the browser snaps the caret to that same edge index.
-  // Caret index alone still isn't enough: clicking in the blank space *below* the token's line
-  // snaps the caret to that line's column (row clamps to the nearest real line, column still
-  // follows the click's x), which can land inside the token's index range despite the click
-  // visually landing nowhere near it. So once the index range says "maybe", this confirms the
-  // click point actually falls within that token's own rendered rectangle in the highlight
-  // overlay before treating it as a deliberate hit.
-  const onBodyClick = (e: ReactMouseEvent<HTMLTextAreaElement>) => {
-    if (!note) return;
-    const ta = bodyRef.current;
-    if (!ta) return;
-    const pos = ta.selectionStart;
-    for (const m of note.body.matchAll(BODY_TOKEN_PATTERN)) {
+  // The rich text body is a real contentEditable now, so a plain click on an <a href> would
+  // normally just place the cursor (browsers don't follow links inside editable content without
+  // a modifier) — handle Ctrl/Cmd+click ourselves so links stay usable while editing. A [[Title]]
+  // wikilink is just visible text with no element of its own to hang a handler on, so a plain
+  // click is checked against the exact text node/offset the browser resolves the click to (a
+  // contentEditable's own hit-testing, not a hand-rolled geometry check the old textarea overlay
+  // needed) — landing inside a wikilink's brackets jumps straight to that note if it still exists.
+  const handleNoteBodyClick = (e: ReactMouseEvent<HTMLDivElement>) => {
+    const link = (e.target as HTMLElement).closest?.('a[href]');
+    if (link && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault();
+      window.open(link.getAttribute('href') ?? '', '_blank', 'noopener,noreferrer');
+      return;
+    }
+    const caretRangeFromPoint = (document as Document & { caretRangeFromPoint?: (x: number, y: number) => Range | null }).caretRangeFromPoint;
+    const range = caretRangeFromPoint?.call(document, e.clientX, e.clientY);
+    const textNode = range?.startContainer;
+    if (!textNode || textNode.nodeType !== Node.TEXT_NODE) return;
+    const text = textNode.textContent ?? '';
+    const offset = range!.startOffset;
+    for (const m of text.matchAll(WIKILINK_PATTERN)) {
       const start = m.index ?? -1;
       const end = start + m[0].length;
-      if (pos <= start || pos >= end) continue;
-      const urlCandidate = m[3] || m[5];
-      const url = urlCandidate && isValidUrl(urlCandidate) ? urlCandidate : undefined;
-      const image = m[4] ? resolveMarkerImage(note.images ?? [], m[4].slice(1, -1)) : undefined;
-      if (!url && !image) return;
-      const span = bodyHighlightRef.current?.querySelector<HTMLElement>(`[data-start="${start}"]`);
-      if (span) {
-        const rect = span.getBoundingClientRect();
-        if (e.clientX < rect.left || e.clientX > rect.right || e.clientY < rect.top || e.clientY > rect.bottom) return;
-      }
-      if (url) { window.open(url, '_blank', 'noopener,noreferrer'); return; }
-      if (image) setImageLightboxSrc(image.src);
+      if (offset <= start || offset >= end) continue;
+      const title = m[1].trim().toLowerCase();
+      const target = notes.find(n => n.title.trim().toLowerCase() === title);
+      if (target) openNote(target);
       return;
     }
-  };
-
-  // Swaps the caret for a pointer cursor while hovering a URL or photo marker, purely by
-  // geometry against the same [data-actionable] spans onBodyClick hit-tests against — a click
-  // and a hover should always agree on what counts as "on" the token.
-  const onBodyMouseMove = (e: ReactMouseEvent<HTMLTextAreaElement>) => {
-    const overlay = bodyHighlightRef.current;
-    if (!overlay) { if (bodyHoverPointer) setBodyHoverPointer(false); return; }
-    let hit = false;
-    for (const span of overlay.querySelectorAll<HTMLElement>('[data-actionable]')) {
-      const r = span.getBoundingClientRect();
-      if (e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom) { hit = true; break; }
-    }
-    if (hit !== bodyHoverPointer) setBodyHoverPointer(hit);
-  };
-
-  // Pasted HTML (Google Docs, Word, browsers) gets rewritten to Markdown so paragraphs,
-  // nested lists, and bold/italic/links survive instead of collapsing into one plain-text
-  // run — skipped for code snippets, which should paste verbatim.
-  const handleBodyPaste = (e: ClipboardEvent<HTMLTextAreaElement>) => {
-    if (!note || note.resourceKind === 'Repo') return;
-    const imageItem = Array.from(e.clipboardData.items).find(item => item.type.startsWith('image/'));
-    const imageFile = imageItem?.getAsFile();
-    if (imageFile) {
-      e.preventDefault();
-      void addImageFile(imageFile, { start: e.currentTarget.selectionStart, end: e.currentTarget.selectionEnd });
-      return;
-    }
-    const html = e.clipboardData.getData('text/html');
-    if (!html) return;
-    e.preventDefault();
-    const markdown = htmlToMarkdown(html);
-    const ta = e.currentTarget;
-    const start = ta.selectionStart;
-    const end = ta.selectionEnd;
-    const nextBody = note.body.slice(0, start) + markdown + note.body.slice(end);
-    patchNote({ body: nextBody });
-    requestAnimationFrame(() => {
-      ta.focus();
-      const pos = start + markdown.length;
-      ta.setSelectionRange(pos, pos);
-    });
   };
 
   // A leftover draft from one Project's subtask box shouldn't still be sitting there, half-typed,
@@ -2133,62 +1775,27 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                 </div>
               )}
 
-              {note.resourceKind !== 'Repo' && (
-                <div className="rte-toolbar sb-format-toolbar">
-                  <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => wrapSelection('**')} title="Bold" aria-label="Bold"><Bold size={14} /></button>
-                  <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => wrapSelection('*')} title="Italic" aria-label="Italic"><Italic size={14} /></button>
-                  <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => wrapSelection('~~')} title="Strikethrough" aria-label="Strikethrough"><Strikethrough size={14} /></button>
-                  <span className="rte-divider" />
-                  <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => prefixLines('## ')} title="Heading" aria-label="Heading"><Heading2 size={14} /></button>
-                  <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => prefixLines('> ')} title="Quote" aria-label="Quote"><Quote size={14} /></button>
-                  <span className="rte-divider" />
-                  <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => prefixLines('- ')} title="Bulleted list" aria-label="Bulleted list"><List size={14} /></button>
-                  <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => prefixLines(i => `${i + 1}. `)} title="Numbered list" aria-label="Numbered list"><ListOrdered size={14} /></button>
-                  <span className="rte-divider" />
-                  <button type="button" onMouseDown={e => e.preventDefault()} onClick={insertMarkdownLink} title="Add link" aria-label="Add link"><Link2 size={14} /></button>
-                  <span className="rte-divider" />
-                  <button type="button" onMouseDown={e => e.preventDefault()} onClick={triggerImageUpload} disabled={uploadingImage} title="Add a photo" aria-label="Add a photo"><Upload size={14} /></button>
-                </div>
-              )}
               {note.resourceKind === 'Repo' ? (
                 <textarea
-                  ref={bodyRef}
                   className="sb-body-input sb-body-code"
                   placeholder='Paste the snippet — a fenced ```lang block is a handy convention, even without a renderer.'
                   value={note.body}
                   onChange={e => patchNote({ body: e.target.value })}
-                  onPaste={handleBodyPaste}
-                  onClick={onBodyClick}
                 />
               ) : (
-                <div className="sb-body-wrap">
-                  <div
-                    ref={bodyHighlightRef}
-                    className="sb-body-highlight"
-                    aria-hidden="true"
-                    dangerouslySetInnerHTML={{ __html: renderHighlightedBody(note.body, note.images ?? []) }}
-                  />
-                  <textarea
-                    ref={bodyRef}
-                    className={`sb-body-input sb-body-input-highlighted ${bodyHoverPointer ? 'sb-body-input-pointer' : ''}`}
-                    placeholder="Start writing… use [[Note Title]] to link to another note. Paste or upload a photo to drop it in as a [Photo N] marker — click a marker to view that photo."
-                    value={note.body}
-                    onChange={e => patchNote({ body: e.target.value })}
-                    onPaste={handleBodyPaste}
-                    onClick={onBodyClick}
-                    onMouseMove={onBodyMouseMove}
-                    onMouseLeave={() => setBodyHoverPointer(false)}
-                    onScroll={e => {
-                      const highlight = bodyHighlightRef.current;
-                      if (!highlight) return;
-                      highlight.scrollTop = e.currentTarget.scrollTop;
-                      highlight.scrollLeft = e.currentTarget.scrollLeft;
-                    }}
-                  />
-                </div>
+                <RichTextEditor
+                  ref={bodyEditorRef}
+                  className="sb-body-rte"
+                  value={note.body}
+                  onChange={html => patchNote({ body: html })}
+                  placeholder="Start writing… use [[Note Title]] to link to another note."
+                  onImageFile={fileToCompressedDataUrl}
+                  onBodyClick={handleNoteBodyClick}
+                />
               )}
-              {((note.images ?? []).length > 0 || uploadingImage) && (
+              {(note.images ?? []).length > 0 && (
                 <div className="sb-note-photos">
+                  <p className="sb-note-photos-legacy-hint">Photos from before inline images — still here, just no longer where new ones go.</p>
                   {(note.images ?? []).map(img => (
                     <div
                       className={`sb-note-photo ${dragImageOrdinal === img.ordinal ? 'dragging' : ''} ${dragOverImageOrdinal === img.ordinal && dragImageOrdinal !== null && dragImageOrdinal !== img.ordinal ? 'drag-over' : ''}`}
@@ -2226,7 +1833,6 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                       />
                     </div>
                   ))}
-                  {uploadingImage && <div className="sb-note-photo sb-note-photo-uploading">Uploading…</div>}
                 </div>
               )}
               {backlinks.length > 0 && (
@@ -2441,45 +2047,18 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
             </label>
             <label className="field-full">
               <span>Notes</span>
-              <div className="rte-toolbar sb-format-toolbar">
-                <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => wrapSubtaskSelection('**')} title="Bold" aria-label="Bold"><Bold size={14} /></button>
-                <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => wrapSubtaskSelection('*')} title="Italic" aria-label="Italic"><Italic size={14} /></button>
-                <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => wrapSubtaskSelection('~~')} title="Strikethrough" aria-label="Strikethrough"><Strikethrough size={14} /></button>
-                <span className="rte-divider" />
-                <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => prefixSubtaskLines('## ')} title="Heading" aria-label="Heading"><Heading2 size={14} /></button>
-                <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => prefixSubtaskLines('> ')} title="Quote" aria-label="Quote"><Quote size={14} /></button>
-                <span className="rte-divider" />
-                <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => prefixSubtaskLines('- ')} title="Bulleted list" aria-label="Bulleted list"><List size={14} /></button>
-                <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => prefixSubtaskLines(i => `${i + 1}. `)} title="Numbered list" aria-label="Numbered list"><ListOrdered size={14} /></button>
-                <span className="rte-divider" />
-                <button type="button" onMouseDown={e => e.preventDefault()} onClick={insertSubtaskMarkdownLink} title="Add link" aria-label="Add link"><Link2 size={14} /></button>
-                <span className="rte-divider" />
-                <button type="button" onMouseDown={e => e.preventDefault()} onClick={triggerSubtaskImageUpload} disabled={uploadingSubtaskImage} title="Add a photo" aria-label="Add a photo"><Upload size={14} /></button>
-              </div>
-              <div className="sb-body-wrap sb-subtask-notes-wrap">
-                <div
-                  ref={subtaskNotesHighlightRef}
-                  className="sb-body-highlight"
-                  aria-hidden="true"
-                  dangerouslySetInnerHTML={{ __html: renderHighlightedBody(editingSubtask.notes ?? '', editingSubtask.images ?? []) }}
-                />
-                <textarea
-                  ref={subtaskNotesRef}
-                  className="sb-body-input sb-body-input-highlighted"
-                  placeholder="Details, links, anything worth remembering about this step… paste text from anywhere, or paste/upload a photo."
-                  value={editingSubtask.notes ?? ''}
-                  onChange={e => updateSubtask(editingSubtask.id, { notes: e.target.value })}
-                  onPaste={handleSubtaskNotesPaste}
-                  onScroll={e => {
-                    const highlight = subtaskNotesHighlightRef.current;
-                    if (!highlight) return;
-                    highlight.scrollTop = e.currentTarget.scrollTop;
-                    highlight.scrollLeft = e.currentTarget.scrollLeft;
-                  }}
-                />
-              </div>
-              {((editingSubtask.images ?? []).length > 0 || uploadingSubtaskImage) && (
+              <RichTextEditor
+                ref={subtaskNotesEditorRef}
+                className="sb-subtask-notes-rte"
+                value={editingSubtask.notes ?? ''}
+                onChange={html => updateSubtask(editingSubtask.id, { notes: html })}
+                placeholder="Details, links, anything worth remembering about this step…"
+                onImageFile={fileToCompressedDataUrl}
+                onBodyClick={handleNoteBodyClick}
+              />
+              {(editingSubtask.images ?? []).length > 0 && (
                 <div className="sb-note-photos">
+                  <p className="sb-note-photos-legacy-hint">Photos from before inline images — still here, just no longer where new ones go.</p>
                   {(editingSubtask.images ?? []).map(img => (
                     <div
                       className={`sb-note-photo ${dragImageOrdinal === img.ordinal ? 'dragging' : ''} ${dragOverImageOrdinal === img.ordinal && dragImageOrdinal !== null && dragImageOrdinal !== img.ordinal ? 'drag-over' : ''}`}
@@ -2517,7 +2096,6 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                       />
                     </div>
                   ))}
-                  {uploadingSubtaskImage && <div className="sb-note-photo sb-note-photo-uploading">Uploading…</div>}
                 </div>
               )}
             </label>
@@ -2527,8 +2105,6 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
       {imageLightboxSrc && (
         <PhotoLightbox src={imageLightboxSrc} onClose={() => setImageLightboxSrc(null)} />
       )}
-      <input ref={imageFileRef} type="file" accept="image/*" hidden onChange={onImageFileSelected} />
-      <input ref={subtaskImageFileRef} type="file" accept="image/*" hidden onChange={onSubtaskImageFileSelected} />
     </>
   );
 }

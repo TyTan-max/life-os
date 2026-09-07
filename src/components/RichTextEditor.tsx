@@ -1,13 +1,15 @@
-import { useEffect, useRef, useState } from 'react';
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import type { KeyboardEvent, MouseEvent as ReactMouseEvent } from 'react';
 import { createPortal } from 'react-dom';
-import { Bold, Eraser, Heading2, Italic, Link2, List, ListOrdered, Quote, Strikethrough, Underline } from 'lucide-react';
+import { Bold, Eraser, Heading2, Image as ImageIcon, Italic, Link2, List, ListOrdered, Quote, Strikethrough, Underline } from 'lucide-react';
 
-const ALLOWED_TAGS = new Set(['B', 'STRONG', 'I', 'EM', 'U', 'S', 'STRIKE', 'UL', 'OL', 'LI', 'BLOCKQUOTE', 'A', 'BR', 'P', 'DIV', 'H2']);
+const ALLOWED_TAGS = new Set(['B', 'STRONG', 'I', 'EM', 'U', 'S', 'STRIKE', 'UL', 'OL', 'LI', 'BLOCKQUOTE', 'A', 'BR', 'P', 'DIV', 'H2', 'IMG']);
 
 // Strips anything that isn't a plain formatting tag (no styles/scripts/classes) — content
 // here can come from pasted clipboard HTML, so it can't be trusted as-is even though this is
-// a local-only app. Keeps `href` on <a> tags, restricted to http/https.
+// a local-only app. Keeps `href` on <a> tags (restricted to http/https) and `src` on <img> tags
+// (restricted to data: URIs — an already-compressed photo, never a remote URL that could leak
+// a viewer's IP to a third party just by loading the note).
 function sanitizeHtml(html: string): string {
   const doc = new DOMParser().parseFromString(html, 'text/html');
   const walk = (node: ParentNode) => {
@@ -21,12 +23,14 @@ function sanitizeHtml(html: string): string {
         return;
       }
       const href = el.tagName === 'A' ? el.getAttribute('href') : null;
+      const src = el.tagName === 'IMG' ? el.getAttribute('src') : null;
       Array.from(el.attributes).forEach(attr => el.removeAttribute(attr.name));
       if (el.tagName === 'A' && href && /^https?:\/\//i.test(href)) {
         el.setAttribute('href', href);
         el.setAttribute('target', '_blank');
         el.setAttribute('rel', 'noopener noreferrer');
       }
+      if (el.tagName === 'IMG' && src && /^data:image\//i.test(src)) el.setAttribute('src', src);
       walk(el);
     });
   };
@@ -35,6 +39,7 @@ function sanitizeHtml(html: string): string {
 }
 
 export function isEmptyHtml(html: string): boolean {
+  if (/<img[\s>]/i.test(html)) return false;
   const text = html.replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').trim();
   return text.length === 0;
 }
@@ -133,7 +138,18 @@ function normalizeValue(value: string): string {
   return value.includes('<') ? value : plainTextToHtml(value);
 }
 
-export function RichTextEditor({ value, onChange, placeholder, toolbar = true, compact = false }: {
+export interface RichTextEditorHandle {
+  // Inserts plain text at the current cursor position (falls back to the end if focus/selection
+  // was lost — e.g. after a modal picker stole it). Used by callers that need to drop a token
+  // like a [[Wikilink]] in from outside the editor's own toolbar.
+  insertText: (text: string) => void;
+  // Same, but for a sanitized HTML fragment — used to drop an inline <img> in after an upload
+  // finishes, which can outlast the selection that was active when it started.
+  insertHtml: (html: string) => void;
+  focus: () => void;
+}
+
+export const RichTextEditor = forwardRef<RichTextEditorHandle, {
   value: string;
   onChange: (html: string) => void;
   placeholder?: string;
@@ -143,7 +159,18 @@ export function RichTextEditor({ value, onChange, placeholder, toolbar = true, c
   // Starts input-height instead of the default ~110px block, for a field that sits inline
   // alongside other compact controls rather than in its own form row.
   compact?: boolean;
-}) {
+  // Extra class on the outer wrapper, for a page-specific size override (e.g. letting a primary
+  // note body grow past the default's ~340px cap) without a new prop per possible tweak.
+  className?: string;
+  // When set, an image toolbar button (and pasting an image file directly) both go through this
+  // to turn the file into a data URI, which is then inserted as an inline <img> — omit it to
+  // leave image support off entirely for a field that has no business embedding photos.
+  onImageFile?: (file: File) => Promise<string>;
+  // Fires on every click inside the editor body, alongside (not instead of) normal cursor
+  // placement — lets a caller inspect the clicked text (e.g. to detect landing inside a
+  // [[Wikilink]]) without this component needing to know what that convention means.
+  onBodyClick?: (e: ReactMouseEvent<HTMLDivElement>) => void;
+}>(function RichTextEditor({ value, onChange, placeholder, toolbar = true, compact = false, className, onImageFile, onBodyClick }, forwardedRef) {
   const ref = useRef<HTMLDivElement>(null);
   const [empty, setEmpty] = useState(isEmptyHtml(value || ''));
   const [linkPopover, setLinkPopover] = useState<{ top: number; left: number } | null>(null);
@@ -153,6 +180,7 @@ export function RichTextEditor({ value, onChange, placeholder, toolbar = true, c
   // exact selection range is captured here and re-applied right before the link is inserted.
   const savedRangeRef = useRef<Range | null>(null);
   const linkInputRef = useRef<HTMLInputElement>(null);
+  const imageFileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const normalized = normalizeValue(value || '');
@@ -167,6 +195,33 @@ export function RichTextEditor({ value, onChange, placeholder, toolbar = true, c
     const html = sanitizeHtml(ref.current.innerHTML);
     onChange(html);
     setEmpty(isEmptyHtml(html));
+  };
+
+  useImperativeHandle(forwardedRef, () => ({
+    insertText: (text: string) => {
+      ref.current?.focus();
+      document.execCommand('insertText', false, text);
+      commit();
+    },
+    insertHtml: (html: string) => {
+      ref.current?.focus();
+      document.execCommand('insertHTML', false, html);
+      commit();
+    },
+    focus: () => ref.current?.focus()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }), []);
+
+  const insertImageFile = async (file: File) => {
+    if (!onImageFile) return;
+    const dataUrl = await onImageFile(file);
+    ref.current?.focus();
+    document.execCommand('insertHTML', false, `<img src="${dataUrl}" alt="">`);
+    commit();
+  };
+
+  const triggerImageUpload = () => {
+    imageFileRef.current?.click();
   };
 
   const exec = (command: string, arg?: string) => {
@@ -256,7 +311,7 @@ export function RichTextEditor({ value, onChange, placeholder, toolbar = true, c
   };
 
   return (
-    <div className={`rte ${compact ? 'rte-compact' : ''}`}>
+    <div className={`rte ${compact ? 'rte-compact' : ''} ${className ?? ''}`}>
       {toolbar && (
         <div className="rte-toolbar">
           <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => exec('bold')} title="Bold" aria-label="Bold"><Bold size={14} /></button>
@@ -271,6 +326,9 @@ export function RichTextEditor({ value, onChange, placeholder, toolbar = true, c
           <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => exec('insertOrderedList')} title="Numbered list" aria-label="Numbered list"><ListOrdered size={14} /></button>
           <span className="rte-divider" />
           <button type="button" onMouseDown={e => e.preventDefault()} onClick={openLinkPopover} title="Add link" aria-label="Add link"><Link2 size={14} /></button>
+          {onImageFile && (
+            <button type="button" onMouseDown={e => e.preventDefault()} onClick={triggerImageUpload} title="Add a photo" aria-label="Add a photo"><ImageIcon size={14} /></button>
+          )}
           <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => exec('removeFormat')} title="Clear formatting" aria-label="Clear formatting"><Eraser size={14} /></button>
         </div>
       )}
@@ -283,8 +341,12 @@ export function RichTextEditor({ value, onChange, placeholder, toolbar = true, c
           onInput={commit}
           onBlur={commit}
           onKeyDown={handleKeyDown}
+          onClick={onBodyClick}
           onPaste={e => {
+            const imageItem = Array.from(e.clipboardData.items).find(item => item.type.startsWith('image/'));
+            const imageFile = onImageFile ? imageItem?.getAsFile() : null;
             e.preventDefault();
+            if (imageFile) { void insertImageFile(imageFile); return; }
             const html = e.clipboardData.getData('text/html');
             const inserted = html ? convertPastedHtml(html) : plainTextToHtml(e.clipboardData.getData('text/plain'));
             document.execCommand('insertHTML', false, inserted);
@@ -293,6 +355,19 @@ export function RichTextEditor({ value, onChange, placeholder, toolbar = true, c
         />
         {empty && placeholder && <span className="rte-placeholder">{placeholder}</span>}
       </div>
+      {onImageFile && (
+        <input
+          ref={imageFileRef}
+          type="file"
+          accept="image/*"
+          hidden
+          onChange={e => {
+            const file = e.target.files?.[0];
+            e.target.value = '';
+            if (file) void insertImageFile(file);
+          }}
+        />
+      )}
       {linkPopover && createPortal(
         <div className="rte-link-popover" ref={linkPopoverRef} style={{ position: 'fixed', top: linkPopover.top, left: linkPopover.left }}>
           <input
@@ -312,4 +387,4 @@ export function RichTextEditor({ value, onChange, placeholder, toolbar = true, c
       )}
     </div>
   );
-}
+});
