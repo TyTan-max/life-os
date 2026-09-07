@@ -226,6 +226,61 @@ function resolveMarkerImage(images: NoteImage[], innerText: string): NoteImage |
 // wikilink's [Title] half by accident.
 const BARE_MARKER_PATTERN = /(?<!\[)\[([^[\]]+)\](?!\])/g;
 
+// Combined pass over BOTH token shapes at once (rather than running WIKILINK_PATTERN and
+// BARE_MARKER_PATTERN separately) so a single left-to-right scan of a text node's matches can be
+// split into plain-text/span replacement nodes in one pass, in the correct order.
+const DECORATE_TOKEN_PATTERN = /(\[\[[^\]]+\]\])|((?<!\[)\[[^[\]]+\](?!\]))/g;
+
+// Wraps [[Wikilink]] tokens (yellow/amber) and [Photo N]/[Label] tokens that resolve to a real
+// photo (green) in a colored <span>, so the two live inline-token conventions in a note body are
+// visually distinguishable from plain text and from each other at a glance — real hyperlinks get
+// their color from CSS alone (`.rte-body a`) since they're already a distinct <a> tag.
+// Runs directly against the live editor DOM (not the HTML string) so it can be called from
+// RichTextEditor's `decorate` prop, which saves/restores the caret by character offset around it —
+// wrapping text in a <span> doesn't change total plain-text length, so that offset stays valid.
+function decorateBody(root: HTMLElement, images: NoteImage[]): void {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+    acceptNode: node => {
+      // A text node already inside one of our decorated spans is the *result* of a previous
+      // pass, not new plain text to re-scan — walking into it again would double-wrap.
+      const parent = (node as Text).parentElement;
+      if (parent?.closest('.sb-tok-wikilink, .sb-tok-photo')) return NodeFilter.FILTER_REJECT;
+      return NodeFilter.FILTER_ACCEPT;
+    }
+  });
+  const targets: Text[] = [];
+  let node = walker.nextNode();
+  while (node) { targets.push(node as Text); node = walker.nextNode(); }
+
+  targets.forEach(textNode => {
+    const text = textNode.textContent ?? '';
+    const matches = Array.from(text.matchAll(DECORATE_TOKEN_PATTERN));
+    if (matches.length === 0) return;
+
+    const frag = document.createDocumentFragment();
+    let cursor = 0;
+    matches.forEach(m => {
+      const start = m.index ?? 0;
+      const end = start + m[0].length;
+      if (start > cursor) frag.appendChild(document.createTextNode(text.slice(cursor, start)));
+      const isWikilink = m[1] !== undefined;
+      const inner = isWikilink ? m[1].slice(2, -2) : m[2].slice(1, -1);
+      const isPhoto = !isWikilink && !!resolveMarkerImage(images, inner);
+      if (isWikilink || isPhoto) {
+        const span = document.createElement('span');
+        span.className = isWikilink ? 'sb-tok-wikilink' : 'sb-tok-photo';
+        span.textContent = m[0];
+        frag.appendChild(span);
+      } else {
+        frag.appendChild(document.createTextNode(m[0]));
+      }
+      cursor = end;
+    });
+    if (cursor < text.length) frag.appendChild(document.createTextNode(text.slice(cursor)));
+    textNode.replaceWith(frag);
+  });
+}
+
 const NOTE_IMAGE_MAX_DIM = 1200;
 const NOTE_IMAGE_QUALITY = 0.82;
 
@@ -1866,6 +1921,7 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                   placeholder="Start writing… use [[Note Title]] to link to another note."
                   onImageFile={(file, atRange) => void insertNotePhoto(file, atRange)}
                   onBodyClick={e => handleNoteBodyClick(e, note.images ?? [])}
+                  decorate={root => decorateBody(root, note.images ?? [])}
                 />
               )}
               {(note.images ?? []).length > 0 && (
@@ -2129,6 +2185,7 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                 placeholder="Details, links, anything worth remembering about this step…"
                 onImageFile={(file, atRange) => void insertSubtaskPhoto(file, atRange)}
                 onBodyClick={e => handleNoteBodyClick(e, editingSubtask.images ?? [])}
+                decorate={root => decorateBody(root, editingSubtask.images ?? [])}
               />
               {(editingSubtask.images ?? []).length > 0 && (
                 <div className="sb-note-photos">

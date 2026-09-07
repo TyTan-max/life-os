@@ -3,13 +3,20 @@ import type { KeyboardEvent, MouseEvent as ReactMouseEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { Bold, Eraser, Heading2, Image as ImageIcon, Italic, Link2, List, ListOrdered, Quote, Strikethrough, Underline } from 'lucide-react';
 
-const ALLOWED_TAGS = new Set(['B', 'STRONG', 'I', 'EM', 'U', 'S', 'STRIKE', 'UL', 'OL', 'LI', 'BLOCKQUOTE', 'A', 'BR', 'P', 'DIV', 'H2', 'IMG']);
+const ALLOWED_TAGS = new Set(['B', 'STRONG', 'I', 'EM', 'U', 'S', 'STRIKE', 'UL', 'OL', 'LI', 'BLOCKQUOTE', 'A', 'BR', 'P', 'DIV', 'H2', 'IMG', 'SPAN']);
+// The only classes a <span> is ever allowed to carry through — a caller's `decorate` callback
+// (see the prop below) is the one place that creates these, wrapping a token like a [[Wikilink]]
+// for a color. A span whose class isn't in here (a foreign one from pasted HTML, say) keeps
+// existing as a bare, unstyled wrapper rather than being unwrapped outright — harmless, since it
+// carries no other attributes or behavior once its class is gone.
+const ALLOWED_SPAN_CLASSES = new Set(['sb-tok-wikilink', 'sb-tok-photo']);
 
 // Strips anything that isn't a plain formatting tag (no styles/scripts/classes) — content
 // here can come from pasted clipboard HTML, so it can't be trusted as-is even though this is
-// a local-only app. Keeps `href` on <a> tags (restricted to http/https) and `src` on <img> tags
+// a local-only app. Keeps `href` on <a> tags (restricted to http/https), `src` on <img> tags
 // (restricted to data: URIs — an already-compressed photo, never a remote URL that could leak
-// a viewer's IP to a third party just by loading the note).
+// a viewer's IP to a third party just by loading the note), and `class` on a <span> but only
+// when it's one of ALLOWED_SPAN_CLASSES.
 function sanitizeHtml(html: string): string {
   const doc = new DOMParser().parseFromString(html, 'text/html');
   const walk = (node: ParentNode) => {
@@ -24,6 +31,7 @@ function sanitizeHtml(html: string): string {
       }
       const href = el.tagName === 'A' ? el.getAttribute('href') : null;
       const src = el.tagName === 'IMG' ? el.getAttribute('src') : null;
+      const spanClass = el.tagName === 'SPAN' && ALLOWED_SPAN_CLASSES.has(el.className) ? el.className : null;
       Array.from(el.attributes).forEach(attr => el.removeAttribute(attr.name));
       if (el.tagName === 'A' && href && /^https?:\/\//i.test(href)) {
         el.setAttribute('href', href);
@@ -31,6 +39,7 @@ function sanitizeHtml(html: string): string {
         el.setAttribute('rel', 'noopener noreferrer');
       }
       if (el.tagName === 'IMG' && src && /^data:image\//i.test(src)) el.setAttribute('src', src);
+      if (spanClass) el.setAttribute('class', spanClass);
       walk(el);
     });
   };
@@ -88,7 +97,7 @@ function convertPastedHtml(html: string): string {
 
       const tag = HEADING_TAGS.has(el.tagName) ? 'H2' : el.tagName === 'TR' ? 'DIV' : el.tagName;
 
-      if (ALLOWED_TAGS.has(tag) && tag !== 'DIV') {
+      if (ALLOWED_TAGS.has(tag) && tag !== 'DIV' && tag !== 'SPAN') {
         if (el.tagName !== tag) {
           const renamed = doc.createElement(tag);
           while (el.firstChild) renamed.appendChild(el.firstChild);
@@ -129,6 +138,50 @@ function wrap(doc: Document, tagName: string, inner: Node): Node {
   const w = doc.createElement(tagName);
   w.appendChild(inner);
   return w;
+}
+
+// Caret position as a plain-text character count from the start of `root` — survives a `decorate`
+// pass restructuring the DOM (wrapping text in <span>s) since that never changes total text length,
+// unlike a Range/node+offset pair which would point at the wrong (or a detached) node afterward.
+function getCaretOffset(root: HTMLElement): number | null {
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0) return null;
+  const range = sel.getRangeAt(0);
+  if (!root.contains(range.startContainer)) return null;
+  const pre = range.cloneRange();
+  pre.selectNodeContents(root);
+  pre.setEnd(range.startContainer, range.startOffset);
+  return pre.toString().length;
+}
+
+function setCaretOffset(root: HTMLElement, offset: number): void {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  let remaining = offset;
+  let node = walker.nextNode() as Text | null;
+  let last: Text | null = null;
+  while (node) {
+    last = node;
+    const len = node.textContent?.length ?? 0;
+    if (remaining <= len) {
+      const range = document.createRange();
+      range.setStart(node, remaining);
+      range.collapse(true);
+      const sel = window.getSelection();
+      sel?.removeAllRanges();
+      sel?.addRange(range);
+      return;
+    }
+    remaining -= len;
+    node = walker.nextNode() as Text | null;
+  }
+  if (last) {
+    const range = document.createRange();
+    range.setStart(last, last.textContent?.length ?? 0);
+    range.collapse(true);
+    const sel = window.getSelection();
+    sel?.removeAllRanges();
+    sel?.addRange(range);
+  }
 }
 
 // A field that switched to this editor from a plain <textarea> (or migrated data written as
@@ -181,7 +234,13 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, {
   // placement — lets a caller inspect the clicked text (e.g. to detect landing inside a
   // [[Wikilink]]) without this component needing to know what that convention means.
   onBodyClick?: (e: ReactMouseEvent<HTMLDivElement>) => void;
-}>(function RichTextEditor({ value, onChange, placeholder, toolbar = true, compact = false, className, onImageFile, onBodyClick }, forwardedRef) {
+  // Runs in-place against the live editor DOM right after every commit (and after the initial
+  // value sync), letting a caller wrap recognized tokens (e.g. [[Wikilink]] or [Photo N]) in a
+  // colored <span> for live highlighting. Mutating `root` directly is deliberate — anything more
+  // indirect (e.g. returning replacement HTML) would need its own separate caret-preserving pass;
+  // this component already saves/restores the caret by character offset around the call.
+  decorate?: (root: HTMLElement) => void;
+}>(function RichTextEditor({ value, onChange, placeholder, toolbar = true, compact = false, className, onImageFile, onBodyClick, decorate }, forwardedRef) {
   const ref = useRef<HTMLDivElement>(null);
   const [empty, setEmpty] = useState(isEmptyHtml(value || ''));
   const [linkPopover, setLinkPopover] = useState<{ top: number; left: number } | null>(null);
@@ -198,11 +257,22 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, {
     if (ref.current && ref.current.innerHTML !== normalized) {
       ref.current.innerHTML = normalized;
     }
+    if (ref.current && decorate) decorate(ref.current);
     setEmpty(isEmptyHtml(normalized));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value]);
 
+  // Wrapping recognized tokens in colored spans restructures the DOM mid-typing, so the caret
+  // (tracked by the browser as a node+offset pair) would otherwise land in the wrong place — or a
+  // now-detached node — the instant a keystroke completes a token match. Character-offset
+  // save/restore around the decorate call keeps it exactly where the user left it regardless.
   const commit = () => {
     if (!ref.current) return;
+    if (decorate) {
+      const offset = getCaretOffset(ref.current);
+      decorate(ref.current);
+      if (offset !== null) setCaretOffset(ref.current, offset);
+    }
     const html = sanitizeHtml(ref.current.innerHTML);
     onChange(html);
     setEmpty(isEmptyHtml(html));
@@ -234,6 +304,10 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, {
     insertTextRaw: (text: string, atRange?: Range | null) => {
       restoreRange(atRange);
       document.execCommand('insertText', false, text);
+      // Skips commit()'s own onChange (that's the whole point of this method — see the interface
+      // comment), but still needs the same decorate pass, or a freshly inserted [Photo N] marker
+      // would stay plain text until some unrelated later edit happened to trigger commit().
+      if (ref.current && decorate) decorate(ref.current);
       const html = ref.current ? sanitizeHtml(ref.current.innerHTML) : '';
       setEmpty(isEmptyHtml(html));
       return html;
