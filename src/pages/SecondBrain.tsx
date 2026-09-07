@@ -445,6 +445,7 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
   const [editingGoalId, setEditingGoalId] = useState<string | null>(null);
   const [goalForm, setGoalForm] = useState<Partial<Goal>>(blankGoal());
   const [confirmDeleteNote, setConfirmDeleteNote] = useState<{ id: string; message: string } | null>(null);
+  const [confirmDeleteColumn, setConfirmDeleteColumn] = useState<{ id: string; message: string } | null>(null);
   // Knowledge Hub drill-down: set when a card is clicked, scopes the sidebar list
   // to just that Area's Projects or that Resource kind, until "Back" is clicked.
   const [areaScopeId, setAreaScopeId] = useState<string | null>(null);
@@ -835,7 +836,7 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
   // Any subtask sitting in the removed column falls back to whichever column is now first,
   // rather than vanishing — the same "reassign, don't orphan" treatment the app already gives a
   // deleted Area's Projects.
-  const removeColumn = (id: string) => {
+  const removeColumnNow = (id: string) => {
     if (!note) return;
     const cols = projectColumns(note);
     if (cols.length <= 1) return;
@@ -845,6 +846,29 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
       boardColumns: remaining,
       subtasks: (note.subtasks ?? []).map(s => (s.status === id ? { ...s, status: fallbackId } : s))
     });
+  };
+
+  // An empty column is a no-op to remove — deleting it straight away is a deliberate, already-
+  // considered click, same as the All-tab table's instant-delete. Only once real subtasks would
+  // actually move does it become worth a confirm step, naming the count and where they'll land.
+  const removeColumn = (id: string) => {
+    if (!note) return;
+    const cols = projectColumns(note);
+    if (cols.length <= 1) return;
+    const count = (note.subtasks ?? []).filter(s => s.status === id).length;
+    if (count === 0) { removeColumnNow(id); return; }
+    const col = cols.find(c => c.id === id);
+    const fallbackLabel = cols.find(c => c.id !== id)?.label ?? 'the first column';
+    setConfirmDeleteColumn({
+      id,
+      message: `Delete "${col?.label ?? 'this column'}"? ${count} subtask${count === 1 ? '' : 's'} will move to "${fallbackLabel}". This cannot be undone.`
+    });
+  };
+
+  const confirmDeleteColumnNow = () => {
+    if (!confirmDeleteColumn) return;
+    removeColumnNow(confirmDeleteColumn.id);
+    setConfirmDeleteColumn(null);
   };
 
   const removeSubtask = (id: string) => {
@@ -1099,7 +1123,7 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
 
   // A leftover draft from one Project's subtask box shouldn't still be sitting there, half-typed,
   // once a different note is opened.
-  useEffect(() => { setSubtaskDraft(''); setEditingSubtaskId(null); }, [selectedId]);
+  useEffect(() => { setSubtaskDraft(''); setEditingSubtaskId(null); setConfirmDeleteColumn(null); }, [selectedId]);
 
   // Cmd/Ctrl+K → jump-to-note palette, Cmd/Ctrl+N → new note, Esc → deselect note.
   useEffect(() => {
@@ -2226,6 +2250,19 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
           </>}
         >
           <p>{confirmDeleteNote.message}</p>
+        </Modal>
+      )}
+      {confirmDeleteColumn && (
+        <Modal
+          eyebrow="Subtask board"
+          title="Delete column"
+          onClose={() => setConfirmDeleteColumn(null)}
+          footer={<>
+            <button type="button" className="btn ghost" onClick={() => setConfirmDeleteColumn(null)}>Cancel</button>
+            <button type="button" className="btn danger" onClick={confirmDeleteColumnNow}>Delete</button>
+          </>}
+        >
+          <p>{confirmDeleteColumn.message}</p>
         </Modal>
       )}
       {editingSubtask && note && (
