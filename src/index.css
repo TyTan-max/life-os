@@ -1402,7 +1402,6 @@ input, select, textarea { font-family: inherit; }
 /* A subtask's own notes field — a bit taller than the default modal-field size, but still capped
    since it sits inside a fixed-size modal rather than a scrolling page. */
 .sb-subtask-notes-rte .rte-body { min-height: 140px; max-height: 260px; }
-.sb-note-photos-legacy-hint { flex-basis: 100%; font-size: 11px; color: var(--text-faint); margin: 0 0 2px; }
 .rte-link-popover {
   z-index: 200;
   display: flex;

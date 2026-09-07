@@ -139,13 +139,19 @@ function normalizeValue(value: string): string {
 }
 
 export interface RichTextEditorHandle {
-  // Inserts plain text at the current cursor position (falls back to the end if focus/selection
-  // was lost — e.g. after a modal picker stole it). Used by callers that need to drop a token
-  // like a [[Wikilink]] in from outside the editor's own toolbar.
-  insertText: (text: string) => void;
-  // Same, but for a sanitized HTML fragment — used to drop an inline <img> in after an upload
-  // finishes, which can outlast the selection that was active when it started.
-  insertHtml: (html: string) => void;
+  // Inserts plain text at the current cursor position (or `atRange` if given — restores that
+  // exact spot first, for a caller whose insert happens after an async gap, e.g. compressing a
+  // photo, that would otherwise have let the live selection drift or collapse away). Falls back
+  // to wherever focus() lands if neither a live selection nor atRange is available.
+  insertText: (text: string, atRange?: Range | null) => void;
+  // Same, but for a sanitized HTML fragment.
+  insertHtml: (html: string, atRange?: Range | null) => void;
+  // Same as insertText, but returns the resulting sanitized HTML instead of calling onChange
+  // itself — for a caller that needs to fold this insertion into one larger atomic update (e.g.
+  // a photo marker plus that photo's own metadata) rather than firing two separate updates
+  // against the same record, where the second (built from a pre-insert snapshot) would otherwise
+  // overwrite the first the instant it lands.
+  insertTextRaw: (text: string, atRange?: Range | null) => string;
   focus: () => void;
 }
 
@@ -162,10 +168,15 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, {
   // Extra class on the outer wrapper, for a page-specific size override (e.g. letting a primary
   // note body grow past the default's ~340px cap) without a new prop per possible tweak.
   className?: string;
-  // When set, an image toolbar button (and pasting an image file directly) both go through this
-  // to turn the file into a data URI, which is then inserted as an inline <img> — omit it to
-  // leave image support off entirely for a field that has no business embedding photos.
-  onImageFile?: (file: File) => Promise<string>;
+  // When set, an image toolbar button appears (and pasting an image file directly is caught too),
+  // both just handing the raw File off here — this component doesn't insert anything itself, so
+  // the caller decides what a "photo" becomes (a marker + gallery entry, an inline <img>, etc).
+  // The second argument is the cursor position at the moment of paste/upload, captured before
+  // whatever the caller awaits (compressing the file) has a chance to let it drift — pass it back
+  // into insertText/insertHtml's atRange so the result lands where the photo was actually dropped,
+  // not wherever the cursor happens to be once that finishes. Omit the prop to leave image support
+  // off entirely for a field that has no business embedding photos.
+  onImageFile?: (file: File, atRange: Range | null) => void;
   // Fires on every click inside the editor body, alongside (not instead of) normal cursor
   // placement — lets a caller inspect the clicked text (e.g. to detect landing inside a
   // [[Wikilink]]) without this component needing to know what that convention means.
@@ -197,30 +208,51 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, {
     setEmpty(isEmptyHtml(html));
   };
 
+  // Restores a caller-supplied range before inserting — without this, an insert that happens
+  // after an await (compressing a photo) lands wherever the selection happened to drift to by
+  // the time it runs, or nowhere at all if it collapsed away entirely.
+  const restoreRange = (atRange?: Range | null) => {
+    ref.current?.focus();
+    if (!atRange) return;
+    const sel = window.getSelection();
+    if (!sel) return;
+    sel.removeAllRanges();
+    sel.addRange(atRange);
+  };
+
   useImperativeHandle(forwardedRef, () => ({
-    insertText: (text: string) => {
-      ref.current?.focus();
+    insertText: (text: string, atRange?: Range | null) => {
+      restoreRange(atRange);
       document.execCommand('insertText', false, text);
       commit();
     },
-    insertHtml: (html: string) => {
-      ref.current?.focus();
+    insertHtml: (html: string, atRange?: Range | null) => {
+      restoreRange(atRange);
       document.execCommand('insertHTML', false, html);
       commit();
+    },
+    insertTextRaw: (text: string, atRange?: Range | null) => {
+      restoreRange(atRange);
+      document.execCommand('insertText', false, text);
+      const html = ref.current ? sanitizeHtml(ref.current.innerHTML) : '';
+      setEmpty(isEmptyHtml(html));
+      return html;
     },
     focus: () => ref.current?.focus()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }), []);
 
-  const insertImageFile = async (file: File) => {
-    if (!onImageFile) return;
-    const dataUrl = await onImageFile(file);
-    ref.current?.focus();
-    document.execCommand('insertHTML', false, `<img src="${dataUrl}" alt="">`);
-    commit();
+  // Captured up front — the file picker dialog steals focus the moment it opens, so by the time
+  // its onChange fires the live selection is long gone (same reasoning as savedRangeRef above,
+  // for the link popover).
+  const pendingImageRangeRef = useRef<Range | null>(null);
+  const getCurrentRange = (): Range | null => {
+    const sel = window.getSelection();
+    return sel && sel.rangeCount > 0 ? sel.getRangeAt(0).cloneRange() : null;
   };
 
   const triggerImageUpload = () => {
+    pendingImageRangeRef.current = getCurrentRange();
     imageFileRef.current?.click();
   };
 
@@ -346,7 +378,7 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, {
             const imageItem = Array.from(e.clipboardData.items).find(item => item.type.startsWith('image/'));
             const imageFile = onImageFile ? imageItem?.getAsFile() : null;
             e.preventDefault();
-            if (imageFile) { void insertImageFile(imageFile); return; }
+            if (imageFile) { onImageFile?.(imageFile, getCurrentRange()); return; }
             const html = e.clipboardData.getData('text/html');
             const inserted = html ? convertPastedHtml(html) : plainTextToHtml(e.clipboardData.getData('text/plain'));
             document.execCommand('insertHTML', false, inserted);
@@ -364,7 +396,7 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, {
           onChange={e => {
             const file = e.target.files?.[0];
             e.target.value = '';
-            if (file) void insertImageFile(file);
+            if (file) onImageFile?.(file, pendingImageRangeRef.current);
           }}
         />
       )}

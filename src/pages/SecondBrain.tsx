@@ -827,10 +827,36 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
     setEditingSubtaskId(prev => (prev === id ? null : prev));
   };
 
-  // A subtask's notes field is its own RichTextEditor instance now — formatting, HTML-aware
-  // paste, and inline photos all come from that component directly (see the onImageFile/
-  // onBodyClick props where it's rendered). What's left here is upkeep for a subtask's *legacy*
-  // marker-based photos (from before that switch) — remove/rename/reorder still work on them.
+  // Mirrors insertNotePhoto, but the compressed photo and marker land on the subtask (inside the
+  // Project's own subtasks array) rather than the Project note directly — re-reads both the note
+  // and the subtask fresh at write time since the async compression could outlast either.
+  const insertSubtaskPhoto = async (file: File, atRange: Range | null) => {
+    if (!note || !editingSubtask) return;
+    const noteId = note.id;
+    const subtaskId = editingSubtask.id;
+    try {
+      const dataUrl = await fileToCompressedDataUrl(file);
+      const latest = notes.find(n => n.id === noteId);
+      const latestSubtask = latest?.subtasks?.find(s => s.id === subtaskId);
+      if (!latest || !latestSubtask) return;
+      const ordinal = latestSubtask.nextPhotoNumber ?? 1;
+      const image: NoteImage = { src: dataUrl, addedAt: new Date().toISOString(), ordinal };
+      // Same one-combined-write reasoning as insertNotePhoto — a separately-upserted images/
+      // nextPhotoNumber patch built from this same pre-insert `latestSubtask` would otherwise
+      // silently wipe out the marker the instant it landed.
+      const notesHtml = subtaskNotesEditorRef.current?.insertTextRaw(`${markerTextFor(image)} `, atRange) ?? latestSubtask.notes ?? '';
+      const updatedSubtask: ProjectSubtask = {
+        ...latestSubtask,
+        notes: notesHtml,
+        images: [...(latestSubtask.images ?? []), image],
+        nextPhotoNumber: ordinal + 1
+      };
+      void upsert('notes', { ...latest, subtasks: (latest.subtasks ?? []).map(s => (s.id === subtaskId ? updatedSubtask : s)) });
+    } catch {
+      /* unreadable file — silently skip rather than block the rest of the paste/upload */
+    }
+  };
+
   const removeSubtaskImage = (ordinal: number) => {
     if (!editingSubtask) return;
     const target = (editingSubtask.images ?? []).find(img => img.ordinal === ordinal);
@@ -877,6 +903,32 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
   const insertLink = (title: string) => {
     bodyEditorRef.current?.insertText(`[[${title}]]`);
     setLinkPickerOpen(false);
+  };
+
+  // A pasted/uploaded photo drops a small "[Photo N]" marker at the cursor instead of embedding
+  // the image itself inline — full-size photos in the running text made the body hard to scroll
+  // through, so the actual image lives in the gallery strip below instead, and the marker is just
+  // a lightweight pointer to it (see markerTextFor/resolveMarkerImage-style lookups elsewhere).
+  const insertNotePhoto = async (file: File, atRange: Range | null) => {
+    const targetId = note?.id;
+    if (!targetId) return;
+    try {
+      const dataUrl = await fileToCompressedDataUrl(file);
+      // Re-read from `notes` rather than trusting the closed-over `note` — compression takes a
+      // moment, and the note could have changed in the meantime.
+      const latest = notes.find(n => n.id === targetId);
+      if (!latest) return;
+      const ordinal = latest.nextPhotoNumber ?? 1;
+      const image: NoteImage = { src: dataUrl, addedAt: new Date().toISOString(), ordinal };
+      // One combined write, built from the marker-inserted HTML — inserting via the ref and then
+      // separately upserting the image metadata would race two updates against the same record,
+      // and the second (built from this same pre-insert `latest`) would silently wipe out the
+      // marker the instant it landed.
+      const body = bodyEditorRef.current?.insertTextRaw(`${markerTextFor(image)} `, atRange) ?? latest.body;
+      void upsert('notes', { ...latest, body, images: [...(latest.images ?? []), image], nextPhotoNumber: ordinal + 1 });
+    } catch {
+      /* unreadable file — silently skip rather than block the rest of the paste/upload */
+    }
   };
 
   // Keyed on ordinal, not src — two different photos can end up with the exact same compressed
@@ -1789,13 +1841,12 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                   value={note.body}
                   onChange={html => patchNote({ body: html })}
                   placeholder="Start writing… use [[Note Title]] to link to another note."
-                  onImageFile={fileToCompressedDataUrl}
+                  onImageFile={(file, atRange) => void insertNotePhoto(file, atRange)}
                   onBodyClick={handleNoteBodyClick}
                 />
               )}
               {(note.images ?? []).length > 0 && (
                 <div className="sb-note-photos">
-                  <p className="sb-note-photos-legacy-hint">Photos from before inline images — still here, just no longer where new ones go.</p>
                   {(note.images ?? []).map(img => (
                     <div
                       className={`sb-note-photo ${dragImageOrdinal === img.ordinal ? 'dragging' : ''} ${dragOverImageOrdinal === img.ordinal && dragImageOrdinal !== null && dragImageOrdinal !== img.ordinal ? 'drag-over' : ''}`}
@@ -2053,12 +2104,11 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                 value={editingSubtask.notes ?? ''}
                 onChange={html => updateSubtask(editingSubtask.id, { notes: html })}
                 placeholder="Details, links, anything worth remembering about this step…"
-                onImageFile={fileToCompressedDataUrl}
+                onImageFile={(file, atRange) => void insertSubtaskPhoto(file, atRange)}
                 onBodyClick={handleNoteBodyClick}
               />
               {(editingSubtask.images ?? []).length > 0 && (
                 <div className="sb-note-photos">
-                  <p className="sb-note-photos-legacy-hint">Photos from before inline images — still here, just no longer where new ones go.</p>
                   {(editingSubtask.images ?? []).map(img => (
                     <div
                       className={`sb-note-photo ${dragImageOrdinal === img.ordinal ? 'dragging' : ''} ${dragOverImageOrdinal === img.ordinal && dragImageOrdinal !== null && dragImageOrdinal !== img.ordinal ? 'drag-over' : ''}`}
