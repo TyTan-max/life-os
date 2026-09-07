@@ -494,6 +494,7 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
     setAreaScopeId(null);
     setResourceScope(null);
     setLanguageFilter(null);
+    setTagFilter(null);
     setSelectedId(null);
   };
 
@@ -604,19 +605,32 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
     return Array.from(set).sort((a, b) => a.localeCompare(b));
   }, [notes]);
 
-  const filteredNotes = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    const base = areaScopeId
+  // The current tab/scope's notes before search, tag, or language filters are applied — shared
+  // by filteredNotes below and by tabTags, so the tag row only ever offers tags that actually
+  // exist somewhere in the current tab (an Inbox-only tag never shows up while viewing Projects,
+  // and vice versa) without those same filters shrinking the option list as you use them.
+  const scopedNotes = useMemo(() => {
+    return areaScopeId
       ? notes.filter(n => n.paraType === 'Project' && n.areaId === areaScopeId && !n.archived)
       : resourceScope
         ? notes.filter(n => n.paraType === 'Resource' && !n.archived && matchesResourceScope(n, resourceScope))
         : notes.filter(n => matchesParaTab(n, paraTab));
-    return base
+  }, [notes, paraTab, areaScopeId, resourceScope]);
+
+  const tabTags = useMemo(() => {
+    const set = new Set<string>();
+    for (const n of scopedNotes) for (const t of n.tags ?? []) set.add(t);
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [scopedNotes]);
+
+  const filteredNotes = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return scopedNotes
       .filter(n => !tagFilter || (n.tags ?? []).includes(tagFilter))
       .filter(n => !languageFilter || n.language === languageFilter)
       .filter(n => !q || n.title.toLowerCase().includes(q) || n.body.toLowerCase().includes(q) || (n.tags ?? []).some(t => t.toLowerCase().includes(q)))
       .sort((a, b) => (Number(b.pinned) - Number(a.pinned)) || (b.updatedAt ?? '').localeCompare(a.updatedAt ?? ''));
-  }, [notes, query, tagFilter, paraTab, areaScopeId, resourceScope, languageFilter]);
+  }, [scopedNotes, query, tagFilter, languageFilter]);
 
   // Defaults to pinned-first (matching the sidebar list's own default), but any column here is an
   // explicit user choice, so once they pick one it wins outright — no silent pin-first tie-break
@@ -1531,9 +1545,9 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
               )}
             </div>
           )}
-          {allTags.length > 0 && (
+          {tabTags.length > 0 && (
             <div className="sb-tag-row">
-              {allTags.map(t => (
+              {tabTags.map(t => (
                 <button
                   key={t}
                   type="button"
