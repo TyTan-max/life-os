@@ -5,7 +5,8 @@ import {
   Italic, Layers, Lightbulb, Link2, List, ListOrdered, Pin, PinOff, Plus, Quote, Search, StickyNote, Strikethrough, Trash2, TrendingUp, Upload, X
 } from 'lucide-react';
 import { useStore, newRecord } from '../store';
-import type { Frequency, Goal, GoalHorizon, GoalProgressMode, GoalStatus, Note, NoteImage, ParaProjectStatus, ParaType, Priority, ResourceKind, ReviewCadence, Task, TaskStatus } from '../types';
+import type { Frequency, Goal, GoalHorizon, GoalProgressMode, GoalStatus, Note, NoteImage, ParaProjectStatus, ParaType, Priority, ProjectSubtask, ResourceKind, ReviewCadence, Task, TaskStatus } from '../types';
+import { generateId } from '../utils/id';
 import { Badge, Card, EmptyState, Kpi, Modal, PageHeader, formatDate } from '../components/UI';
 import { SortableTh, toggleSort } from '../components/SortableTh';
 import type { SortState } from '../components/SortableTh';
@@ -428,8 +429,12 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
   const [imageLightboxSrc, setImageLightboxSrc] = useState<string | null>(null);
   const [dragImageOrdinal, setDragImageOrdinal] = useState<number | null>(null);
   const [dragOverImageOrdinal, setDragOverImageOrdinal] = useState<number | null>(null);
+  // Shared by both Kanban boards in this file (the cross-project Projects board and a single
+  // Project's own subtask board below) — safe to share since only one of the two is ever
+  // mounted at once (the former only renders with no note open, the latter only inside one).
   const [dragCardId, setDragCardId] = useState<string | null>(null);
   const [dragOverStatus, setDragOverStatus] = useState<ParaProjectStatus | null>(null);
+  const [subtaskDraft, setSubtaskDraft] = useState('');
 
   // Frictionless capture — always lands untyped (Inbox) regardless of which PARA
   // tab you're currently viewing. Deliberately no title prompt: organize later.
@@ -748,6 +753,24 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
     patchNote(patch);
   };
 
+  const addSubtask = () => {
+    const title = subtaskDraft.trim();
+    if (!title || !note) return;
+    const next: ProjectSubtask = { id: generateId(), title, status: 'Not Started' };
+    patchNote({ subtasks: [...(note.subtasks ?? []), next] });
+    setSubtaskDraft('');
+  };
+
+  const setSubtaskStatus = (id: string, status: ParaProjectStatus) => {
+    if (!note) return;
+    patchNote({ subtasks: (note.subtasks ?? []).map(s => (s.id === id ? { ...s, status } : s)) });
+  };
+
+  const removeSubtask = (id: string) => {
+    if (!note) return;
+    patchNote({ subtasks: (note.subtasks ?? []).filter(s => s.id !== id) });
+  };
+
   // Archiving stays a single reversible click — flips the status and stamps/clears the timestamp.
   const toggleArchive = () => {
     if (!note) return;
@@ -991,6 +1014,10 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
       ta.setSelectionRange(pos, pos);
     });
   };
+
+  // A leftover draft from one Project's subtask box shouldn't still be sitting there, half-typed,
+  // once a different note is opened.
+  useEffect(() => setSubtaskDraft(''), [selectedId]);
 
   // Cmd/Ctrl+K → jump-to-note palette, Cmd/Ctrl+N → new note, Esc → deselect note.
   useEffect(() => {
@@ -1678,6 +1705,60 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                     <span>Next action</span>
                     <input type="text" value={note.nextAction ?? ''} placeholder="The very next physical step…" onChange={e => patchNote({ nextAction: e.target.value })} />
                   </label>
+                </div>
+              )}
+
+              {note.paraType === 'Project' && (
+                <div className="sb-subtask-board">
+                  <div className="sb-subtask-board-head">
+                    <h3>Subtasks</h3>
+                    <div className="sb-subtask-add">
+                      <input
+                        type="text"
+                        placeholder="Add a subtask…"
+                        value={subtaskDraft}
+                        onChange={e => setSubtaskDraft(e.target.value)}
+                        onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addSubtask(); } }}
+                      />
+                      <button type="button" className="btn ghost small" onClick={addSubtask} disabled={!subtaskDraft.trim()}>Add</button>
+                    </div>
+                  </div>
+                  <div className="sb-subtask-cols">
+                    {PROJECT_STATUSES.map(status => {
+                      const items = (note.subtasks ?? []).filter(s => s.status === status);
+                      return (
+                        <div
+                          key={status}
+                          className={`sb-subtask-col ${dragOverStatus === status ? 'drag-over' : ''}`}
+                          onDragOver={e => { if (dragCardId) { e.preventDefault(); setDragOverStatus(status); } }}
+                          onDragLeave={() => setDragOverStatus(prev => (prev === status ? null : prev))}
+                          onDrop={e => {
+                            e.preventDefault();
+                            const id = dragCardId ?? e.dataTransfer.getData('text/plain');
+                            if (id) setSubtaskStatus(id, status);
+                            setDragCardId(null);
+                            setDragOverStatus(null);
+                          }}
+                        >
+                          <div className="sb-subtask-col-head"><span>{status}</span><small>{items.length}</small></div>
+                          <div className="sb-subtask-col-body">
+                            {items.length ? items.map(s => (
+                              <div
+                                key={s.id}
+                                className={`sb-subtask-card ${dragCardId === s.id ? 'dragging' : ''}`}
+                                draggable
+                                onDragStart={e => { setDragCardId(s.id); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', s.id); }}
+                                onDragEnd={() => { setDragCardId(null); setDragOverStatus(null); }}
+                              >
+                                <span>{s.title}</span>
+                                <button type="button" className="icon-btn" onClick={() => removeSubtask(s.id)} aria-label={`Remove ${s.title}`}><X size={11} /></button>
+                              </div>
+                            )) : <span className="sb-subtask-empty">—</span>}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
               )}
 

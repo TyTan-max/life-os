@@ -211,6 +211,15 @@ export type ParaProjectStatus = 'Not Started' | 'In Progress' | 'Blocked' | 'Com
 export type ResourceKind = 'Article' | 'Snippet' | 'Reference' | 'Idea' | 'Book Note' | 'Repo';
 export type ReviewCadence = 'Weekly' | 'Monthly' | 'Quarterly';
 
+// A Project's own Kanban board — small work items scoped to that one Project, tracked through
+// the same four-stage lifecycle as the main Projects board so the drag-and-drop UI and column
+// set can be shared between them.
+export interface ProjectSubtask {
+  id: string;
+  title: string;
+  status: ParaProjectStatus;
+}
+
 export interface NoteImage {
   src: string;
   label?: string;
@@ -244,6 +253,7 @@ export interface Note extends BaseRecord {
   dueDate?: string;
   areaId?: string;
   nextAction?: string;
+  subtasks?: ProjectSubtask[];
 
   // Areas
   standard?: string;
