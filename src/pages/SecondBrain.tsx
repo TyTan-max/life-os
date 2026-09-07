@@ -435,6 +435,7 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
   const [dragCardId, setDragCardId] = useState<string | null>(null);
   const [dragOverStatus, setDragOverStatus] = useState<ParaProjectStatus | null>(null);
   const [subtaskDraft, setSubtaskDraft] = useState('');
+  const [editingSubtaskId, setEditingSubtaskId] = useState<string | null>(null);
 
   // Frictionless capture — always lands untyped (Inbox) regardless of which PARA
   // tab you're currently viewing. Deliberately no title prompt: organize later.
@@ -678,6 +679,7 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
   );
 
   const note = notes.find(n => n.id === selectedId) ?? null;
+  const editingSubtask = (note?.subtasks ?? []).find(s => s.id === editingSubtaskId) ?? null;
 
   const backlinks = useMemo(() => {
     if (!note) return [];
@@ -776,9 +778,15 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
     patchNote({ subtasks: (note.subtasks ?? []).map(s => (s.id === id ? { ...s, status } : s)) });
   };
 
+  const updateSubtask = (id: string, patch: Partial<ProjectSubtask>) => {
+    if (!note) return;
+    patchNote({ subtasks: (note.subtasks ?? []).map(s => (s.id === id ? { ...s, ...patch } : s)) });
+  };
+
   const removeSubtask = (id: string) => {
     if (!note) return;
     patchNote({ subtasks: (note.subtasks ?? []).filter(s => s.id !== id) });
+    setEditingSubtaskId(prev => (prev === id ? null : prev));
   };
 
   // Archiving stays a single reversible click — flips the status and stamps/clears the timestamp.
@@ -1027,7 +1035,7 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
 
   // A leftover draft from one Project's subtask box shouldn't still be sitting there, half-typed,
   // once a different note is opened.
-  useEffect(() => setSubtaskDraft(''), [selectedId]);
+  useEffect(() => { setSubtaskDraft(''); setEditingSubtaskId(null); }, [selectedId]);
 
   // Cmd/Ctrl+K → jump-to-note palette, Cmd/Ctrl+N → new note, Esc → deselect note.
   useEffect(() => {
@@ -1703,7 +1711,10 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                             onDragStart={e => { setDragCardId(s.id); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', s.id); }}
                             onDragEnd={() => { setDragCardId(null); setDragOverStatus(null); }}
                           >
-                            <span>{s.title}</span>
+                            <button type="button" className="sb-board-card-title-btn" onClick={() => setEditingSubtaskId(s.id)}>
+                              {s.notes?.trim() && <StickyNote size={11} className="sb-subtask-note-icon" />}
+                              <span>{s.title}</span>
+                            </button>
                             <button type="button" className="icon-btn" onClick={() => removeSubtask(s.id)} aria-label={`Remove ${s.title}`}><X size={12} /></button>
                           </div>
                         )) : <EmptyState>None</EmptyState>}
@@ -2113,6 +2124,43 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
           </>}
         >
           <p>{confirmDeleteNote.message}</p>
+        </Modal>
+      )}
+      {editingSubtask && (
+        <Modal
+          eyebrow="Subtask"
+          title="Edit subtask"
+          onClose={() => setEditingSubtaskId(null)}
+          footer={<>
+            <button type="button" className="btn danger" onClick={() => removeSubtask(editingSubtask.id)}>Delete</button>
+            <button type="button" className="btn primary" onClick={() => setEditingSubtaskId(null)}>Done</button>
+          </>}
+        >
+          <div className="form-grid">
+            <label className="field-full">
+              <span>Title</span>
+              <input
+                type="text"
+                value={editingSubtask.title}
+                onChange={e => updateSubtask(editingSubtask.id, { title: e.target.value })}
+              />
+            </label>
+            <label>
+              <span>Status</span>
+              <select value={editingSubtask.status} onChange={e => updateSubtask(editingSubtask.id, { status: e.target.value as ParaProjectStatus })}>
+                {PROJECT_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </label>
+            <label className="field-full">
+              <span>Notes</span>
+              <textarea
+                rows={6}
+                placeholder="Details, links, anything worth remembering about this step…"
+                value={editingSubtask.notes ?? ''}
+                onChange={e => updateSubtask(editingSubtask.id, { notes: e.target.value })}
+              />
+            </label>
+          </div>
         </Modal>
       )}
       {imageLightboxSrc && (

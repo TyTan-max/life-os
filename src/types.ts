@@ -218,6 +218,7 @@ export interface ProjectSubtask {
   id: string;
   title: string;
   status: ParaProjectStatus;
+  notes?: string;
 }
 
 export interface NoteImage {

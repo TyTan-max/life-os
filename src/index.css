@@ -3900,8 +3900,10 @@ input, select, textarea { font-family: inherit; }
 .sb-project-board-meta select { font-size: 12px; padding: 6px 8px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); color: var(--text); }
 .sb-project-subtask-board { margin-top: 14px; }
 .sb-board-card.subtask { flex-direction: row; align-items: center; justify-content: space-between; gap: 8px; }
-.sb-board-card.subtask span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
-.sb-board-card.subtask button { flex-shrink: 0; }
+.sb-board-card.subtask > .icon-btn { flex-shrink: 0; }
+.sb-board-card-title-btn { display: flex; align-items: center; gap: 5px; min-width: 0; background: transparent; border: none; padding: 0; text-align: left; color: var(--text); cursor: pointer; }
+.sb-board-card-title-btn span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.sb-subtask-note-icon { flex-shrink: 0; color: var(--text-faint); }
 .sb-table-shell { display: flex; flex-direction: column; }
 .sb-table-toolbar {
   flex-shrink: 0;
