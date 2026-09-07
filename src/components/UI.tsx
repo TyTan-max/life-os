@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { X } from 'lucide-react';
 
 export function Badge({ tone, children }: { tone?: string; children: React.ReactNode }) {
@@ -55,8 +55,20 @@ export function Modal({
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [onClose]);
 
+  // Closing on a bare click on the overlay is the whole point (click outside to dismiss), but a
+  // click also fires wherever the mouse is released — so dragging a text selection that starts
+  // inside the modal and ends past its edge (easy to do selecting the last line of a field) fires
+  // a "click" on the overlay too, closing the modal out from under the selection. Only closing
+  // when the *mousedown* also started on the bare overlay (not dragged in from the card) keeps
+  // click-outside-to-close while leaving an in-progress selection alone.
+  const downOnOverlayRef = useRef(false);
+
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div
+      className="modal-overlay"
+      onMouseDown={e => { downOnOverlayRef.current = e.target === e.currentTarget; }}
+      onClick={e => { if (downOnOverlayRef.current && e.target === e.currentTarget) onClose(); }}
+    >
       <div className={`modal-card ${size === 'wide' ? 'modal-wide' : ''}`} onClick={e => e.stopPropagation()}>
         <div className="modal-header">
           <div>
