@@ -140,21 +140,27 @@ function wrap(doc: Document, tagName: string, inner: Node): Node {
   return w;
 }
 
-// Caret position as a plain-text character count from the start of `root` — survives a `decorate`
-// pass restructuring the DOM (wrapping text in <span>s) since that never changes total text length,
-// unlike a Range/node+offset pair which would point at the wrong (or a detached) node afterward.
-function getCaretOffset(root: HTMLElement): number | null {
+// Selection endpoints as plain-text character counts from the start of `root` — survives a
+// `decorate` pass restructuring the DOM (wrapping text in <span>s) since that never changes total
+// text length, unlike a Range/node+offset pair which would point at the wrong (or a detached) node
+// afterward. Tracking both ends (not just the caret) matters because a bold/italic toolbar click
+// leaves the current selection in place rather than collapsing it — losing the end would visually
+// deselect the just-formatted text after every command.
+function getSelectionOffsets(root: HTMLElement): { start: number; end: number } | null {
   const sel = window.getSelection();
   if (!sel || sel.rangeCount === 0) return null;
   const range = sel.getRangeAt(0);
-  if (!root.contains(range.startContainer)) return null;
-  const pre = range.cloneRange();
-  pre.selectNodeContents(root);
-  pre.setEnd(range.startContainer, range.startOffset);
-  return pre.toString().length;
+  if (!root.contains(range.startContainer) || !root.contains(range.endContainer)) return null;
+  const preStart = range.cloneRange();
+  preStart.selectNodeContents(root);
+  preStart.setEnd(range.startContainer, range.startOffset);
+  const preEnd = range.cloneRange();
+  preEnd.selectNodeContents(root);
+  preEnd.setEnd(range.endContainer, range.endOffset);
+  return { start: preStart.toString().length, end: preEnd.toString().length };
 }
 
-function setCaretOffset(root: HTMLElement, offset: number): void {
+function resolveOffset(root: HTMLElement, offset: number): { node: Text; offset: number } | null {
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
   let remaining = offset;
   let node = walker.nextNode() as Text | null;
@@ -162,26 +168,23 @@ function setCaretOffset(root: HTMLElement, offset: number): void {
   while (node) {
     last = node;
     const len = node.textContent?.length ?? 0;
-    if (remaining <= len) {
-      const range = document.createRange();
-      range.setStart(node, remaining);
-      range.collapse(true);
-      const sel = window.getSelection();
-      sel?.removeAllRanges();
-      sel?.addRange(range);
-      return;
-    }
+    if (remaining <= len) return { node, offset: remaining };
     remaining -= len;
     node = walker.nextNode() as Text | null;
   }
-  if (last) {
-    const range = document.createRange();
-    range.setStart(last, last.textContent?.length ?? 0);
-    range.collapse(true);
-    const sel = window.getSelection();
-    sel?.removeAllRanges();
-    sel?.addRange(range);
-  }
+  return last ? { node: last, offset: last.textContent?.length ?? 0 } : null;
+}
+
+function setSelectionOffsets(root: HTMLElement, start: number, end: number): void {
+  const startPos = resolveOffset(root, start);
+  const endPos = resolveOffset(root, end);
+  if (!startPos || !endPos) return;
+  const range = document.createRange();
+  range.setStart(startPos.node, startPos.offset);
+  range.setEnd(endPos.node, endPos.offset);
+  const sel = window.getSelection();
+  sel?.removeAllRanges();
+  sel?.addRange(range);
 }
 
 // A field that switched to this editor from a plain <textarea> (or migrated data written as
@@ -269,9 +272,9 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, {
   const commit = () => {
     if (!ref.current) return;
     if (decorate) {
-      const offset = getCaretOffset(ref.current);
+      const offsets = getSelectionOffsets(ref.current);
       decorate(ref.current);
-      if (offset !== null) setCaretOffset(ref.current, offset);
+      if (offsets !== null) setSelectionOffsets(ref.current, offsets.start, offsets.end);
     }
     const html = sanitizeHtml(ref.current.innerHTML);
     onChange(html);

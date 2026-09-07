@@ -1069,10 +1069,24 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
     if (!textNode || textNode.nodeType !== Node.TEXT_NODE) return;
     const text = textNode.textContent ?? '';
     const offset = range!.startOffset;
+    // caretRangeFromPoint snaps to the *nearest* character position even when the click lands
+    // below/beside the text (e.g. in the blank space under a short last line) — so a hit here
+    // only means "closest offset resolves inside the token," not "the click was actually on it."
+    // Confirming the point falls inside the token's own bounding rect is what makes this only
+    // fire on a direct click.
+    const pointInToken = (start: number, end: number): boolean => {
+      const tokenRange = document.createRange();
+      tokenRange.setStart(textNode, start);
+      tokenRange.setEnd(textNode, end);
+      return Array.from(tokenRange.getClientRects()).some(r =>
+        e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom
+      );
+    };
     for (const m of text.matchAll(WIKILINK_PATTERN)) {
       const start = m.index ?? -1;
       const end = start + m[0].length;
       if (offset <= start || offset >= end) continue;
+      if (!pointInToken(start, end)) continue;
       const title = m[1].trim().toLowerCase();
       const target = notes.find(n => n.title.trim().toLowerCase() === title);
       if (target) openNote(target);
@@ -1082,6 +1096,7 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
       const start = m.index ?? -1;
       const end = start + m[0].length;
       if (offset <= start || offset >= end) continue;
+      if (!pointInToken(start, end)) continue;
       const image = resolveMarkerImage(images, m[1]);
       if (image) setImageLightboxSrc(image.src);
       return;
