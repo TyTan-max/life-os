@@ -2067,32 +2067,6 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                 )}
               </div>
 
-              {note.paraType === 'Project' && (
-                <div className="sb-para-fields">
-                  <label>
-                    <span>Status</span>
-                    <select value={note.status ?? 'Not Started'} onChange={e => patchNote({ status: e.target.value as ParaProjectStatus })}>
-                      {PROJECT_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
-                    </select>
-                  </label>
-                  <label>
-                    <span>Due date</span>
-                    <DatePicker value={note.dueDate} onChange={v => patchNote({ dueDate: v })} placeholder="No due date" />
-                  </label>
-                  <label>
-                    <span>Area</span>
-                    <select value={note.areaId ?? ''} onChange={e => patchNote({ areaId: e.target.value || undefined })}>
-                      <option value="">No area</option>
-                      {areaNotes.map(a => <option key={a.id} value={a.id}>{a.title || 'Untitled'}</option>)}
-                    </select>
-                  </label>
-                  <label className="wide">
-                    <span>Next action</span>
-                    <input type="text" value={note.nextAction ?? ''} placeholder="The very next physical step…" onChange={e => patchNote({ nextAction: e.target.value })} />
-                  </label>
-                </div>
-              )}
-
               {note.paraType === 'Area' && (
                 <div className="sb-para-fields">
                   <label className="wide">
