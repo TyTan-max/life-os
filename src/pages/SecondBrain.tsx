@@ -145,6 +145,18 @@ function isProjectOverdue(n: Note): boolean {
   return Boolean(n.dueDate) && n.status !== 'Completed' && n.dueDate! < localIso();
 }
 
+// Derived, not stored — "done" is whatever sits in the board's last column, so this stays
+// correct automatically as columns are renamed/added/removed, with no field to keep in sync.
+// Returns null when there's nothing to show a bar for (no subtasks yet).
+function subtaskProgress(n: Note): { done: number; total: number; pct: number } | null {
+  const subtasks = n.subtasks ?? [];
+  if (!subtasks.length) return null;
+  const columns = projectColumns(n);
+  const lastColumnId = columns[columns.length - 1]?.id;
+  const done = subtasks.filter(s => s.status === lastColumnId).length;
+  return { done, total: subtasks.length, pct: Math.round((done / subtasks.length) * 100) };
+}
+
 function isReviewDue(area: Note): boolean {
   if (!area.lastReviewedAt) return true;
   const days = REVIEW_CADENCE_DAYS[area.reviewCadence ?? 'Monthly'];
@@ -321,6 +333,17 @@ async function cascadeRename(
     pattern.lastIndex = 0;
     await upsert('notes', { ...n, body: n.body.replace(pattern, `[[${to}]]`) });
   }
+}
+
+// One small bar reused everywhere a Project surfaces — the list row, the cross-project board
+// card, and the project's own Board header — so "how close is this" always looks the same.
+function SubtaskProgressBar({ progress, size }: { progress: { done: number; total: number; pct: number }; size?: 'small' }) {
+  return (
+    <div className={`sb-progress ${size === 'small' ? 'sb-progress-small' : ''}`}>
+      <div className="sb-progress-track"><div className="sb-progress-fill" style={{ width: `${progress.pct}%` }} /></div>
+      <span className="sb-progress-label">{progress.done}/{progress.total}</span>
+    </div>
+  );
 }
 
 function TagsField({ value, onChange }: { value: string[]; onChange: (v: string[]) => void }) {
@@ -1352,6 +1375,7 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                         {n.dueDate && <span className={`sb-due-chip ${isProjectOverdue(n) ? 'overdue' : ''}`}>{formatDate(n.dueDate)}</span>}
                       </div>
                     )}
+                    {n.paraType === 'Project' && subtaskProgress(n) && <SubtaskProgressBar progress={subtaskProgress(n)!} size="small" />}
                     {n.paraType === 'Area' && isReviewDue(n) && (
                       <div className="sb-list-item-status-row">
                         <span className="sb-due-chip amber">Review due</span>
@@ -1408,6 +1432,7 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                           onDragEnd={() => { setDragCardId(null); setDragOverStatus(null); }}
                         >
                           <button type="button" className="sb-board-card-title" onClick={() => openNote(p)}>{p.title || 'Untitled'}</button>
+                          {subtaskProgress(p) && <SubtaskProgressBar progress={subtaskProgress(p)!} size="small" />}
                           {p.dueDate && <span className={`sb-due-chip ${isProjectOverdue(p) ? 'overdue' : ''}`}>{formatDate(p.dueDate)}</span>}
                           <select value={p.status ?? 'Not Started'} onChange={e => void upsert('notes', { ...p, status: e.target.value as ParaProjectStatus })}>
                             {PROJECT_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
@@ -1702,6 +1727,7 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                 value={note.title}
                 onChange={e => patchNote({ title: e.target.value })}
               />
+              {subtaskProgress(note) && <SubtaskProgressBar progress={subtaskProgress(note)!} />}
               <div className="sb-project-board-meta">
                 <select value={note.status ?? 'Not Started'} onChange={e => patchNote({ status: e.target.value as ParaProjectStatus })}>
                   {PROJECT_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
