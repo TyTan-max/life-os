@@ -1393,7 +1393,7 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                   <button
                     type="button"
                     className={`sb-list-item ${selectedId === n.id ? 'active' : ''}`}
-                    onClick={() => openNote(n)}
+                    onClick={() => (selectedId === n.id ? setSelectedId(null) : openNote(n))}
                   >
                     <div className="sb-list-item-head">
                       {n.pinned && <Pin size={11} />}
