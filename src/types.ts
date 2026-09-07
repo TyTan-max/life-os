@@ -219,6 +219,10 @@ export interface ProjectSubtask {
   title: string;
   status: string;
   notes?: string;
+  // Same inline "[Photo N]" marker scheme as Note.images/nextPhotoNumber, scoped to just this
+  // subtask's own notes field rather than the parent Project's body.
+  images?: NoteImage[];
+  nextPhotoNumber?: number;
 }
 
 // One column on a Project's subtask board. Undefined Note.boardColumns falls back to a default

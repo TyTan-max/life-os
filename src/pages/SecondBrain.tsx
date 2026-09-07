@@ -464,6 +464,13 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
   const [imageLightboxSrc, setImageLightboxSrc] = useState<string | null>(null);
   const [dragImageOrdinal, setDragImageOrdinal] = useState<number | null>(null);
   const [dragOverImageOrdinal, setDragOverImageOrdinal] = useState<number | null>(null);
+  // Same formatting-toolbar/paste/photo machinery as the main note body, scoped to whichever
+  // subtask's notes field is open in the Edit subtask modal. Shares imageLightboxSrc above —
+  // "show this photo full-size" doesn't need its own copy of that state.
+  const subtaskNotesRef = useRef<HTMLTextAreaElement>(null);
+  const subtaskImageFileRef = useRef<HTMLInputElement>(null);
+  const pendingSubtaskImageInsertRef = useRef<{ start: number; end: number } | null>(null);
+  const [uploadingSubtaskImage, setUploadingSubtaskImage] = useState(false);
   // Shared by both Kanban boards in this file (the cross-project Projects board and a single
   // Project's own subtask board below) — safe to share since only one of the two is ever
   // mounted at once (the former only renders with no note open, the latter only inside one).
@@ -875,6 +882,166 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
     if (!note) return;
     patchNote({ subtasks: (note.subtasks ?? []).filter(s => s.id !== id) });
     setEditingSubtaskId(prev => (prev === id ? null : prev));
+  };
+
+  // A subtask's notes field gets the same formatting toolbar, HTML-aware paste, and inline photo
+  // support as a full note's body — just scoped to whichever subtask is open in the Edit subtask
+  // modal (editingSubtask) instead of the Project note itself.
+  const wrapSubtaskSelection = (before: string, after: string = before) => {
+    if (!editingSubtask) return;
+    const ta = subtaskNotesRef.current;
+    const body = editingSubtask.notes ?? '';
+    const start = ta?.selectionStart ?? body.length;
+    const end = ta?.selectionEnd ?? body.length;
+    const selected = body.slice(start, end);
+    const nextBody = body.slice(0, start) + before + selected + after + body.slice(end);
+    updateSubtask(editingSubtask.id, { notes: nextBody });
+    requestAnimationFrame(() => {
+      ta?.focus();
+      ta?.setSelectionRange(start + before.length, start + before.length + selected.length);
+    });
+  };
+
+  const prefixSubtaskLines = (prefix: string | ((lineIndex: number) => string)) => {
+    if (!editingSubtask) return;
+    const ta = subtaskNotesRef.current;
+    const body = editingSubtask.notes ?? '';
+    const start = ta?.selectionStart ?? body.length;
+    const end = ta?.selectionEnd ?? body.length;
+    const lineStart = body.lastIndexOf('\n', start - 1) + 1;
+    const nextNewline = body.indexOf('\n', end);
+    const lineEnd = nextNewline === -1 ? body.length : nextNewline;
+    const prefixed = body.slice(lineStart, lineEnd)
+      .split('\n')
+      .map((line, i) => `${typeof prefix === 'function' ? prefix(i) : prefix}${line}`)
+      .join('\n');
+    const nextBody = body.slice(0, lineStart) + prefixed + body.slice(lineEnd);
+    updateSubtask(editingSubtask.id, { notes: nextBody });
+    requestAnimationFrame(() => {
+      ta?.focus();
+      ta?.setSelectionRange(lineStart, lineStart + prefixed.length);
+    });
+  };
+
+  const insertSubtaskMarkdownLink = () => {
+    const url = window.prompt('Link URL (https://…)');
+    if (!url) return;
+    const safe = /^https?:\/\//i.test(url) ? url : `https://${url}`;
+    wrapSubtaskSelection('[', `](${safe})`);
+  };
+
+  // Mirrors addImageFile, but the compressed-photo write lands on the subtask (inside the
+  // Project's own subtasks array) rather than the Project note directly — re-reads both the note
+  // and the subtask fresh at write time since the async compression could outlast either.
+  const addSubtaskImageFile = async (file: File, insertAt: { start: number; end: number } | null) => {
+    if (!note || !editingSubtask) return;
+    const noteId = note.id;
+    const subtaskId = editingSubtask.id;
+    setUploadingSubtaskImage(true);
+    try {
+      const dataUrl = await fileToCompressedDataUrl(file);
+      const latest = notes.find(n => n.id === noteId);
+      const latestSubtask = latest?.subtasks?.find(s => s.id === subtaskId);
+      if (!latest || !latestSubtask) return;
+      const ordinal = latestSubtask.nextPhotoNumber ?? 1;
+      const image: NoteImage = { src: dataUrl, addedAt: new Date().toISOString(), ordinal };
+      let notesText = latestSubtask.notes ?? '';
+      if (insertAt) {
+        const marker = `[Photo ${ordinal}] `;
+        notesText = notesText.slice(0, insertAt.start) + marker + notesText.slice(insertAt.end);
+        const pos = insertAt.start + marker.length;
+        requestAnimationFrame(() => {
+          subtaskNotesRef.current?.focus();
+          subtaskNotesRef.current?.setSelectionRange(pos, pos);
+        });
+      }
+      const updatedSubtask: ProjectSubtask = {
+        ...latestSubtask,
+        images: [...(latestSubtask.images ?? []), image],
+        nextPhotoNumber: ordinal + 1,
+        notes: notesText
+      };
+      void upsert('notes', { ...latest, subtasks: (latest.subtasks ?? []).map(s => (s.id === subtaskId ? updatedSubtask : s)) });
+    } catch {
+      /* unreadable file — silently skip rather than block the rest of the paste/upload */
+    } finally {
+      setUploadingSubtaskImage(false);
+    }
+  };
+
+  const removeSubtaskImage = (ordinal: number) => {
+    if (!editingSubtask) return;
+    const target = (editingSubtask.images ?? []).find(img => img.ordinal === ordinal);
+    if (!target) return;
+    const images = (editingSubtask.images ?? []).filter(img => img.ordinal !== ordinal);
+    const escaped = escapeRegExp(markerTextFor(target));
+    const notesText = (editingSubtask.notes ?? '').replace(new RegExp(`(?<!\\[)${escaped}(?!\\]) ?`, 'g'), '');
+    updateSubtask(editingSubtask.id, { images, notes: notesText });
+  };
+
+  const renameSubtaskImage = (ordinal: number, label: string) => {
+    if (!editingSubtask) return;
+    const current = (editingSubtask.images ?? []).find(img => img.ordinal === ordinal);
+    if (!current) return;
+    const trimmed = label.trim().replace(/[[\]]/g, '');
+    const oldMarker = markerTextFor(current);
+    const updated = { ...current, label: trimmed || undefined };
+    const newMarker = markerTextFor(updated);
+    const images = (editingSubtask.images ?? []).map(img => (img.ordinal === ordinal ? updated : img));
+    const escaped = escapeRegExp(oldMarker);
+    const notesText = (editingSubtask.notes ?? '').replace(new RegExp(`(?<!\\[)${escaped}(?!\\])`, 'g'), newMarker);
+    updateSubtask(editingSubtask.id, { images, notes: notesText });
+  };
+
+  const reorderSubtaskImages = (fromOrdinal: number, toOrdinal: number) => {
+    if (!editingSubtask || fromOrdinal === toOrdinal) return;
+    const images = [...(editingSubtask.images ?? [])];
+    const fromIdx = images.findIndex(img => img.ordinal === fromOrdinal);
+    const toIdx = images.findIndex(img => img.ordinal === toOrdinal);
+    if (fromIdx === -1 || toIdx === -1) return;
+    const [moved] = images.splice(fromIdx, 1);
+    images.splice(toIdx, 0, moved);
+    updateSubtask(editingSubtask.id, { images });
+  };
+
+  const triggerSubtaskImageUpload = () => {
+    const ta = subtaskNotesRef.current;
+    pendingSubtaskImageInsertRef.current = ta ? { start: ta.selectionStart, end: ta.selectionEnd } : null;
+    subtaskImageFileRef.current?.click();
+  };
+
+  const onSubtaskImageFileSelected = (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    const insertAt = pendingSubtaskImageInsertRef.current;
+    pendingSubtaskImageInsertRef.current = null;
+    if (file) void addSubtaskImageFile(file, insertAt);
+  };
+
+  const handleSubtaskNotesPaste = (e: ClipboardEvent<HTMLTextAreaElement>) => {
+    if (!editingSubtask) return;
+    const imageItem = Array.from(e.clipboardData.items).find(item => item.type.startsWith('image/'));
+    const imageFile = imageItem?.getAsFile();
+    if (imageFile) {
+      e.preventDefault();
+      void addSubtaskImageFile(imageFile, { start: e.currentTarget.selectionStart, end: e.currentTarget.selectionEnd });
+      return;
+    }
+    const html = e.clipboardData.getData('text/html');
+    if (!html) return;
+    e.preventDefault();
+    const markdown = htmlToMarkdown(html);
+    const ta = e.currentTarget;
+    const start = ta.selectionStart;
+    const end = ta.selectionEnd;
+    const body = editingSubtask.notes ?? '';
+    const nextBody = body.slice(0, start) + markdown + body.slice(end);
+    updateSubtask(editingSubtask.id, { notes: nextBody });
+    requestAnimationFrame(() => {
+      ta.focus();
+      const pos = start + markdown.length;
+      ta.setSelectionRange(pos, pos);
+    });
   };
 
   // Archiving stays a single reversible click — flips the status and stamps/clears the timestamp.
@@ -2272,12 +2439,71 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
             </label>
             <label className="field-full">
               <span>Notes</span>
+              <div className="rte-toolbar sb-format-toolbar">
+                <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => wrapSubtaskSelection('**')} title="Bold" aria-label="Bold"><Bold size={14} /></button>
+                <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => wrapSubtaskSelection('*')} title="Italic" aria-label="Italic"><Italic size={14} /></button>
+                <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => wrapSubtaskSelection('~~')} title="Strikethrough" aria-label="Strikethrough"><Strikethrough size={14} /></button>
+                <span className="rte-divider" />
+                <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => prefixSubtaskLines('## ')} title="Heading" aria-label="Heading"><Heading2 size={14} /></button>
+                <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => prefixSubtaskLines('> ')} title="Quote" aria-label="Quote"><Quote size={14} /></button>
+                <span className="rte-divider" />
+                <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => prefixSubtaskLines('- ')} title="Bulleted list" aria-label="Bulleted list"><List size={14} /></button>
+                <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => prefixSubtaskLines(i => `${i + 1}. `)} title="Numbered list" aria-label="Numbered list"><ListOrdered size={14} /></button>
+                <span className="rte-divider" />
+                <button type="button" onMouseDown={e => e.preventDefault()} onClick={insertSubtaskMarkdownLink} title="Add link" aria-label="Add link"><Link2 size={14} /></button>
+                <span className="rte-divider" />
+                <button type="button" onMouseDown={e => e.preventDefault()} onClick={triggerSubtaskImageUpload} disabled={uploadingSubtaskImage} title="Add a photo" aria-label="Add a photo"><Upload size={14} /></button>
+              </div>
               <textarea
+                ref={subtaskNotesRef}
                 rows={6}
-                placeholder="Details, links, anything worth remembering about this step…"
+                placeholder="Details, links, anything worth remembering about this step… paste text from anywhere, or paste/upload a photo."
                 value={editingSubtask.notes ?? ''}
                 onChange={e => updateSubtask(editingSubtask.id, { notes: e.target.value })}
+                onPaste={handleSubtaskNotesPaste}
               />
+              {((editingSubtask.images ?? []).length > 0 || uploadingSubtaskImage) && (
+                <div className="sb-note-photos">
+                  {(editingSubtask.images ?? []).map(img => (
+                    <div
+                      className={`sb-note-photo ${dragImageOrdinal === img.ordinal ? 'dragging' : ''} ${dragOverImageOrdinal === img.ordinal && dragImageOrdinal !== null && dragImageOrdinal !== img.ordinal ? 'drag-over' : ''}`}
+                      key={img.ordinal}
+                      draggable
+                      onDragStart={() => setDragImageOrdinal(img.ordinal)}
+                      onDragEnter={() => setDragOverImageOrdinal(img.ordinal)}
+                      onDragOver={e => e.preventDefault()}
+                      onDrop={() => {
+                        if (dragImageOrdinal !== null) reorderSubtaskImages(dragImageOrdinal, img.ordinal);
+                        setDragImageOrdinal(null);
+                        setDragOverImageOrdinal(null);
+                      }}
+                      onDragEnd={() => { setDragImageOrdinal(null); setDragOverImageOrdinal(null); }}
+                    >
+                      <button
+                        type="button"
+                        className="sb-note-photo-expand"
+                        onClick={() => setImageLightboxSrc(img.src)}
+                        aria-label="View full-size photo"
+                        title={img.addedAt ? `Added ${formatPhotoTimestamp(img.addedAt)}` : undefined}
+                      >
+                        <img src={img.src} alt="" draggable={false} />
+                      </button>
+                      <button type="button" className="sb-note-photo-remove" onClick={() => removeSubtaskImage(img.ordinal)} aria-label="Remove photo"><X size={11} /></button>
+                      <input
+                        type="text"
+                        className="sb-note-photo-name"
+                        value={img.label ?? ''}
+                        placeholder={`Photo ${img.ordinal}`}
+                        onChange={e => renameSubtaskImage(img.ordinal, e.target.value)}
+                        onMouseDown={e => e.stopPropagation()}
+                        draggable={false}
+                        aria-label="Name this photo"
+                      />
+                    </div>
+                  ))}
+                  {uploadingSubtaskImage && <div className="sb-note-photo sb-note-photo-uploading">Uploading…</div>}
+                </div>
+              )}
             </label>
           </div>
         </Modal>
@@ -2286,6 +2512,7 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
         <PhotoLightbox src={imageLightboxSrc} onClose={() => setImageLightboxSrc(null)} />
       )}
       <input ref={imageFileRef} type="file" accept="image/*" hidden onChange={onImageFileSelected} />
+      <input ref={subtaskImageFileRef} type="file" accept="image/*" hidden onChange={onSubtaskImageFileSelected} />
     </>
   );
 }
