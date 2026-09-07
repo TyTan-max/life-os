@@ -223,8 +223,12 @@ function markerTextFor(img: NoteImage): string {
 // URL half already claimed by a [text](url) match. Its trailing-character class excludes common
 // sentence punctuation, so "...at https://x.com." doesn't pull the period into the link. Groups:
 // 1 = wikilink (full [[...]]), 2 = link text, 3 = link URL, 4 = bare marker (full [...]),
-// 5 = bare URL.
-const BODY_TOKEN_PATTERN = /(\[\[[^\]]+\]\])|\[([^[\]]+)\]\((https?:\/\/[^\s)]+)\)|((?<!\[)\[[^[\]]+\](?!\]))|(https?:\/\/[^\s]*[^\s.,;:!?'")\]])/g;
+// 5 = bare URL. Bold/strike/italic (6-8) are appended last, after every existing group, so none
+// of the click/hover logic keyed to groups 1/3/4/5 needs to change — a click landing inside one
+// of them just falls through to "not actionable" exactly like any other non-link plain text did.
+// Bold is tried before italic so "**x**" commits to the double-star alternative first; italic's
+// character class excludes '*' so it can never swallow a neighboring bold run.
+const BODY_TOKEN_PATTERN = /(\[\[[^\]]+\]\])|\[([^[\]]+)\]\((https?:\/\/[^\s)]+)\)|((?<!\[)\[[^[\]]+\](?!\]))|(https?:\/\/[^\s]*[^\s.,;:!?'")\]])|(\*\*[^\n*]+\*\*)|(~~[^\n~]+~~)|(\*[^\n*]+\*)/g;
 
 function escapeHtmlForBody(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -263,6 +267,12 @@ function renderHighlightedBody(body: string, images: NoteImage[]): string {
       // Only colored when it actually resolves to a real photo — an unrelated "[something]" the
       // user typed for other reasons stays plain text, same as it always has.
       html += `<span class="sb-body-token-link" data-start="${start}" data-actionable="true">${escapeHtmlForBody(m[4])}</span>`;
+    } else if (m[6]) {
+      html += `<strong>${escapeHtmlForBody(m[6])}</strong>`;
+    } else if (m[7]) {
+      html += `<s>${escapeHtmlForBody(m[7])}</s>`;
+    } else if (m[8]) {
+      html += `<em>${escapeHtmlForBody(m[8])}</em>`;
     } else {
       html += escapeHtmlForBody(m[0]);
     }
@@ -468,6 +478,7 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
   // subtask's notes field is open in the Edit subtask modal. Shares imageLightboxSrc above —
   // "show this photo full-size" doesn't need its own copy of that state.
   const subtaskNotesRef = useRef<HTMLTextAreaElement>(null);
+  const subtaskNotesHighlightRef = useRef<HTMLDivElement>(null);
   const subtaskImageFileRef = useRef<HTMLInputElement>(null);
   const pendingSubtaskImageInsertRef = useRef<{ start: number; end: number } | null>(null);
   const [uploadingSubtaskImage, setUploadingSubtaskImage] = useState(false);
@@ -2442,14 +2453,28 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                 <span className="rte-divider" />
                 <button type="button" onMouseDown={e => e.preventDefault()} onClick={triggerSubtaskImageUpload} disabled={uploadingSubtaskImage} title="Add a photo" aria-label="Add a photo"><Upload size={14} /></button>
               </div>
-              <textarea
-                ref={subtaskNotesRef}
-                rows={6}
-                placeholder="Details, links, anything worth remembering about this step… paste text from anywhere, or paste/upload a photo."
-                value={editingSubtask.notes ?? ''}
-                onChange={e => updateSubtask(editingSubtask.id, { notes: e.target.value })}
-                onPaste={handleSubtaskNotesPaste}
-              />
+              <div className="sb-body-wrap sb-subtask-notes-wrap">
+                <div
+                  ref={subtaskNotesHighlightRef}
+                  className="sb-body-highlight"
+                  aria-hidden="true"
+                  dangerouslySetInnerHTML={{ __html: renderHighlightedBody(editingSubtask.notes ?? '', editingSubtask.images ?? []) }}
+                />
+                <textarea
+                  ref={subtaskNotesRef}
+                  className="sb-body-input sb-body-input-highlighted"
+                  placeholder="Details, links, anything worth remembering about this step… paste text from anywhere, or paste/upload a photo."
+                  value={editingSubtask.notes ?? ''}
+                  onChange={e => updateSubtask(editingSubtask.id, { notes: e.target.value })}
+                  onPaste={handleSubtaskNotesPaste}
+                  onScroll={e => {
+                    const highlight = subtaskNotesHighlightRef.current;
+                    if (!highlight) return;
+                    highlight.scrollTop = e.currentTarget.scrollTop;
+                    highlight.scrollLeft = e.currentTarget.scrollLeft;
+                  }}
+                />
+              </div>
               {((editingSubtask.images ?? []).length > 0 || uploadingSubtaskImage) && (
                 <div className="sb-note-photos">
                   {(editingSubtask.images ?? []).map(img => (

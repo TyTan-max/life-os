@@ -3611,6 +3611,11 @@ input, select, textarea { font-family: inherit; }
 }
 .sb-body-input-highlighted::selection { background: var(--accent-soft); }
 .sb-body-input-pointer { cursor: pointer; }
+/* The same overlay technique, boxed to fit a modal field rather than a full editor page — used
+   for a subtask's own Notes textarea. */
+.sb-body-wrap.sb-subtask-notes-wrap { min-height: 120px; border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; background: var(--surface); }
+.sb-body-wrap.sb-subtask-notes-wrap .sb-body-input,
+.sb-body-wrap.sb-subtask-notes-wrap .sb-body-highlight { min-height: 100px; font-size: 13px; line-height: 1.55; }
 .sb-body-code {
   font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
   font-size: 13px;
