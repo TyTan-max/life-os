@@ -3889,22 +3889,19 @@ input, select, textarea { font-family: inherit; }
 
 /* A single Project's own subtask board — same column-per-status concept as .sb-board above,
    scaled down to fit inside the note editor pane rather than the full page. */
-.sb-subtask-board { margin: 4px 0 16px; }
-.sb-subtask-board-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
-.sb-subtask-board-head h3 { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--text-faint); font-weight: 700; margin: 0; }
+.sb-subtask-hint { font-size: 12px; color: var(--text-faint); margin: 2px 0 14px; }
 .sb-subtask-add { display: flex; gap: 6px; }
-.sb-subtask-add input { font-size: 12px; padding: 6px 8px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); color: var(--text); width: 180px; }
-.sb-subtask-cols { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 4px; }
-.sb-subtask-col { flex: 0 0 165px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; display: flex; flex-direction: column; transition: background 0.12s, border-color 0.12s; }
-.sb-subtask-col.drag-over { background: var(--accent-soft); border-color: var(--accent); }
-.sb-subtask-col-head { display: flex; align-items: center; justify-content: space-between; padding: 7px 9px; border-bottom: 1px solid var(--border); font-size: 10.5px; font-weight: 700; color: var(--text-muted); }
-.sb-subtask-col-head small { color: var(--text-faint); font-weight: 650; }
-.sb-subtask-col-body { padding: 7px; display: flex; flex-direction: column; gap: 6px; min-height: 44px; }
-.sb-subtask-card { display: flex; align-items: center; justify-content: space-between; gap: 6px; background: var(--bg); border: 1px solid var(--border); border-radius: 7px; padding: 6px 8px; font-size: 12px; cursor: grab; }
-.sb-subtask-card.dragging { opacity: 0.4; }
-.sb-subtask-card span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.sb-subtask-card button { flex-shrink: 0; }
-.sb-subtask-empty { font-size: 11px; color: var(--text-faint); padding: 4px 2px; }
+.sb-subtask-add input { font-size: 12px; padding: 6px 8px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); color: var(--text); width: 200px; }
+
+/* A single Project's own Board — the note's title/toolbar render above this exactly like the
+   normal editor, then a compact status/due-date/area row and the add-subtask box, then the
+   subtask board itself reuses .sb-board's full-size column layout below. */
+.sb-project-board-meta { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin: 12px 0 16px; }
+.sb-project-board-meta select { font-size: 12px; padding: 6px 8px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); color: var(--text); }
+.sb-project-subtask-board { margin-top: 14px; }
+.sb-board-card.subtask { flex-direction: row; align-items: center; justify-content: space-between; gap: 8px; }
+.sb-board-card.subtask span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.sb-board-card.subtask button { flex-shrink: 0; }
 .sb-table-shell { display: flex; flex-direction: column; }
 .sb-table-toolbar {
   flex-shrink: 0;

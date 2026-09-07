@@ -454,6 +454,16 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
     setSelectedId(null);
   };
 
+  // Opening any Project lands straight on its subtask board — that's where the actual work
+  // happens — while every other note type opens into the normal editor. Accepts either a note
+  // (when the caller already has it in hand) or a bare id (backlinks, the command palette),
+  // looking the latter up to know which view to land on.
+  const openNote = (target: Note | string) => {
+    const target_ = typeof target === 'string' ? notes.find(n => n.id === target) : target;
+    setSelectedId(target_ ? target_.id : (target as string));
+    setProjectView(target_?.paraType === 'Project' ? 'Board' : 'List');
+  };
+
   const visibleTasks = useMemo(
     () => data.tasks
       .filter(t => taskFilter === 'All' ? true : taskFilter === 'Open' ? t.status !== 'Completed' : t.status === 'Completed')
@@ -700,7 +710,7 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
     const body = scopePatch.paraType ? (PARA_TEMPLATES[scopePatch.paraType] ?? '') : '';
     const record = newRecord<Note>({ title: '', body, tags: [], pinned: false, ...scopePatch });
     await upsert('notes', record);
-    setSelectedId(record.id);
+    openNote(record);
   };
 
   // window.confirm() never returns true inside this app's embedded preview browser (it
@@ -1108,7 +1118,7 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
             </button>
           ))}
         </div>
-        {paraTab === 'Projects' && !areaScopeId && (
+        {((paraTab === 'Projects' && !areaScopeId) || note?.paraType === 'Project') && (
           <div className="sb-view-toggle">
             <button type="button" className={projectView === 'List' ? 'on' : ''} onClick={() => setProjectView('List')}>List</button>
             <button type="button" className={projectView === 'Board' ? 'on' : ''} onClick={() => setProjectView('Board')}>Board</button>
@@ -1154,7 +1164,7 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                 secondary={n => noteTypeLabel(n)}
                 trailing={n => formatDate(n.updatedAt)}
                 fields={[{ label: 'Tags', value: n => ((n.tags ?? []).length ? (n.tags ?? []).join(', ') : '—') }]}
-                onOpen={n => setSelectedId(n.id)}
+                onOpen={n => openNote(n)}
                 onDelete={n => void deleteNoteInstantly(n.id)}
                 deleteLabel={n => `Delete ${n.title || 'Untitled'}`}
                 empty={notes.length ? 'No notes match.' : 'No notes yet — create your first one.'}
@@ -1177,7 +1187,7 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                       const visibleTags = (n.tags ?? []).slice(0, 3);
                       const hiddenTagCount = (n.tags ?? []).length - visibleTags.length;
                       return (
-                        <tr key={n.id} onClick={() => setSelectedId(n.id)} className="sb-table-row">
+                        <tr key={n.id} onClick={() => openNote(n)} className="sb-table-row">
                           <td className="sb-all-table-pin">{n.pinned && <Pin size={12} />}</td>
                           <td className="sb-all-table-title">{n.title || 'Untitled'}</td>
                           <td>
@@ -1282,7 +1292,7 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                   <button
                     type="button"
                     className={`sb-list-item ${selectedId === n.id ? 'active' : ''}`}
-                    onClick={() => setSelectedId(n.id)}
+                    onClick={() => openNote(n)}
                   >
                     <div className="sb-list-item-head">
                       {n.pinned && <Pin size={11} />}
@@ -1351,7 +1361,7 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                           onDragStart={e => { setDragCardId(p.id); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', p.id); }}
                           onDragEnd={() => { setDragCardId(null); setDragOverStatus(null); }}
                         >
-                          <button type="button" className="sb-board-card-title" onClick={() => setSelectedId(p.id)}>{p.title || 'Untitled'}</button>
+                          <button type="button" className="sb-board-card-title" onClick={() => openNote(p)}>{p.title || 'Untitled'}</button>
                           {p.dueDate && <span className={`sb-due-chip ${isProjectOverdue(p) ? 'overdue' : ''}`}>{formatDate(p.dueDate)}</span>}
                           <select value={p.status ?? 'Not Started'} onChange={e => void upsert('notes', { ...p, status: e.target.value as ParaProjectStatus })}>
                             {PROJECT_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
@@ -1423,7 +1433,7 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                           changeTab('Tasks');
                           if (task) startEditTask(task);
                         } else {
-                          setSelectedId(item.id);
+                          openNote(item.id);
                         }
                       }}
                     >
@@ -1439,7 +1449,7 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                 <Card className="sb-overview-section">
                   <h3>Needs attention</h3>
                   {needsAttentionProjects.map(n => (
-                    <button type="button" key={n.id} className="sb-overview-row" onClick={() => setSelectedId(n.id)}>
+                    <button type="button" key={n.id} className="sb-overview-row" onClick={() => openNote(n)}>
                       <b>{n.title || 'Untitled'}</b>
                       <span className={`sb-status-pill status-${(n.status ?? 'Not Started').replace(/\s+/g, '-').toLowerCase()}`}>{n.status ?? 'Not Started'}</span>
                       {n.dueDate && <span className={`sb-due-chip ${isProjectOverdue(n) ? 'overdue' : ''}`}>{formatDate(n.dueDate)}</span>}
@@ -1452,7 +1462,7 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                 <Card className="sb-overview-section">
                   <h3>Areas due for review</h3>
                   {reviewDueAreas.map(a => (
-                    <button type="button" key={a.id} className="sb-overview-row" onClick={() => setSelectedId(a.id)}>
+                    <button type="button" key={a.id} className="sb-overview-row" onClick={() => openNote(a)}>
                       <b>{a.title || 'Untitled'}</b>
                       <span className="sb-due-chip amber">{a.lastReviewedAt ? `Last reviewed ${formatDate(a.lastReviewedAt)}` : 'Never reviewed'}</span>
                     </button>
@@ -1499,7 +1509,7 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
               <Card className="sb-overview-section">
                 <h3>Recently updated</h3>
                 {recentNotes.length ? recentNotes.map(n => (
-                  <button type="button" key={n.id} className="sb-overview-row" onClick={() => setSelectedId(n.id)}>
+                  <button type="button" key={n.id} className="sb-overview-row" onClick={() => openNote(n)}>
                     <span className={`sb-type-pill tone-${noteTypeTone(n)}`}>{noteTypeLabel(n)}</span>
                     <b>{n.title || 'Untitled'}</b>
                     <span className="sb-list-item-date">{formatDate(n.updatedAt)}</span>
@@ -1519,7 +1529,7 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                       type="button"
                       key={area.id}
                       className="sb-hub-card"
-                      onClick={() => { setAreaScopeId(area.id); setSelectedId(area.id); }}
+                      onClick={() => { setAreaScopeId(area.id); openNote(area); }}
                     >
                       <Layers size={18} />
                       <b>{area.title || 'Untitled'}</b>
@@ -1618,6 +1628,91 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                 ) : <EmptyState>No goals yet — add your first one.</EmptyState>}
               </Card>
             </div>
+          ) : note && note.paraType === 'Project' && projectView === 'Board' ? (
+            <>
+              {isMobile && (
+                <button type="button" className="sb-editor-mobile-back" onClick={() => setSelectedId(null)}>
+                  <ChevronLeft size={16} /> Notes
+                </button>
+              )}
+              <div className="sb-editor-toolbar">
+                <button type="button" className="icon-btn" onClick={() => patchNote({ pinned: !note.pinned })} title={note.pinned ? 'Unpin' : 'Pin'}>
+                  {note.pinned ? <PinOff size={15} /> : <Pin size={15} />}
+                </button>
+                <button type="button" className="icon-btn" onClick={toggleArchive} title={note.archived ? 'Unarchive' : 'Archive'}>
+                  {note.archived ? <ArchiveRestore size={15} /> : <Archive size={15} />}
+                </button>
+                <span className="sb-editor-meta">
+                  {note.archived ? `Archived ${formatDate(note.archivedAt)}` : `Updated ${formatDate(note.updatedAt)}`}
+                </span>
+                <button type="button" className="icon-btn danger" onClick={() => deleteNote(note.id)} title="Delete note">
+                  <Trash2 size={15} />
+                </button>
+              </div>
+              <input
+                type="text"
+                className="sb-title-input"
+                placeholder="Untitled"
+                value={note.title}
+                onChange={e => patchNote({ title: e.target.value })}
+              />
+              <div className="sb-project-board-meta">
+                <select value={note.status ?? 'Not Started'} onChange={e => patchNote({ status: e.target.value as ParaProjectStatus })}>
+                  {PROJECT_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
+                <DatePicker value={note.dueDate} onChange={v => patchNote({ dueDate: v })} placeholder="No due date" />
+                <select value={note.areaId ?? ''} onChange={e => patchNote({ areaId: e.target.value || undefined })}>
+                  <option value="">No area</option>
+                  {areaNotes.map(a => <option key={a.id} value={a.id}>{a.title || 'Untitled'}</option>)}
+                </select>
+                <div className="sb-subtask-add">
+                  <input
+                    type="text"
+                    placeholder="Add a subtask…"
+                    value={subtaskDraft}
+                    onChange={e => setSubtaskDraft(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addSubtask(); } }}
+                  />
+                  <button type="button" className="btn primary small" onClick={addSubtask} disabled={!subtaskDraft.trim()}>Add subtask</button>
+                </div>
+              </div>
+              <div className="sb-board sb-project-subtask-board">
+                {PROJECT_STATUSES.map(status => {
+                  const items = (note.subtasks ?? []).filter(s => s.status === status);
+                  return (
+                    <div
+                      key={status}
+                      className={`sb-board-col ${dragOverStatus === status ? 'drag-over' : ''}`}
+                      onDragOver={e => { if (dragCardId) { e.preventDefault(); setDragOverStatus(status); } }}
+                      onDragLeave={() => setDragOverStatus(prev => (prev === status ? null : prev))}
+                      onDrop={e => {
+                        e.preventDefault();
+                        const id = dragCardId ?? e.dataTransfer.getData('text/plain');
+                        if (id) setSubtaskStatus(id, status);
+                        setDragCardId(null);
+                        setDragOverStatus(null);
+                      }}
+                    >
+                      <div className="sb-board-col-head"><span>{status}</span><small>{items.length}</small></div>
+                      <div className="sb-board-col-body">
+                        {items.length ? items.map(s => (
+                          <div
+                            key={s.id}
+                            className={`sb-board-card subtask ${dragCardId === s.id ? 'dragging' : ''}`}
+                            draggable
+                            onDragStart={e => { setDragCardId(s.id); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', s.id); }}
+                            onDragEnd={() => { setDragCardId(null); setDragOverStatus(null); }}
+                          >
+                            <span>{s.title}</span>
+                            <button type="button" className="icon-btn" onClick={() => removeSubtask(s.id)} aria-label={`Remove ${s.title}`}><X size={12} /></button>
+                          </div>
+                        )) : <EmptyState>None</EmptyState>}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </>
           ) : !note ? (
             <div className="sb-editor-empty"><EmptyState>Select a note, or create a new one.</EmptyState></div>
           ) : (
@@ -1708,58 +1803,10 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                 </div>
               )}
 
-              {note.paraType === 'Project' && (
-                <div className="sb-subtask-board">
-                  <div className="sb-subtask-board-head">
-                    <h3>Subtasks</h3>
-                    <div className="sb-subtask-add">
-                      <input
-                        type="text"
-                        placeholder="Add a subtask…"
-                        value={subtaskDraft}
-                        onChange={e => setSubtaskDraft(e.target.value)}
-                        onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addSubtask(); } }}
-                      />
-                      <button type="button" className="btn ghost small" onClick={addSubtask} disabled={!subtaskDraft.trim()}>Add</button>
-                    </div>
-                  </div>
-                  <div className="sb-subtask-cols">
-                    {PROJECT_STATUSES.map(status => {
-                      const items = (note.subtasks ?? []).filter(s => s.status === status);
-                      return (
-                        <div
-                          key={status}
-                          className={`sb-subtask-col ${dragOverStatus === status ? 'drag-over' : ''}`}
-                          onDragOver={e => { if (dragCardId) { e.preventDefault(); setDragOverStatus(status); } }}
-                          onDragLeave={() => setDragOverStatus(prev => (prev === status ? null : prev))}
-                          onDrop={e => {
-                            e.preventDefault();
-                            const id = dragCardId ?? e.dataTransfer.getData('text/plain');
-                            if (id) setSubtaskStatus(id, status);
-                            setDragCardId(null);
-                            setDragOverStatus(null);
-                          }}
-                        >
-                          <div className="sb-subtask-col-head"><span>{status}</span><small>{items.length}</small></div>
-                          <div className="sb-subtask-col-body">
-                            {items.length ? items.map(s => (
-                              <div
-                                key={s.id}
-                                className={`sb-subtask-card ${dragCardId === s.id ? 'dragging' : ''}`}
-                                draggable
-                                onDragStart={e => { setDragCardId(s.id); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', s.id); }}
-                                onDragEnd={() => { setDragCardId(null); setDragOverStatus(null); }}
-                              >
-                                <span>{s.title}</span>
-                                <button type="button" className="icon-btn" onClick={() => removeSubtask(s.id)} aria-label={`Remove ${s.title}`}><X size={11} /></button>
-                              </div>
-                            )) : <span className="sb-subtask-empty">—</span>}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
+              {note.paraType === 'Project' && (note.subtasks ?? []).length > 0 && (
+                <p className="sb-subtask-hint">
+                  {(note.subtasks ?? []).length} subtask{(note.subtasks ?? []).length === 1 ? '' : 's'} — switch to <b>Board</b> above to see and manage them.
+                </p>
               )}
 
               {note.paraType === 'Area' && (
@@ -1900,7 +1947,7 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                 <div className="sb-backlinks">
                   <h3>Linked mentions ({backlinks.length})</h3>
                   {backlinks.map(b => (
-                    <button type="button" key={b.id} className="sb-backlink-row" onClick={() => setSelectedId(b.id)}>
+                    <button type="button" key={b.id} className="sb-backlink-row" onClick={() => openNote(b)}>
                       <b>{b.title || 'Untitled'}</b>
                       <small>{snippet(b.body, 70)}</small>
                     </button>
@@ -1911,7 +1958,7 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                 <div className="sb-backlinks sb-related">
                   <h3>Related by tag</h3>
                   {relatedByTag.map(n => (
-                    <button type="button" key={n.id} className="sb-backlink-row" onClick={() => setSelectedId(n.id)}>
+                    <button type="button" key={n.id} className="sb-backlink-row" onClick={() => openNote(n)}>
                       <b>{n.title || 'Untitled'}</b>
                       <small>{snippet(n.body, 70)}</small>
                     </button>
@@ -1930,7 +1977,7 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
       {paletteOpen && (
         <CommandPalette
           notes={notes.filter(n => !n.archived)}
-          onPick={id => { setSelectedId(id); setPaletteOpen(false); }}
+          onPick={id => { openNote(id); setPaletteOpen(false); }}
           onClose={() => setPaletteOpen(false)}
         />
       )}
