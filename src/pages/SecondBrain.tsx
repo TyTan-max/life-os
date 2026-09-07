@@ -213,6 +213,19 @@ function markerTextFor(img: NoteImage): string {
   return `[${img.label || `Photo ${img.ordinal}`}]`;
 }
 
+// "Photo N" resolves directly by ordinal; anything else is checked against the note's current
+// photo labels — the only two shapes a marker's bracket text can ever actually be.
+function resolveMarkerImage(images: NoteImage[], innerText: string): NoteImage | undefined {
+  const numMatch = innerText.match(/^Photo (\d+)$/);
+  if (numMatch) return images.find(img => img.ordinal === Number(numMatch[1]));
+  return images.find(img => img.label === innerText);
+}
+
+// A bare "[marker]" — not a [[Wikilink]]'s own inner brackets — is only ever one level deep, so
+// excluding a "[" immediately before or a "]" immediately after keeps this from matching a
+// wikilink's [Title] half by accident.
+const BARE_MARKER_PATTERN = /(?<!\[)\[([^[\]]+)\](?!\])/g;
+
 const NOTE_IMAGE_MAX_DIM = 1200;
 const NOTE_IMAGE_QUALITY = 0.82;
 
@@ -982,11 +995,13 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
   // The rich text body is a real contentEditable now, so a plain click on an <a href> would
   // normally just place the cursor (browsers don't follow links inside editable content without
   // a modifier) — handle Ctrl/Cmd+click ourselves so links stay usable while editing. A [[Title]]
-  // wikilink is just visible text with no element of its own to hang a handler on, so a plain
-  // click is checked against the exact text node/offset the browser resolves the click to (a
-  // contentEditable's own hit-testing, not a hand-rolled geometry check the old textarea overlay
-  // needed) — landing inside a wikilink's brackets jumps straight to that note if it still exists.
-  const handleNoteBodyClick = (e: ReactMouseEvent<HTMLDivElement>) => {
+  // wikilink or a bare "[Photo N]" marker is just visible text with no element of its own to hang
+  // a handler on, so a plain click is checked against the exact text node/offset the browser
+  // resolves the click to (a contentEditable's own hit-testing, not a hand-rolled geometry check
+  // the old textarea overlay needed) — landing inside one jumps to that note or opens that photo.
+  // `images` is passed in rather than closed over, since this same handler serves both the main
+  // note body (note.images) and whichever subtask's notes field is open (editingSubtask.images).
+  const handleNoteBodyClick = (e: ReactMouseEvent<HTMLDivElement>, images: NoteImage[]) => {
     const link = (e.target as HTMLElement).closest?.('a[href]');
     if (link && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
@@ -1006,6 +1021,14 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
       const title = m[1].trim().toLowerCase();
       const target = notes.find(n => n.title.trim().toLowerCase() === title);
       if (target) openNote(target);
+      return;
+    }
+    for (const m of text.matchAll(BARE_MARKER_PATTERN)) {
+      const start = m.index ?? -1;
+      const end = start + m[0].length;
+      if (offset <= start || offset >= end) continue;
+      const image = resolveMarkerImage(images, m[1]);
+      if (image) setImageLightboxSrc(image.src);
       return;
     }
   };
@@ -1842,7 +1865,7 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                   onChange={html => patchNote({ body: html })}
                   placeholder="Start writing… use [[Note Title]] to link to another note."
                   onImageFile={(file, atRange) => void insertNotePhoto(file, atRange)}
-                  onBodyClick={handleNoteBodyClick}
+                  onBodyClick={e => handleNoteBodyClick(e, note.images ?? [])}
                 />
               )}
               {(note.images ?? []).length > 0 && (
@@ -2105,7 +2128,7 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                 onChange={html => updateSubtask(editingSubtask.id, { notes: html })}
                 placeholder="Details, links, anything worth remembering about this step…"
                 onImageFile={(file, atRange) => void insertSubtaskPhoto(file, atRange)}
-                onBodyClick={handleNoteBodyClick}
+                onBodyClick={e => handleNoteBodyClick(e, editingSubtask.images ?? [])}
               />
               {(editingSubtask.images ?? []).length > 0 && (
                 <div className="sb-note-photos">
