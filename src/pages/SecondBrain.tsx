@@ -430,6 +430,10 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
   const [tagFilter, setTagFilter] = useState<string | null>(null);
   const [paraTab, setParaTab] = useState<ParaTab>(initialTab ?? 'Overview');
   const [projectView, setProjectView] = useState<'List' | 'Board'>('List');
+  // Which screen an OPEN Project shows — separate from projectView (the top-level Projects tab's
+  // own List/Board toggle) so the same two words never mean two different things depending on
+  // whether a note happens to be open.
+  const [projectDetailTab, setProjectDetailTab] = useState<'Board' | 'Details' | 'Notes'>('Board');
   const [tableSort, setTableSort] = useState<SortState<'pinned' | 'title' | 'type' | 'tags' | 'updated'>>({ key: 'pinned', dir: 'desc' });
   const [linkPickerOpen, setLinkPickerOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -485,14 +489,13 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
     setSelectedId(null);
   };
 
-  // Opening any Project lands straight on its subtask board — that's where the actual work
-  // happens — while every other note type opens into the normal editor. Accepts either a note
-  // (when the caller already has it in hand) or a bare id (backlinks, the command palette),
-  // looking the latter up to know which view to land on.
+  // Opening a note always lands on its Board tab when it's a Project — that's where the actual
+  // work happens — and has no effect on any other note type. Accepts either a note (when the
+  // caller already has it in hand) or a bare id (backlinks, the command palette).
   const openNote = (target: Note | string) => {
     const target_ = typeof target === 'string' ? notes.find(n => n.id === target) : target;
     setSelectedId(target_ ? target_.id : (target as string));
-    setProjectView(target_?.paraType === 'Project' ? 'Board' : 'List');
+    setProjectDetailTab('Board');
   };
 
   const visibleTasks = useMemo(
@@ -1187,7 +1190,13 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
             </button>
           ))}
         </div>
-        {((paraTab === 'Projects' && !areaScopeId) || note?.paraType === 'Project') && (
+        {note?.paraType === 'Project' ? (
+          <div className="sb-view-toggle">
+            <button type="button" className={projectDetailTab === 'Board' ? 'on' : ''} onClick={() => setProjectDetailTab('Board')}>Board</button>
+            <button type="button" className={projectDetailTab === 'Details' ? 'on' : ''} onClick={() => setProjectDetailTab('Details')}>Details</button>
+            <button type="button" className={projectDetailTab === 'Notes' ? 'on' : ''} onClick={() => setProjectDetailTab('Notes')}>Notes</button>
+          </div>
+        ) : paraTab === 'Projects' && !areaScopeId && (
           <div className="sb-view-toggle">
             <button type="button" className={projectView === 'List' ? 'on' : ''} onClick={() => setProjectView('List')}>List</button>
             <button type="button" className={projectView === 'Board' ? 'on' : ''} onClick={() => setProjectView('Board')}>Board</button>
@@ -1699,7 +1708,7 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                 ) : <EmptyState>No goals yet — add your first one.</EmptyState>}
               </Card>
             </div>
-          ) : note && note.paraType === 'Project' && projectView === 'Board' ? (
+          ) : note && note.paraType === 'Project' && projectDetailTab !== 'Notes' ? (
             <>
               {isMobile && (
                 <button type="button" className="sb-editor-mobile-back" onClick={() => setSelectedId(null)}>
@@ -1727,17 +1736,12 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                 value={note.title}
                 onChange={e => patchNote({ title: e.target.value })}
               />
+              {duplicateTitle && (
+                <p className="sb-title-warning">Another note already has this title — [[wikilinks]] to either one may be ambiguous.</p>
+              )}
               {subtaskProgress(note) && <SubtaskProgressBar progress={subtaskProgress(note)!} />}
-              <div className="sb-project-board-meta">
-                <select value={note.status ?? 'Not Started'} onChange={e => patchNote({ status: e.target.value as ParaProjectStatus })}>
-                  {PROJECT_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
-                </select>
-                <DatePicker value={note.dueDate} onChange={v => patchNote({ dueDate: v })} placeholder="No due date" />
-                <select value={note.areaId ?? ''} onChange={e => patchNote({ areaId: e.target.value || undefined })}>
-                  <option value="">No area</option>
-                  {areaNotes.map(a => <option key={a.id} value={a.id}>{a.title || 'Untitled'}</option>)}
-                </select>
-                <div className="sb-subtask-add">
+              {projectDetailTab === 'Board' ? (
+                <div className="sb-subtask-add sb-subtask-add-standalone">
                   <input
                     type="text"
                     placeholder="Add a subtask…"
@@ -1747,7 +1751,47 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                   />
                   <button type="button" className="btn primary small" onClick={addSubtask} disabled={!subtaskDraft.trim()}>Add subtask</button>
                 </div>
-              </div>
+              ) : (
+                <>
+                  <div className="sb-meta-row">
+                    <TagsField value={note.tags ?? []} onChange={tags => patchNote({ tags })} />
+                    <select
+                      className="sb-type-select"
+                      value={note.paraType ?? ''}
+                      onChange={e => changeNoteType((e.target.value || undefined) as ParaType | undefined)}
+                    >
+                      <option value="">Inbox</option>
+                      <option value="Project">Project</option>
+                      <option value="Area">Area</option>
+                      <option value="Resource">Resource</option>
+                    </select>
+                  </div>
+                  <div className="sb-para-fields">
+                    <label>
+                      <span>Status</span>
+                      <select value={note.status ?? 'Not Started'} onChange={e => patchNote({ status: e.target.value as ParaProjectStatus })}>
+                        {PROJECT_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+                      </select>
+                    </label>
+                    <label>
+                      <span>Due date</span>
+                      <DatePicker value={note.dueDate} onChange={v => patchNote({ dueDate: v })} placeholder="No due date" />
+                    </label>
+                    <label>
+                      <span>Area</span>
+                      <select value={note.areaId ?? ''} onChange={e => patchNote({ areaId: e.target.value || undefined })}>
+                        <option value="">No area</option>
+                        {areaNotes.map(a => <option key={a.id} value={a.id}>{a.title || 'Untitled'}</option>)}
+                      </select>
+                    </label>
+                    <label className="wide">
+                      <span>Next action</span>
+                      <input type="text" value={note.nextAction ?? ''} placeholder="The very next physical step…" onChange={e => patchNote({ nextAction: e.target.value })} />
+                    </label>
+                  </div>
+                </>
+              )}
+              {projectDetailTab === 'Board' && (
               <div className="sb-board sb-project-subtask-board">
                 {projectColumns(note).map(col => {
                   const items = (note.subtasks ?? []).filter(s => s.status === col.id);
@@ -1810,6 +1854,7 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                   <Plus size={14} /> Add column
                 </button>
               </div>
+              )}
             </>
           ) : !note ? (
             <div className="sb-editor-empty"><EmptyState>Select a note, or create a new one.</EmptyState></div>
@@ -1847,64 +1892,34 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
               {duplicateTitle && (
                 <p className="sb-title-warning">Another note already has this title — [[wikilinks]] to either one may be ambiguous.</p>
               )}
-              <div className="sb-meta-row">
-                <TagsField value={note.tags ?? []} onChange={tags => patchNote({ tags })} />
-                {note.paraType === 'Resource' ? (
-                  note.resourceKind === 'Repo' ? (
-                    <input type="text" className="sb-type-select" value="Code Vault" disabled />
+              {note.paraType !== 'Project' && (
+                <div className="sb-meta-row">
+                  <TagsField value={note.tags ?? []} onChange={tags => patchNote({ tags })} />
+                  {note.paraType === 'Resource' ? (
+                    note.resourceKind === 'Repo' ? (
+                      <input type="text" className="sb-type-select" value="Code Vault" disabled />
+                    ) : (
+                      <select
+                        className="sb-type-select"
+                        value={note.resourceKind ?? 'Reference'}
+                        onChange={e => patchNote({ resourceKind: e.target.value as ResourceKind })}
+                      >
+                        {RESOURCE_KINDS.map(k => <option key={k} value={k}>{k}</option>)}
+                      </select>
+                    )
                   ) : (
                     <select
                       className="sb-type-select"
-                      value={note.resourceKind ?? 'Reference'}
-                      onChange={e => patchNote({ resourceKind: e.target.value as ResourceKind })}
+                      value={note.paraType ?? ''}
+                      onChange={e => changeNoteType((e.target.value || undefined) as ParaType | undefined)}
                     >
-                      {RESOURCE_KINDS.map(k => <option key={k} value={k}>{k}</option>)}
+                      <option value="">Inbox</option>
+                      <option value="Project">Project</option>
+                      <option value="Area">Area</option>
+                      <option value="Resource">Resource</option>
                     </select>
-                  )
-                ) : (
-                  <select
-                    className="sb-type-select"
-                    value={note.paraType ?? ''}
-                    onChange={e => changeNoteType((e.target.value || undefined) as ParaType | undefined)}
-                  >
-                    <option value="">Inbox</option>
-                    <option value="Project">Project</option>
-                    <option value="Area">Area</option>
-                    <option value="Resource">Resource</option>
-                  </select>
-                )}
-              </div>
-
-              {note.paraType === 'Project' && (
-                <div className="sb-para-fields">
-                  <label>
-                    <span>Status</span>
-                    <select value={note.status ?? 'Not Started'} onChange={e => patchNote({ status: e.target.value as ParaProjectStatus })}>
-                      {PROJECT_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
-                    </select>
-                  </label>
-                  <label>
-                    <span>Due date</span>
-                    <DatePicker value={note.dueDate} onChange={v => patchNote({ dueDate: v })} placeholder="No due date" />
-                  </label>
-                  <label>
-                    <span>Area</span>
-                    <select value={note.areaId ?? ''} onChange={e => patchNote({ areaId: e.target.value || undefined })}>
-                      <option value="">No area</option>
-                      {areaNotes.map(a => <option key={a.id} value={a.id}>{a.title || 'Untitled'}</option>)}
-                    </select>
-                  </label>
-                  <label className="wide">
-                    <span>Next action</span>
-                    <input type="text" value={note.nextAction ?? ''} placeholder="The very next physical step…" onChange={e => patchNote({ nextAction: e.target.value })} />
-                  </label>
+                  )}
                 </div>
-              )}
-
-              {note.paraType === 'Project' && (note.subtasks ?? []).length > 0 && (
-                <p className="sb-subtask-hint">
-                  {(note.subtasks ?? []).length} subtask{(note.subtasks ?? []).length === 1 ? '' : 's'} — switch to <b>Board</b> above to see and manage them.
-                </p>
               )}
 
               {note.paraType === 'Area' && (
