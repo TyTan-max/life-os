@@ -1280,8 +1280,17 @@ export function CollectionPage<T extends CollectionRecord>({
         >
           <div className="form-grid">
             {duplicateError && <p className="form-error field-full">{duplicateError}</p>}
-            {fields.map(field => (
-              <label key={field.key} className={field.type === 'textarea' || field.type === 'richtext' ? 'field-full' : ''}>
+            {fields.map(field => {
+              // A <label> forwards a click anywhere inside it to its first "labelable"
+              // descendant when the click doesn't land on an interactive element of its own —
+              // harmless for a plain <input>, but RichTextEditor renders real <button>s (its
+              // toolbar) inside this wrapper, so every click in the text body was *also*
+              // clicking the first toolbar button (Bold), silently toggling it. A plain <div>
+              // has no such forwarding behavior; every other field type still gets a real
+              // <label> since that behavior is what makes clicking the field's caption focus it.
+              const Wrapper = field.type === 'richtext' ? 'div' : 'label';
+              return (
+              <Wrapper key={field.key} className={field.type === 'textarea' || field.type === 'richtext' ? 'field-full' : ''}>
                 <span>{field.label}</span>
                 {autofill && field.key === autofill.titleKey ? (
                   <TitleAutofillField
@@ -1366,8 +1375,9 @@ export function CollectionPage<T extends CollectionRecord>({
                     placeholder={field.placeholder}
                   />
                 )}
-              </label>
-            ))}
+              </Wrapper>
+              );
+            })}
           </div>
         </Modal>
       )}
