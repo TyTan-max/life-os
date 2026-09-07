@@ -211,14 +211,22 @@ export type ParaProjectStatus = 'Not Started' | 'In Progress' | 'Blocked' | 'Com
 export type ResourceKind = 'Article' | 'Snippet' | 'Reference' | 'Idea' | 'Book Note' | 'Repo';
 export type ReviewCadence = 'Weekly' | 'Monthly' | 'Quarterly';
 
-// A Project's own Kanban board — small work items scoped to that one Project, tracked through
-// the same four-stage lifecycle as the main Projects board so the drag-and-drop UI and column
-// set can be shared between them.
+// A Project's own Kanban board — small work items scoped to that one Project. Each project can
+// define its own column set (see Note.boardColumns) rather than sharing one fixed lifecycle, so
+// `status` here holds whichever column's id the subtask currently sits in, not a fixed enum.
 export interface ProjectSubtask {
   id: string;
   title: string;
-  status: ParaProjectStatus;
+  status: string;
   notes?: string;
+}
+
+// One column on a Project's subtask board. Undefined Note.boardColumns falls back to a default
+// four-column set (see DEFAULT_BOARD_COLUMNS in SecondBrain.tsx) matching the original fixed
+// status lifecycle, so existing subtasks keep resolving to the same column without migration.
+export interface ProjectBoardColumn {
+  id: string;
+  label: string;
 }
 
 export interface NoteImage {
@@ -255,6 +263,7 @@ export interface Note extends BaseRecord {
   areaId?: string;
   nextAction?: string;
   subtasks?: ProjectSubtask[];
+  boardColumns?: ProjectBoardColumn[];
 
   // Areas
   standard?: string;

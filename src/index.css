@@ -3879,8 +3879,11 @@ input, select, textarea { font-family: inherit; }
 .sb-board { display: flex; gap: 14px; overflow-x: auto; flex: 1; min-height: 0; padding: 4px 4px 12px; }
 .sb-board-col { flex: 0 0 240px; display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; min-height: 0; transition: background 0.12s, border-color 0.12s; }
 .sb-board-col.drag-over { background: var(--accent-soft); border-color: var(--accent); }
-.sb-board-col-head { display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; border-bottom: 1px solid var(--border); font-size: 12px; font-weight: 700; flex-shrink: 0; }
+.sb-board-col-head { display: flex; align-items: center; gap: 6px; padding: 10px 12px; border-bottom: 1px solid var(--border); font-size: 12px; font-weight: 700; flex-shrink: 0; }
 .sb-board-col-head small { color: var(--text-faint); font-weight: 650; }
+.sb-board-col-head > .icon-btn { flex-shrink: 0; }
+.icon-btn:disabled { opacity: 0.3; cursor: default; }
+.icon-btn:disabled:hover { background: transparent; }
 .sb-board-col-body { flex: 1; min-height: 0; overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 8px; }
 .sb-board-card { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 9px 10px; display: flex; flex-direction: column; gap: 6px; cursor: grab; }
 .sb-board-card.dragging { opacity: 0.4; }
@@ -3904,6 +3907,10 @@ input, select, textarea { font-family: inherit; }
 .sb-board-card-title-btn { display: flex; align-items: center; gap: 5px; min-width: 0; background: transparent; border: none; padding: 0; text-align: left; color: var(--text); cursor: pointer; }
 .sb-board-card-title-btn span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
 .sb-subtask-note-icon { flex-shrink: 0; color: var(--text-faint); }
+.sb-board-col-label-input { flex: 1; min-width: 0; background: transparent; border: none; padding: 2px 0; font-size: 12px; font-weight: 700; color: var(--text); font-family: inherit; }
+.sb-board-col-label-input:hover, .sb-board-col-label-input:focus { outline: none; text-decoration: underline dotted; text-underline-offset: 3px; }
+.sb-board-add-col { flex: 0 0 130px; align-self: stretch; display: flex; align-items: center; justify-content: center; gap: 6px; border: 1px dashed var(--border); border-radius: 12px; background: transparent; color: var(--text-faint); font-size: 12px; font-weight: 650; cursor: pointer; }
+.sb-board-add-col:hover { border-color: var(--accent); color: var(--accent); }
 .sb-table-shell { display: flex; flex-direction: column; }
 .sb-table-toolbar {
   flex-shrink: 0;

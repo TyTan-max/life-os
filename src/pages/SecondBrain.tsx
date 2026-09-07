@@ -5,7 +5,7 @@ import {
   Italic, Layers, Lightbulb, Link2, List, ListOrdered, Pin, PinOff, Plus, Quote, Search, StickyNote, Strikethrough, Trash2, TrendingUp, Upload, X
 } from 'lucide-react';
 import { useStore, newRecord } from '../store';
-import type { Frequency, Goal, GoalHorizon, GoalProgressMode, GoalStatus, Note, NoteImage, ParaProjectStatus, ParaType, Priority, ProjectSubtask, ResourceKind, ReviewCadence, Task, TaskStatus } from '../types';
+import type { Frequency, Goal, GoalHorizon, GoalProgressMode, GoalStatus, Note, NoteImage, ParaProjectStatus, ParaType, Priority, ProjectBoardColumn, ProjectSubtask, ResourceKind, ReviewCadence, Task, TaskStatus } from '../types';
 import { generateId } from '../utils/id';
 import { Badge, Card, EmptyState, Kpi, Modal, PageHeader, formatDate } from '../components/UI';
 import { SortableTh, toggleSort } from '../components/SortableTh';
@@ -22,6 +22,13 @@ import { htmlToMarkdown } from '../lib/htmlToMarkdown';
 const WIKILINK_PATTERN = /\[\[([^\]]+)\]\]/g;
 
 const PROJECT_STATUSES: ParaProjectStatus[] = ['Not Started', 'In Progress', 'Blocked', 'Completed'];
+// A subtask board's default columns, used until a Project defines its own — same labels/ids as
+// the fixed project-level lifecycle so a project's very first custom edit (rename/add/remove)
+// starts from familiar ground, and any subtask created before that edit keeps resolving correctly.
+const DEFAULT_BOARD_COLUMNS: ProjectBoardColumn[] = PROJECT_STATUSES.map(s => ({ id: s, label: s }));
+function projectColumns(note: Note): ProjectBoardColumn[] {
+  return note.boardColumns && note.boardColumns.length ? note.boardColumns : DEFAULT_BOARD_COLUMNS;
+}
 const REVIEW_CADENCES: ReviewCadence[] = ['Weekly', 'Monthly', 'Quarterly'];
 const RESOURCE_KINDS: ResourceKind[] = ['Idea', 'Snippet', 'Reference'];
 // A distinct icon per Kind so the Resources hub reads at a glance instead of three identical
@@ -433,7 +440,7 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
   // Project's own subtask board below) — safe to share since only one of the two is ever
   // mounted at once (the former only renders with no note open, the latter only inside one).
   const [dragCardId, setDragCardId] = useState<string | null>(null);
-  const [dragOverStatus, setDragOverStatus] = useState<ParaProjectStatus | null>(null);
+  const [dragOverStatus, setDragOverStatus] = useState<string | null>(null);
   const [subtaskDraft, setSubtaskDraft] = useState('');
   const [editingSubtaskId, setEditingSubtaskId] = useState<string | null>(null);
 
@@ -768,12 +775,13 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
   const addSubtask = () => {
     const title = subtaskDraft.trim();
     if (!title || !note) return;
-    const next: ProjectSubtask = { id: generateId(), title, status: 'Not Started' };
+    const firstColumn = projectColumns(note)[0]?.id ?? 'Not Started';
+    const next: ProjectSubtask = { id: generateId(), title, status: firstColumn };
     patchNote({ subtasks: [...(note.subtasks ?? []), next] });
     setSubtaskDraft('');
   };
 
-  const setSubtaskStatus = (id: string, status: ParaProjectStatus) => {
+  const setSubtaskStatus = (id: string, status: string) => {
     if (!note) return;
     patchNote({ subtasks: (note.subtasks ?? []).map(s => (s.id === id ? { ...s, status } : s)) });
   };
@@ -781,6 +789,36 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
   const updateSubtask = (id: string, patch: Partial<ProjectSubtask>) => {
     if (!note) return;
     patchNote({ subtasks: (note.subtasks ?? []).map(s => (s.id === id ? { ...s, ...patch } : s)) });
+  };
+
+  // Each Project can reshape its own subtask board — rename a column, add one, or remove one.
+  // All three read the board's current effective columns (projectColumns falls back to the
+  // default four) before writing, so a project's very first edit materializes that default set
+  // onto the note instead of trying to diff against columns that don't exist yet.
+  const addColumn = () => {
+    if (!note) return;
+    const cols = projectColumns(note);
+    patchNote({ boardColumns: [...cols, { id: generateId(), label: `Column ${cols.length + 1}` }] });
+  };
+
+  const renameColumn = (id: string, label: string) => {
+    if (!note) return;
+    patchNote({ boardColumns: projectColumns(note).map(c => (c.id === id ? { ...c, label } : c)) });
+  };
+
+  // Any subtask sitting in the removed column falls back to whichever column is now first,
+  // rather than vanishing — the same "reassign, don't orphan" treatment the app already gives a
+  // deleted Area's Projects.
+  const removeColumn = (id: string) => {
+    if (!note) return;
+    const cols = projectColumns(note);
+    if (cols.length <= 1) return;
+    const remaining = cols.filter(c => c.id !== id);
+    const fallbackId = remaining[0].id;
+    patchNote({
+      boardColumns: remaining,
+      subtasks: (note.subtasks ?? []).map(s => (s.status === id ? { ...s, status: fallbackId } : s))
+    });
   };
 
   const removeSubtask = (id: string) => {
@@ -1685,23 +1723,43 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                 </div>
               </div>
               <div className="sb-board sb-project-subtask-board">
-                {PROJECT_STATUSES.map(status => {
-                  const items = (note.subtasks ?? []).filter(s => s.status === status);
+                {projectColumns(note).map(col => {
+                  const items = (note.subtasks ?? []).filter(s => s.status === col.id);
+                  const onlyColumn = projectColumns(note).length <= 1;
                   return (
                     <div
-                      key={status}
-                      className={`sb-board-col ${dragOverStatus === status ? 'drag-over' : ''}`}
-                      onDragOver={e => { if (dragCardId) { e.preventDefault(); setDragOverStatus(status); } }}
-                      onDragLeave={() => setDragOverStatus(prev => (prev === status ? null : prev))}
+                      key={col.id}
+                      className={`sb-board-col ${dragOverStatus === col.id ? 'drag-over' : ''}`}
+                      onDragOver={e => { if (dragCardId) { e.preventDefault(); setDragOverStatus(col.id); } }}
+                      onDragLeave={() => setDragOverStatus(prev => (prev === col.id ? null : prev))}
                       onDrop={e => {
                         e.preventDefault();
                         const id = dragCardId ?? e.dataTransfer.getData('text/plain');
-                        if (id) setSubtaskStatus(id, status);
+                        if (id) setSubtaskStatus(id, col.id);
                         setDragCardId(null);
                         setDragOverStatus(null);
                       }}
                     >
-                      <div className="sb-board-col-head"><span>{status}</span><small>{items.length}</small></div>
+                      <div className="sb-board-col-head">
+                        <input
+                          type="text"
+                          className="sb-board-col-label-input"
+                          value={col.label}
+                          onChange={e => renameColumn(col.id, e.target.value)}
+                          aria-label="Column name"
+                        />
+                        <small>{items.length}</small>
+                        <button
+                          type="button"
+                          className="icon-btn"
+                          onClick={() => removeColumn(col.id)}
+                          disabled={onlyColumn}
+                          title={onlyColumn ? "A board needs at least one column" : `Remove ${col.label}`}
+                          aria-label={`Remove column ${col.label}`}
+                        >
+                          <X size={11} />
+                        </button>
+                      </div>
                       <div className="sb-board-col-body">
                         {items.length ? items.map(s => (
                           <div
@@ -1722,6 +1780,9 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                     </div>
                   );
                 })}
+                <button type="button" className="sb-board-add-col" onClick={addColumn}>
+                  <Plus size={14} /> Add column
+                </button>
               </div>
             </>
           ) : !note ? (
@@ -2126,7 +2187,7 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
           <p>{confirmDeleteNote.message}</p>
         </Modal>
       )}
-      {editingSubtask && (
+      {editingSubtask && note && (
         <Modal
           eyebrow="Subtask"
           title="Edit subtask"
@@ -2146,9 +2207,9 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
               />
             </label>
             <label>
-              <span>Status</span>
-              <select value={editingSubtask.status} onChange={e => updateSubtask(editingSubtask.id, { status: e.target.value as ParaProjectStatus })}>
-                {PROJECT_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+              <span>Column</span>
+              <select value={editingSubtask.status} onChange={e => updateSubtask(editingSubtask.id, { status: e.target.value })}>
+                {projectColumns(note).map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
               </select>
             </label>
             <label className="field-full">
