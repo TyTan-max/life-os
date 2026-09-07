@@ -227,8 +227,11 @@ function markerTextFor(img: NoteImage): string {
 // of the click/hover logic keyed to groups 1/3/4/5 needs to change — a click landing inside one
 // of them just falls through to "not actionable" exactly like any other non-link plain text did.
 // Bold is tried before italic so "**x**" commits to the double-star alternative first; italic's
-// character class excludes '*' so it can never swallow a neighboring bold run.
-const BODY_TOKEN_PATTERN = /(\[\[[^\]]+\]\])|\[([^[\]]+)\]\((https?:\/\/[^\s)]+)\)|((?<!\[)\[[^[\]]+\](?!\]))|(https?:\/\/[^\s]*[^\s.,;:!?'")\]])|(\*\*[^\n*]+\*\*)|(~~[^\n~]+~~)|(\*[^\n*]+\*)/g;
+// character class excludes '*' so it can never swallow a neighboring bold run. All three allow
+// newlines in their content (selecting a whole multi-line note and clicking Bold is the common
+// case, not an edge case) and are lazy so a stray unmatched marker can't swallow everything up to
+// the next occurrence of its closer many paragraphs away.
+const BODY_TOKEN_PATTERN = /(\[\[[^\]]+\]\])|\[([^[\]]+)\]\((https?:\/\/[^\s)]+)\)|((?<!\[)\[[^[\]]+\](?!\]))|(https?:\/\/[^\s]*[^\s.,;:!?'")\]])|(\*\*[^*]+?\*\*)|(~~[^~]+?~~)|(\*[^*]+?\*)/g;
 
 function escapeHtmlForBody(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
