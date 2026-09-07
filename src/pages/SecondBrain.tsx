@@ -428,6 +428,8 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
   const [imageLightboxSrc, setImageLightboxSrc] = useState<string | null>(null);
   const [dragImageOrdinal, setDragImageOrdinal] = useState<number | null>(null);
   const [dragOverImageOrdinal, setDragOverImageOrdinal] = useState<number | null>(null);
+  const [dragCardId, setDragCardId] = useState<string | null>(null);
+  const [dragOverStatus, setDragOverStatus] = useState<ParaProjectStatus | null>(null);
 
   // Frictionless capture — always lands untyped (Inbox) regardless of which PARA
   // tab you're currently viewing. Deliberately no title prompt: organize later.
@@ -1298,11 +1300,30 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
               {PROJECT_STATUSES.map(status => {
                 const items = projectsForBoard.filter(p => (p.status ?? 'Not Started') === status);
                 return (
-                  <div key={status} className="sb-board-col">
+                  <div
+                    key={status}
+                    className={`sb-board-col ${dragOverStatus === status ? 'drag-over' : ''}`}
+                    onDragOver={e => { if (dragCardId) { e.preventDefault(); setDragOverStatus(status); } }}
+                    onDragLeave={() => setDragOverStatus(prev => (prev === status ? null : prev))}
+                    onDrop={e => {
+                      e.preventDefault();
+                      const id = dragCardId ?? e.dataTransfer.getData('text/plain');
+                      const p = projectsForBoard.find(pr => pr.id === id);
+                      if (p && (p.status ?? 'Not Started') !== status) void upsert('notes', { ...p, status });
+                      setDragCardId(null);
+                      setDragOverStatus(null);
+                    }}
+                  >
                     <div className="sb-board-col-head"><span>{status}</span><small>{items.length}</small></div>
                     <div className="sb-board-col-body">
                       {items.length ? items.map(p => (
-                        <div key={p.id} className="sb-board-card">
+                        <div
+                          key={p.id}
+                          className={`sb-board-card ${dragCardId === p.id ? 'dragging' : ''}`}
+                          draggable
+                          onDragStart={e => { setDragCardId(p.id); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', p.id); }}
+                          onDragEnd={() => { setDragCardId(null); setDragOverStatus(null); }}
+                        >
                           <button type="button" className="sb-board-card-title" onClick={() => setSelectedId(p.id)}>{p.title || 'Untitled'}</button>
                           {p.dueDate && <span className={`sb-due-chip ${isProjectOverdue(p) ? 'overdue' : ''}`}>{formatDate(p.dueDate)}</span>}
                           <select value={p.status ?? 'Not Started'} onChange={e => void upsert('notes', { ...p, status: e.target.value as ParaProjectStatus })}>
