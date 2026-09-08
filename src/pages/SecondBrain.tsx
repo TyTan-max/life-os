@@ -132,7 +132,11 @@ function matchesResourceScope(n: Note, scope: ResourceScope): boolean {
 function matchesParaTab(n: Note, tab: ParaTab): boolean {
   if (tab === 'Archive') return Boolean(n.archived);
   if (n.archived) return false; // archived notes are hidden everywhere except the Archive tab
-  if (tab === 'All' || tab === 'Overview') return true;
+  if (tab === 'All') return true;
+  // Overview's sidebar list is meant as a catch-all for everything that isn't already served by
+  // its own dedicated view — Book Notes have the Books tab for that, so keeping them out here
+  // avoids listing the same notes in two places.
+  if (tab === 'Overview') return n.resourceKind !== 'Book Note';
   if (tab === 'Tasks') return false; // Tasks are real Task records, not notes — handled separately.
   if (tab === 'Inbox') return !n.paraType;
   if (tab === 'Projects') return n.paraType === 'Project';
