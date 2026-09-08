@@ -2222,13 +2222,7 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                     />
                   </BookCollapsible>
                   <div className="sb-book-log-wrap">
-                    <div className="sb-book-log-header">
-                      <span className="sb-book-log-label">Raw chapter notes</span>
-                      <label className="sb-book-log-verse-toggle">
-                        <input type="checkbox" checked={Boolean(note.bookVerseHeaders)} onChange={e => patchNote({ bookVerseHeaders: e.target.checked })} />
-                        <span>Verse labels</span>
-                      </label>
-                    </div>
+                    <span className="sb-book-log-label">Raw chapter notes</span>
                     <BookNotesLog rows={note.bookLog ?? []} onChange={bookLog => patchNote({ bookLog })} verseHeaders={note.bookVerseHeaders} />
                   </div>
                 </div>
