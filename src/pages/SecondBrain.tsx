@@ -1914,7 +1914,8 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                   onChange={title => patchNote({ title })}
                   onPick={patch => patchNote({
                     title: (patch.title as string) ?? note.title,
-                    bookAuthor: (patch.author as string) ?? note.bookAuthor
+                    bookAuthor: (patch.author as string) ?? note.bookAuthor,
+                    bookCategory: (patch.category as string) ?? note.bookCategory
                   })}
                   search={searchBooks}
                   placeholder="Untitled"

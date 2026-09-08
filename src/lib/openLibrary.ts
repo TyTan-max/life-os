@@ -36,7 +36,10 @@ export async function searchBooks(query: string): Promise<AutofillResult[]> {
   // Let a failed request (network hiccup, Open Library rate limit) throw instead of silently
   // becoming an empty result — swallowing it made bulk import report a real match as "No match
   // found — skipped" instead of the retryable error it actually was.
-  const data = await fetchJson(`https://openlibrary.org/search.json?q=${encodeURIComponent(query)}&limit=5`);
+  // `subject` isn't in the default field set (Open Library omits it unless asked), so every
+  // field the mapping below reads has to be listed explicitly once any `fields` param is given.
+  const fields = 'key,title,author_name,first_publish_year,cover_i,number_of_pages_median,subject';
+  const data = await fetchJson(`https://openlibrary.org/search.json?q=${encodeURIComponent(query)}&limit=5&fields=${fields}`);
 
   return (data.docs ?? []).slice(0, 5).map((d: any) => {
     const author = d.author_name?.[0];
@@ -49,6 +52,9 @@ export async function searchBooks(query: string): Promise<AutofillResult[]> {
       resolvePatch: async () => ({
         title: d.title,
         author,
+        // Open Library's own subject ordering leads with its most-curated tag — a reasonable
+        // one-line "main topic" default, but still just a starting point the caller can edit.
+        category: d.subject?.[0],
         coverArt: coverFull,
         pageCount: d.number_of_pages_median || undefined,
         description: await fetchDescription(d.key)
