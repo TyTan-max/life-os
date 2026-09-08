@@ -3,7 +3,7 @@ import type { ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import {
   ArrowDown01, ArrowDownAZ, ArrowUp01, ArrowUpZA, Check, ChevronDown, Copy, Dices, Eye, EyeOff,
-  LayoutGrid, List as ListIcon, ListTodo, Pencil, Plus, Search, Shuffle, Trash2, Upload, X
+  LayoutGrid, List as ListIcon, ListTodo, Pencil, Plus, Search, Shuffle, Star, Trash2, Upload, X
 } from 'lucide-react';
 import { useStore, newRecord } from '../store';
 import type { CollectionName, CollectionRecord } from '../types';
@@ -102,9 +102,26 @@ interface CollectionPageProps<T extends CollectionRecord> {
   dateSortLabel?: string;
 }
 
-function renderStars(rating: number): string {
-  const full = Math.max(0, Math.min(5, Math.round(rating)));
-  return '★'.repeat(full) + '☆'.repeat(5 - full);
+// Renders exactly the stars the rating earned — 3 stars for a 3, 3 full + 1 half for a 3.5 —
+// with no trailing empty/outline stars padding out to 5. A half star is a single icon clipped to
+// its left half over the same icon unfilled, so it reads as "half lit" rather than a whole star.
+function StarRating({ rating }: { rating: number }) {
+  const rounded = Math.round(Math.max(0, Math.min(5, rating)) * 2) / 2;
+  const full = Math.floor(rounded);
+  const half = rounded % 1 !== 0;
+  return (
+    <span className="rating-stars">
+      {Array.from({ length: full }, (_, i) => (
+        <Star key={i} size={10} fill="currentColor" stroke="none" />
+      ))}
+      {half && (
+        <span className="rating-star-half">
+          <Star size={10} stroke="none" style={{ opacity: 0.35 }} />
+          <Star size={10} fill="currentColor" stroke="none" className="rating-star-half-fill" />
+        </span>
+      )}
+    </span>
+  );
 }
 
 function formatFieldValue(value: unknown): string | null {
@@ -1014,7 +1031,7 @@ export function CollectionPage<T extends CollectionRecord>({
                 </button>
                 <span className="gallery-cover-scrim" aria-hidden="true" />
                 {badge && <span className="gallery-badge">{badge}</span>}
-                {rating != null && <span className="gallery-rating">{renderStars(rating)}</span>}
+                {rating != null && <span className="gallery-rating"><StarRating rating={rating} /></span>}
                 <button type="button" className="icon-btn gallery-delete" onClick={() => void remove(collection, record.id)} aria-label={`Delete ${label}`}>
                   <Trash2 size={13} />
                 </button>
