@@ -210,7 +210,7 @@ export type ParaType = 'Project' | 'Area' | 'Resource';
 export type ParaProjectStatus = 'Not Started' | 'In Progress' | 'Blocked' | 'Completed';
 export type ResourceKind = 'Article' | 'Snippet' | 'Reference' | 'Idea' | 'Book Note' | 'Repo';
 export type ReviewCadence = 'Weekly' | 'Monthly' | 'Quarterly';
-export type BookStatus = 'Reading' | 'Completed' | 'Wishlist';
+export type BookNoteStatus = 'Reading' | 'Completed' | 'Wishlist';
 
 // One row of a book's reading log — a chapter/section paired with the page it's on, what was
 // learned there, and how the reader plans to apply it. Free-text chapter/page (not numbers) since
@@ -320,7 +320,7 @@ export interface Note extends BaseRecord {
   // Books (Resources where resourceKind is 'Book Note') — the body/RichTextEditor is unused for
   // these; bookLog is the structured reading-notes table shown instead.
   bookAuthor?: string;
-  bookStatus?: BookStatus;
+  bookStatus?: BookNoteStatus;
   bookCategory?: string;
   bookCoverArt?: string;
   bookLog?: BookNoteRow[];

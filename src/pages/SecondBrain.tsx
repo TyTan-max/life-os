@@ -5,7 +5,7 @@ import {
   Layers, Lightbulb, Link2, ListChecks, Lock, LockOpen, Maximize2, Pin, PinOff, Plus, Quote, Search, StickyNote, Trash2, TrendingUp, X
 } from 'lucide-react';
 import { useStore, newRecord } from '../store';
-import type { BookActionItem, BookNoteRow, BookQuoteRow, BookStatus, Frequency, Goal, GoalHorizon, GoalProgressMode, GoalStatus, Note, NoteImage, ParaProjectStatus, ParaType, Priority, ProjectBoardColumn, ProjectSubtask, ResourceKind, ReviewCadence, Task, TaskStatus } from '../types';
+import type { BookActionItem, BookNoteRow, BookNoteStatus, BookQuoteRow, Frequency, Goal, GoalHorizon, GoalProgressMode, GoalStatus, Note, NoteImage, ParaProjectStatus, ParaType, Priority, ProjectBoardColumn, ProjectSubtask, ResourceKind, ReviewCadence, Task, TaskStatus } from '../types';
 import { generateId } from '../utils/id';
 import { Badge, Card, EmptyState, Kpi, Modal, PageHeader, formatDate } from '../components/UI';
 import { SortableTh, toggleSort } from '../components/SortableTh';
@@ -34,7 +34,7 @@ function projectColumns(note: Note): ProjectBoardColumn[] {
 }
 const REVIEW_CADENCES: ReviewCadence[] = ['Weekly', 'Monthly', 'Quarterly'];
 const RESOURCE_KINDS: ResourceKind[] = ['Idea', 'Snippet', 'Reference'];
-const BOOK_STATUSES: BookStatus[] = ['Reading', 'Completed', 'Wishlist'];
+const BOOK_STATUSES: BookNoteStatus[] = ['Reading', 'Completed', 'Wishlist'];
 // A distinct icon per Kind so the Resources hub reads at a glance instead of three identical
 // bookmark icons — Idea gets the obvious lightbulb, Snippet a sticky-note (it's a plain quick
 // note now, not code — Code Vault owns the code-editor treatment), Reference keeps the bookmark
@@ -2331,7 +2331,7 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                         </label>
                         <label>
                           <span>Status</span>
-                          <select value={note.bookStatus ?? 'Reading'} onChange={e => patchNote({ bookStatus: e.target.value as BookStatus })}>
+                          <select value={note.bookStatus ?? 'Reading'} onChange={e => patchNote({ bookStatus: e.target.value as BookNoteStatus })}>
                             {BOOK_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
                           </select>
                         </label>
