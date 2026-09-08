@@ -3554,6 +3554,21 @@ input, select, textarea { font-family: inherit; }
 }
 .sb-list-item:hover { background: var(--surface); }
 .sb-list-item.active { background: var(--accent-soft); }
+.sb-list-item-row { display: flex; gap: 8px; align-items: flex-start; }
+.sb-list-item-body { flex: 1; min-width: 0; }
+.sb-list-item-cover {
+  flex-shrink: 0;
+  width: 28px;
+  height: 40px;
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--surface-hover);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-faint);
+}
+.sb-list-item-cover img { width: 100%; height: 100%; object-fit: cover; }
 .sb-list-item-head { display: flex; align-items: center; gap: 6px; color: var(--text); }
 .sb-list-item-head svg { color: var(--accent); flex-shrink: 0; }
 .sb-list-item-head b { font-size: 13.5px; font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

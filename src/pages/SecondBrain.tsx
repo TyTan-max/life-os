@@ -1434,34 +1434,43 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                     className={`sb-list-item ${selectedId === n.id ? 'active' : ''}`}
                     onClick={() => (selectedId === n.id ? setSelectedId(null) : openNote(n))}
                   >
-                    <div className="sb-list-item-head">
-                      {n.pinned && <Pin size={11} />}
-                      <b>{n.title || 'Untitled'}</b>
-                      {n.resourceKind === 'Repo' && n.language && <span className="sb-type-badge lang">{n.language}</span>}
-                      {n.paraType && <span className="sb-type-badge">{n.paraType}</span>}
-                    </div>
-                    {n.paraType === 'Project' && (
-                      <div className="sb-list-item-status-row">
-                        <span className={`sb-status-pill status-${(n.status ?? 'Not Started').replace(/\s+/g, '-').toLowerCase()}`}>{n.status ?? 'Not Started'}</span>
-                        {n.dueDate && <span className={`sb-due-chip ${isProjectOverdue(n) ? 'overdue' : ''}`}>{formatDate(n.dueDate)}</span>}
+                    <div className="sb-list-item-row">
+                      {n.resourceKind === 'Book Note' && (
+                        <div className="sb-list-item-cover">
+                          {n.bookCoverArt ? <img src={n.bookCoverArt} alt="" /> : <BookMarked size={16} />}
+                        </div>
+                      )}
+                      <div className="sb-list-item-body">
+                        <div className="sb-list-item-head">
+                          {n.pinned && <Pin size={11} />}
+                          <b>{n.title || 'Untitled'}</b>
+                          {n.resourceKind === 'Repo' && n.language && <span className="sb-type-badge lang">{n.language}</span>}
+                          {n.paraType && <span className="sb-type-badge">{n.paraType}</span>}
+                        </div>
+                        {n.paraType === 'Project' && (
+                          <div className="sb-list-item-status-row">
+                            <span className={`sb-status-pill status-${(n.status ?? 'Not Started').replace(/\s+/g, '-').toLowerCase()}`}>{n.status ?? 'Not Started'}</span>
+                            {n.dueDate && <span className={`sb-due-chip ${isProjectOverdue(n) ? 'overdue' : ''}`}>{formatDate(n.dueDate)}</span>}
+                          </div>
+                        )}
+                        {n.paraType === 'Project' && subtaskProgress(n) && <SubtaskProgressBar progress={subtaskProgress(n)!} size="small" />}
+                        {n.paraType === 'Area' && isReviewDue(n) && (
+                          <div className="sb-list-item-status-row">
+                            <span className="sb-due-chip amber">Review due</span>
+                          </div>
+                        )}
+                        {n.resourceKind === 'Book Note' && (
+                          <div className="sb-list-item-status-row">
+                            <span className={`sb-status-pill status-book-${(n.bookStatus ?? 'Reading').toLowerCase()}`}>{n.bookStatus ?? 'Reading'}</span>
+                            {n.bookAuthor && <span className="sb-due-chip">{n.bookAuthor}</span>}
+                          </div>
+                        )}
+                        <p>{n.resourceKind === 'Book Note' ? (n.bookCategory || 'No category set') : snippet(n.body)}</p>
+                        <div className="sb-list-item-meta">
+                          {(n.tags ?? []).slice(0, 3).map(t => <span key={t} className="sb-tag-chip static">{t}</span>)}
+                          <span className="sb-list-item-date">{formatDate(n.updatedAt)}</span>
+                        </div>
                       </div>
-                    )}
-                    {n.paraType === 'Project' && subtaskProgress(n) && <SubtaskProgressBar progress={subtaskProgress(n)!} size="small" />}
-                    {n.paraType === 'Area' && isReviewDue(n) && (
-                      <div className="sb-list-item-status-row">
-                        <span className="sb-due-chip amber">Review due</span>
-                      </div>
-                    )}
-                    {n.resourceKind === 'Book Note' && (
-                      <div className="sb-list-item-status-row">
-                        <span className={`sb-status-pill status-book-${(n.bookStatus ?? 'Reading').toLowerCase()}`}>{n.bookStatus ?? 'Reading'}</span>
-                        {n.bookAuthor && <span className="sb-due-chip">{n.bookAuthor}</span>}
-                      </div>
-                    )}
-                    <p>{n.resourceKind === 'Book Note' ? (n.bookCategory || 'No category set') : snippet(n.body)}</p>
-                    <div className="sb-list-item-meta">
-                      {(n.tags ?? []).slice(0, 3).map(t => <span key={t} className="sb-tag-chip static">{t}</span>)}
-                      <span className="sb-list-item-date">{formatDate(n.updatedAt)}</span>
                     </div>
                   </button>
                 </SwipeRow>
@@ -1915,7 +1924,8 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                   onPick={patch => patchNote({
                     title: (patch.title as string) ?? note.title,
                     bookAuthor: (patch.author as string) ?? note.bookAuthor,
-                    bookCategory: (patch.category as string) ?? note.bookCategory
+                    bookCategory: (patch.category as string) ?? note.bookCategory,
+                    bookCoverArt: (patch.coverArt as string) ?? note.bookCoverArt
                   })}
                   search={searchBooks}
                   placeholder="Untitled"

@@ -300,6 +300,7 @@ export interface Note extends BaseRecord {
   bookAuthor?: string;
   bookStatus?: BookStatus;
   bookCategory?: string;
+  bookCoverArt?: string;
   bookLog?: BookNoteRow[];
 }
 
