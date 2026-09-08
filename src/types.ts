@@ -279,6 +279,11 @@ export interface Note extends BaseRecord {
   body: string;
   tags?: string[];
   pinned?: boolean;
+  // Blocks every delete path for this note (sidebar swipe/icon, editor toolbar, the All-tab
+  // table) — for a note that should never disappear by an accidental or hasty click, distinct
+  // from archiving (which is about visibility, not protection, and stays fully reversible either
+  // way).
+  locked?: boolean;
   images?: NoteImage[];
   // Next ordinal to hand out for an inline photo marker — increments forever, never reused, even
   // across deletions, so "[Photo 2]" can never silently start pointing at an unrelated photo.

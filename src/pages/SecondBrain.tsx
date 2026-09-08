@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, ReactNode } from 'react';
 import {
   Archive, ArchiveRestore, BookMarked, Check, ChevronDown, ChevronLeft, Clock, Code2, Command,
-  Layers, Lightbulb, Link2, ListChecks, Pin, PinOff, Plus, Quote, Search, StickyNote, Trash2, TrendingUp, X
+  Layers, Lightbulb, Link2, ListChecks, Lock, LockOpen, Pin, PinOff, Plus, Quote, Search, StickyNote, Trash2, TrendingUp, X
 } from 'lucide-react';
 import { useStore, newRecord } from '../store';
 import type { BookActionItem, BookNoteRow, BookQuoteRow, BookStatus, Frequency, Goal, GoalHorizon, GoalProgressMode, GoalStatus, Note, NoteImage, ParaProjectStatus, ParaType, Priority, ProjectBoardColumn, ProjectSubtask, ResourceKind, ReviewCadence, Task, TaskStatus } from '../types';
@@ -939,6 +939,7 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
   // in-app Modal sidesteps the native dialog entirely so the click actually goes through.
   const deleteNote = (id: string) => {
     const target = notes.find(n => n.id === id);
+    if (target?.locked) return;
     const linkedProjects = target?.paraType === 'Area' ? notes.filter(n => n.paraType === 'Project' && n.areaId === id) : [];
     const message = linkedProjects.length
       ? `Delete this Area? ${linkedProjects.length} project${linkedProjects.length === 1 ? '' : 's'} assigned to it will be unassigned (kept, just no longer linked to an Area). This cannot be undone.`
@@ -950,6 +951,7 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
     if (!confirmDeleteNote) return;
     const { id } = confirmDeleteNote;
     const target = notes.find(n => n.id === id);
+    if (target?.locked) { setConfirmDeleteNote(null); return; }
     const linkedProjects = target?.paraType === 'Area' ? notes.filter(n => n.paraType === 'Project' && n.areaId === id) : [];
     for (const p of linkedProjects) await upsert('notes', { ...p, areaId: undefined });
     await remove('notes', id);
@@ -961,6 +963,7 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
   // notes is a deliberate, already-considered click, not a stray one worth double-checking twice.
   const deleteNoteInstantly = async (id: string) => {
     const target = notes.find(n => n.id === id);
+    if (target?.locked) return;
     const linkedProjects = target?.paraType === 'Area' ? notes.filter(n => n.paraType === 'Project' && n.areaId === id) : [];
     for (const p of linkedProjects) await upsert('notes', { ...p, areaId: undefined });
     await remove('notes', id);
@@ -1468,9 +1471,11 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                           </td>
                           <td className="sb-all-table-date">{formatDate(n.updatedAt)}</td>
                           <td className="collection-table-actions" onClick={e => e.stopPropagation()}>
-                            <button type="button" className="icon-btn danger" onClick={() => void deleteNoteInstantly(n.id)} aria-label={`Delete ${n.title || 'Untitled'}`}>
-                              <Trash2 size={13} />
-                            </button>
+                            {!n.locked && (
+                              <button type="button" className="icon-btn danger" onClick={() => void deleteNoteInstantly(n.id)} aria-label={`Delete ${n.title || 'Untitled'}`}>
+                                <Trash2 size={13} />
+                              </button>
+                            )}
                           </td>
                         </tr>
                       );
@@ -1552,7 +1557,7 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
               <div className="sb-list-item-wrap" key={n.id}>
                 <SwipeRow
                   disabled={!isMobile}
-                  trailing={{ label: 'Delete', icon: <Trash2 size={16} />, onTrigger: () => deleteNote(n.id) }}
+                  trailing={n.locked ? undefined : { label: 'Delete', icon: <Trash2 size={16} />, onTrigger: () => deleteNote(n.id) }}
                 >
                   <button
                     type="button"
@@ -1568,6 +1573,7 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                       <div className="sb-list-item-body">
                         <div className="sb-list-item-head">
                           {n.pinned && <Pin size={11} />}
+                          {n.locked && <Lock size={11} />}
                           <b>{n.title || 'Untitled'}</b>
                           {n.resourceKind === 'Repo' && n.language && <span className="sb-type-badge lang">{n.language}</span>}
                           {n.paraType && <span className="sb-type-badge">{n.paraType}</span>}
@@ -1599,14 +1605,16 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                     </div>
                   </button>
                 </SwipeRow>
-                <button
-                  type="button"
-                  className="icon-btn danger sb-list-item-delete"
-                  onClick={e => { e.stopPropagation(); deleteNote(n.id); }}
-                  aria-label={`Delete ${n.title || 'Untitled'}`}
-                >
-                  <Trash2 size={12} />
-                </button>
+                {!n.locked && (
+                  <button
+                    type="button"
+                    className="icon-btn danger sb-list-item-delete"
+                    onClick={e => { e.stopPropagation(); deleteNote(n.id); }}
+                    aria-label={`Delete ${n.title || 'Untitled'}`}
+                  >
+                    <Trash2 size={12} />
+                  </button>
+                )}
               </div>
             )) : <EmptyState>{notes.length ? 'No notes match.' : 'No notes yet — create your first one.'}</EmptyState>}
           </div>
@@ -1924,12 +1932,17 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                 <button type="button" className="icon-btn" onClick={toggleArchive} title={note.archived ? 'Unarchive' : 'Archive'}>
                   {note.archived ? <ArchiveRestore size={15} /> : <Archive size={15} />}
                 </button>
+                <button type="button" className="icon-btn" onClick={() => patchNote({ locked: !note.locked })} title={note.locked ? 'Unlock (allow deleting)' : 'Lock (prevent deleting)'}>
+                  {note.locked ? <Lock size={15} /> : <LockOpen size={15} />}
+                </button>
                 <span className="sb-editor-meta">
                   {note.archived ? `Archived ${formatDate(note.archivedAt)}` : `Updated ${formatDate(note.updatedAt)}`}
                 </span>
-                <button type="button" className="icon-btn danger" onClick={() => deleteNote(note.id)} title="Delete note">
-                  <Trash2 size={15} />
-                </button>
+                {!note.locked && (
+                  <button type="button" className="icon-btn danger" onClick={() => deleteNote(note.id)} title="Delete note">
+                    <Trash2 size={15} />
+                  </button>
+                )}
               </div>
               <input
                 type="text"
@@ -2034,12 +2047,17 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                 <button type="button" className="icon-btn" onClick={toggleArchive} title={note.archived ? 'Unarchive' : 'Archive'}>
                   {note.archived ? <ArchiveRestore size={15} /> : <Archive size={15} />}
                 </button>
+                <button type="button" className="icon-btn" onClick={() => patchNote({ locked: !note.locked })} title={note.locked ? 'Unlock (allow deleting)' : 'Lock (prevent deleting)'}>
+                  {note.locked ? <Lock size={15} /> : <LockOpen size={15} />}
+                </button>
                 <span className="sb-editor-meta">
                   {note.archived ? `Archived ${formatDate(note.archivedAt)}` : `Updated ${formatDate(note.updatedAt)}`}
                 </span>
-                <button type="button" className="icon-btn danger" onClick={() => deleteNote(note.id)} title="Delete note">
-                  <Trash2 size={15} />
-                </button>
+                {!note.locked && (
+                  <button type="button" className="icon-btn danger" onClick={() => deleteNote(note.id)} title="Delete note">
+                    <Trash2 size={15} />
+                  </button>
+                )}
               </div>
               {note.resourceKind === 'Book Note' ? (
                 <TitleAutofillField
