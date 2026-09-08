@@ -1452,6 +1452,11 @@ input, select, textarea { font-family: inherit; }
 .sb-book-action-row input[type="text"] { flex: 1; }
 .sb-book-action-row input[type="text"].done { text-decoration: line-through; color: var(--text-faint); }
 .sb-book-log-wrap { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+/* Reuses .sb-para-fields' grid layout for the Author/Status/Category/Summary fields, but strips
+   its standalone box chrome (background/border/margin) since it now lives inside a
+   .sb-book-section, which already draws that same framing — nesting both looked like a box
+   inside a box. */
+.sb-book-details-fields { background: none; border: none; padding: 0; margin-bottom: 0; }
 .sb-book-log-label { font-size: 12px; font-weight: 650; color: var(--text-muted); margin-bottom: 6px; }
 .sb-book-log-wrap .sb-book-log { flex: 1; min-height: 0; }
 /* A subtask's own notes field — a bit taller than the default modal-field size, but still capped
