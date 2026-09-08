@@ -432,9 +432,8 @@ function BookNotesLog({ rows, onChange, verseHeaders }: { rows: BookNoteRow[]; o
                     />
                   </td>
                   <td>
-                    <input
-                      type="text"
-                      className="grid-cell-input"
+                    <textarea
+                      className="grid-cell-input sb-book-log-textarea"
                       value={row.page ?? ''}
                       placeholder={lookingUpId === row.id ? 'Looking up the passage…' : cols.pagePh}
                       onChange={e => updateRow(row.id, { page: e.target.value })}
