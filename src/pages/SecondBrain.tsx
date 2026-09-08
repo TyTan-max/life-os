@@ -20,7 +20,7 @@ import { MobileRecordList } from '../components/MobileRecordList';
 import { VaultOnboarding } from '../components/VaultOnboarding';
 import { TitleAutofillField } from '../components/CollectionPage';
 import { searchBooks } from '../lib/openLibrary';
-import { fetchVerseText } from '../lib/bibleVerse';
+import { fetchVerseText, fetchVerseObservation } from '../lib/bibleVerse';
 
 const WIKILINK_PATTERN = /\[\[([^\]]+)\]\]/g;
 
@@ -383,12 +383,20 @@ const BOOK_LOG_COLUMNS = {
 function BookNotesLog({ rows, onChange, verseHeaders }: { rows: BookNoteRow[]; onChange: (rows: BookNoteRow[]) => void; verseHeaders?: boolean }) {
   const cols = verseHeaders ? BOOK_LOG_COLUMNS.verse : BOOK_LOG_COLUMNS.default;
   const [lookingUpId, setLookingUpId] = useState<string | null>(null);
+  const [lookingUpObservationId, setLookingUpObservationId] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  // The verse-text and observation lookups below both resolve asynchronously off the same blur
+  // event and each patch a different field on the same row — if both read `rows` from their own
+  // render-time closure, whichever's onChange lands second overwrites the first's edit with a
+  // snapshot that doesn't have it yet. Routing every write through a ref that's always current
+  // keeps concurrent patches from clobbering each other.
+  const rowsRef = useRef(rows);
+  rowsRef.current = rows;
   const addRow = () => {
-    onChange([...rows, { id: generateId(), chapter: '', page: '', takeaway: '', application: '' }]);
+    onChange([...rowsRef.current, { id: generateId(), chapter: '', page: '', takeaway: '', application: '' }]);
   };
   const updateRow = (id: string, patch: Partial<BookNoteRow>) => {
-    onChange(rows.map(r => (r.id === id ? { ...r, ...patch } : r)));
+    onChange(rowsRef.current.map(r => (r.id === id ? { ...r, ...patch } : r)));
   };
   const removeRow = (id: string) => {
     onChange(rows.filter(r => r.id !== id));
@@ -403,6 +411,20 @@ function BookNotesLog({ rows, onChange, verseHeaders }: { rows: BookNoteRow[]; o
     const text = await fetchVerseText(row.chapter);
     setLookingUpId(prev => (prev === row.id ? null : prev));
     if (text) updateRow(row.id, { page: text });
+  };
+  // Same idea as lookupVerseText, but pulls the Geneva Bible's public-domain study notes into
+  // Observation & Meaning — a starting point for reflection, not a replacement for it, so it
+  // only fires when that cell is still blank.
+  const lookupVerseObservation = async (row: BookNoteRow) => {
+    if (!verseHeaders || !row.chapter.trim() || row.takeaway.trim()) return;
+    setLookingUpObservationId(row.id);
+    const text = await fetchVerseObservation(row.chapter);
+    setLookingUpObservationId(prev => (prev === row.id ? null : prev));
+    if (text) updateRow(row.id, { takeaway: text });
+  };
+  const lookupRowDetails = (row: BookNoteRow) => {
+    void lookupVerseText(row);
+    void lookupVerseObservation(row);
   };
   return (
     <div className="sb-body-rte sb-book-log">
@@ -428,7 +450,7 @@ function BookNotesLog({ rows, onChange, verseHeaders }: { rows: BookNoteRow[]; o
                       value={row.chapter}
                       placeholder={cols.chapterPh}
                       onChange={e => updateRow(row.id, { chapter: e.target.value })}
-                      onBlur={() => void lookupVerseText(row)}
+                      onBlur={() => lookupRowDetails(row)}
                     />
                   </td>
                   <td>
@@ -439,7 +461,14 @@ function BookNotesLog({ rows, onChange, verseHeaders }: { rows: BookNoteRow[]; o
                       onChange={e => updateRow(row.id, { page: e.target.value })}
                     />
                   </td>
-                  <td><textarea className="grid-cell-input sb-book-log-textarea" value={row.takeaway} placeholder={cols.takeawayPh} onChange={e => updateRow(row.id, { takeaway: e.target.value })} /></td>
+                  <td>
+                    <textarea
+                      className="grid-cell-input sb-book-log-textarea"
+                      value={row.takeaway}
+                      placeholder={lookingUpObservationId === row.id ? 'Looking up study notes…' : cols.takeawayPh}
+                      onChange={e => updateRow(row.id, { takeaway: e.target.value })}
+                    />
+                  </td>
                   <td><textarea className="grid-cell-input sb-book-log-textarea" value={row.application} placeholder={cols.applicationPh} onChange={e => updateRow(row.id, { application: e.target.value })} /></td>
                   <td className="collection-table-actions">
                     <button type="button" className="icon-btn" onClick={() => setExpandedId(row.id)} aria-label="Expand row"><Maximize2 size={13} /></button>
@@ -478,7 +507,11 @@ function BookNotesLog({ rows, onChange, verseHeaders }: { rows: BookNoteRow[]; o
               </label>
               <label>
                 <span>{cols.takeaway}</span>
-                <textarea className="grid-cell-input sb-book-log-expand-textarea" value={row.takeaway} placeholder={cols.takeawayPh} onChange={e => updateRow(row.id, { takeaway: e.target.value })} />
+                <textarea
+                  className="grid-cell-input sb-book-log-expand-textarea" value={row.takeaway}
+                  placeholder={lookingUpObservationId === row.id ? 'Looking up study notes…' : cols.takeawayPh}
+                  onChange={e => updateRow(row.id, { takeaway: e.target.value })}
+                />
               </label>
               <label>
                 <span>{cols.application}</span>
