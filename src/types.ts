@@ -223,6 +223,23 @@ export interface BookNoteRow {
   application: string;
 }
 
+// A favorite line worth remembering verbatim — kept separate from the chapter-by-chapter log
+// since a quote is quoted, not summarized, and usually wants its own page reference.
+export interface BookQuoteRow {
+  id: string;
+  quote: string;
+  page?: string;
+}
+
+// A one-off task or habit the book prompted — `taskId` is set once "Add to Tasks" has actually
+// created the linked Task record, so the button can't double-create it on a second click.
+export interface BookActionItem {
+  id: string;
+  text: string;
+  done: boolean;
+  taskId?: string;
+}
+
 // A Project's own Kanban board — small work items scoped to that one Project. Each project can
 // define its own column set (see Note.boardColumns) rather than sharing one fixed lifecycle, so
 // `status` here holds whichever column's id the subtask currently sits in, not a fixed enum.
@@ -302,6 +319,10 @@ export interface Note extends BaseRecord {
   bookCategory?: string;
   bookCoverArt?: string;
   bookLog?: BookNoteRow[];
+  bookSummary?: string;
+  bookTakeaways?: string[];
+  bookQuotes?: BookQuoteRow[];
+  bookActionItems?: BookActionItem[];
 }
 
 // A single session's per-set weights for one exercise (e.g. a 4-set ramp: [40, 50, 60, 70]),

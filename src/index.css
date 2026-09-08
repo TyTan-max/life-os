@@ -1415,6 +1415,45 @@ input, select, textarea { font-family: inherit; }
 .sb-book-log-table .grid-cell-input { width: 100%; }
 .sb-book-log-textarea { resize: vertical; min-height: 44px; font: inherit; }
 .sb-book-log-add { align-self: flex-start; margin-top: 10px; flex-shrink: 0; }
+
+/* The Book Note body is several stacked sections, not one field — .sb-book-sections takes over
+   .sb-body-rte's old flex-fill-and-scroll role (same min-height:0 reasoning as above), with the
+   chapter-notes table as the one flex:1 child so it's the section that actually grows and
+   scrolls; the collapsible sections above it just take their natural (usually collapsed, tiny)
+   height. */
+.sb-book-sections { display: flex; flex-direction: column; flex: 1; min-height: 0; gap: 10px; }
+.sb-book-section { border: 1px solid var(--border); border-radius: 9px; background: var(--surface); flex-shrink: 0; }
+.sb-book-section-head {
+  display: flex; align-items: center; gap: 8px; width: 100%; padding: 9px 12px; border: none;
+  background: transparent; color: var(--text); font-size: 13px; font-weight: 600; cursor: pointer; text-align: left;
+}
+.sb-book-section-head svg:first-child { color: var(--accent); flex-shrink: 0; }
+.sb-book-section-count {
+  font-size: 11px; font-weight: 700; color: var(--text-faint); background: var(--surface-hover);
+  border-radius: 999px; padding: 1px 7px;
+}
+.sb-book-section-chevron { margin-left: auto; color: var(--text-faint); transition: transform 0.12s ease; }
+.sb-book-section-chevron.open { transform: rotate(180deg); }
+.sb-book-section-body { padding: 0 12px 12px; }
+.sb-book-takeaways { display: flex; flex-direction: column; gap: 6px; }
+.sb-book-takeaway-row { display: flex; align-items: center; gap: 8px; }
+.sb-book-takeaway-num {
+  flex-shrink: 0; width: 18px; height: 18px; border-radius: 50%; background: var(--accent-soft); color: var(--accent);
+  font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center;
+}
+.sb-book-takeaway-row input { flex: 1; }
+.sb-book-quotes { display: flex; flex-direction: column; gap: 8px; }
+.sb-book-quote-row { display: flex; align-items: flex-start; gap: 8px; }
+.sb-book-quote-mark { color: var(--text-faint); margin-top: 9px; flex-shrink: 0; }
+.sb-book-quote-text { flex: 1; resize: vertical; min-height: 36px; font: inherit; }
+.sb-book-quote-page { width: 70px; flex-shrink: 0; }
+.sb-book-actions { display: flex; flex-direction: column; gap: 6px; }
+.sb-book-action-row { display: flex; align-items: center; gap: 8px; }
+.sb-book-action-row input[type="text"] { flex: 1; }
+.sb-book-action-row input[type="text"].done { text-decoration: line-through; color: var(--text-faint); }
+.sb-book-log-wrap { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.sb-book-log-label { font-size: 12px; font-weight: 650; color: var(--text-muted); margin-bottom: 6px; }
+.sb-book-log-wrap .sb-book-log { flex: 1; min-height: 0; }
 /* A subtask's own notes field — a bit taller than the default modal-field size, but still capped
    since it sits inside a fixed-size modal rather than a scrolling page. */
 .sb-subtask-notes-rte .rte-body { min-height: 140px; max-height: 260px; }

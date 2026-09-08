@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react';
+import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, ReactNode } from 'react';
 import {
-  Archive, ArchiveRestore, BookMarked, Check, ChevronLeft, Clock, Code2, Command,
-  Layers, Lightbulb, Link2, Pin, PinOff, Plus, Search, StickyNote, Trash2, TrendingUp, X
+  Archive, ArchiveRestore, BookMarked, Check, ChevronDown, ChevronLeft, Clock, Code2, Command,
+  Layers, Lightbulb, Link2, ListChecks, Pin, PinOff, Plus, Quote, Search, StickyNote, Trash2, TrendingUp, X
 } from 'lucide-react';
 import { useStore, newRecord } from '../store';
-import type { BookNoteRow, BookStatus, Frequency, Goal, GoalHorizon, GoalProgressMode, GoalStatus, Note, NoteImage, ParaProjectStatus, ParaType, Priority, ProjectBoardColumn, ProjectSubtask, ResourceKind, ReviewCadence, Task, TaskStatus } from '../types';
+import type { BookActionItem, BookNoteRow, BookQuoteRow, BookStatus, Frequency, Goal, GoalHorizon, GoalProgressMode, GoalStatus, Note, NoteImage, ParaProjectStatus, ParaType, Priority, ProjectBoardColumn, ProjectSubtask, ResourceKind, ReviewCadence, Task, TaskStatus } from '../types';
 import { generateId } from '../utils/id';
 import { Badge, Card, EmptyState, Kpi, Modal, PageHeader, formatDate } from '../components/UI';
 import { SortableTh, toggleSort } from '../components/SortableTh';
@@ -404,6 +404,117 @@ function BookNotesLog({ rows, onChange }: { rows: BookNoteRow[]; onChange: (rows
         )}
       </div>
       <button type="button" className="btn ghost small sb-book-log-add" onClick={addRow}><Plus size={14} /> Add row</button>
+    </div>
+  );
+}
+
+// Collapsed by default when empty, expanded when it already has content — so a book you just
+// started (nothing but a title yet) shows one tidy stack of section headers instead of five
+// mostly-blank forms, but a section someone has actually filled in doesn't hide itself away.
+function BookCollapsible({
+  title, icon, count, children
+}: { title: string; icon: ReactNode; count: number; children: ReactNode }) {
+  const [open, setOpen] = useState(count > 0);
+  return (
+    <div className="sb-book-section">
+      <button type="button" className="sb-book-section-head" onClick={() => setOpen(o => !o)}>
+        {icon}
+        <span>{title}</span>
+        {count > 0 && <span className="sb-book-section-count">{count}</span>}
+        <ChevronDown size={14} className={`sb-book-section-chevron ${open ? 'open' : ''}`} />
+      </button>
+      {open && <div className="sb-book-section-body">{children}</div>}
+    </div>
+  );
+}
+
+// Fixed at exactly three slots (not an add/remove list) — the whole point of "top 3" is a forced
+// constraint that makes you pick the takeaways that actually matter, rather than a growing pile
+// of "things the book said."
+function BookTakeawaysField({ value, onChange }: { value: string[]; onChange: (v: string[]) => void }) {
+  const rows = [0, 1, 2].map(i => value[i] ?? '');
+  const setRow = (i: number, text: string) => {
+    const next = [...rows];
+    next[i] = text;
+    onChange(next);
+  };
+  return (
+    <div className="sb-book-takeaways">
+      {rows.map((text, i) => (
+        <div className="sb-book-takeaway-row" key={i}>
+          <span className="sb-book-takeaway-num">{i + 1}</span>
+          <input
+            type="text"
+            value={text}
+            placeholder={i === 0 ? 'What will you change or implement based on this book?' : ''}
+            onChange={e => setRow(i, e.target.value)}
+          />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function BookQuotesField({ rows, onChange }: { rows: BookQuoteRow[]; onChange: (rows: BookQuoteRow[]) => void }) {
+  const addRow = () => onChange([...rows, { id: generateId(), quote: '', page: '' }]);
+  const updateRow = (id: string, patch: Partial<BookQuoteRow>) => onChange(rows.map(r => (r.id === id ? { ...r, ...patch } : r)));
+  const removeRow = (id: string) => onChange(rows.filter(r => r.id !== id));
+  return (
+    <div className="sb-book-quotes">
+      {rows.map(row => (
+        <div className="sb-book-quote-row" key={row.id}>
+          <Quote size={13} className="sb-book-quote-mark" />
+          <textarea
+            className="sb-book-quote-text"
+            value={row.quote}
+            placeholder="A line worth remembering, word for word…"
+            onChange={e => updateRow(row.id, { quote: e.target.value })}
+          />
+          <input
+            type="text"
+            className="sb-book-quote-page"
+            value={row.page ?? ''}
+            placeholder="p. 42"
+            onChange={e => updateRow(row.id, { page: e.target.value })}
+          />
+          <button type="button" className="icon-btn danger" onClick={() => removeRow(row.id)} aria-label="Remove quote"><Trash2 size={13} /></button>
+        </div>
+      ))}
+      <button type="button" className="btn ghost small" onClick={addRow}><Plus size={14} /> Add quote</button>
+    </div>
+  );
+}
+
+// "Add to Tasks" creates a real Task record (not just a checkbox) — the whole point of this
+// section is turning a book's ideas into the same tracker everything else in Life OS runs
+// through. `taskId` marks it done so a second click can't create a duplicate.
+function BookActionItemsField({
+  items, onChange, onCreateTask
+}: { items: BookActionItem[]; onChange: (items: BookActionItem[]) => void; onCreateTask: (item: BookActionItem) => void }) {
+  const addRow = () => onChange([...items, { id: generateId(), text: '', done: false }]);
+  const updateRow = (id: string, patch: Partial<BookActionItem>) => onChange(items.map(i => (i.id === id ? { ...i, ...patch } : i)));
+  const removeRow = (id: string) => onChange(items.filter(i => i.id !== id));
+  return (
+    <div className="sb-book-actions">
+      {items.map(item => (
+        <div className="sb-book-action-row" key={item.id}>
+          <input type="checkbox" checked={item.done} onChange={e => updateRow(item.id, { done: e.target.checked })} />
+          <input
+            type="text"
+            className={item.done ? 'done' : ''}
+            value={item.text}
+            placeholder="A one-off task or habit this book prompted…"
+            onChange={e => updateRow(item.id, { text: e.target.value })}
+          />
+          {item.taskId ? (
+            <span className="sb-due-chip">Added to Tasks</span>
+          ) : (
+            <button type="button" className="btn ghost small" disabled={!item.text.trim()} onClick={() => onCreateTask(item)}>Add to Tasks</button>
+          )}
+          <button type="button" className="icon-btn danger" onClick={() => removeRow(item.id)} aria-label="Remove item"><Trash2 size={13} /></button>
+        </div>
+      ))}
+      <button type="button" className="btn ghost small" onClick={addRow}><Plus size={14} /> Add action item</button>
     </div>
   );
 }
@@ -865,6 +976,22 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
     if (patch.title !== undefined && oldTitle.trim()) {
       void cascadeRename(oldTitle, patch.title, notes, note.id, upsert);
     }
+  };
+
+  // Creates a real Task from a book's action item — the whole point of this section is turning
+  // a book's ideas into the same tracker everything else in Life OS runs through, not just
+  // another checkbox that lives only inside the note.
+  const addBookActionToTasks = async (item: BookActionItem) => {
+    if (!note || item.taskId || !item.text.trim()) return;
+    const task = newRecord<Task>({
+      title: item.text.trim(),
+      status: 'Not Started',
+      priority: 'Medium',
+      dueDate: new Date().toISOString().slice(0, 10),
+      notes: `From book note: ${note.title || 'Untitled'}`
+    });
+    await upsert('tasks', task);
+    patchNote({ bookActionItems: (note.bookActionItems ?? []).map(i => (i.id === item.id ? { ...i, taskId: task.id } : i)) });
   };
 
   const changeNoteType = (nextType: ParaType | undefined) => {
@@ -2017,6 +2144,10 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                         <span>Main topic / category</span>
                         <input type="text" value={note.bookCategory ?? ''} placeholder="Productivity, Psychology, Finance…" onChange={e => patchNote({ bookCategory: e.target.value })} />
                       </label>
+                      <label className="wide">
+                        <span>One-sentence summary</span>
+                        <input type="text" value={note.bookSummary ?? ''} placeholder="Force yourself to explain the core premise in a single sentence." onChange={e => patchNote({ bookSummary: e.target.value })} />
+                      </label>
                     </>
                   ) : (
                     <label className="wide">
@@ -2035,7 +2166,25 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                   onChange={e => patchNote({ body: e.target.value })}
                 />
               ) : note.resourceKind === 'Book Note' ? (
-                <BookNotesLog rows={note.bookLog ?? []} onChange={bookLog => patchNote({ bookLog })} />
+                <div className="sb-book-sections">
+                  <BookCollapsible title="Top 3 takeaways" icon={<ListChecks size={14} />} count={(note.bookTakeaways ?? []).filter(t => t.trim()).length}>
+                    <BookTakeawaysField value={note.bookTakeaways ?? []} onChange={bookTakeaways => patchNote({ bookTakeaways })} />
+                  </BookCollapsible>
+                  <BookCollapsible title="Golden quotes" icon={<Quote size={14} />} count={(note.bookQuotes ?? []).length}>
+                    <BookQuotesField rows={note.bookQuotes ?? []} onChange={bookQuotes => patchNote({ bookQuotes })} />
+                  </BookCollapsible>
+                  <BookCollapsible title="Future action items" icon={<Check size={14} />} count={(note.bookActionItems ?? []).length}>
+                    <BookActionItemsField
+                      items={note.bookActionItems ?? []}
+                      onChange={bookActionItems => patchNote({ bookActionItems })}
+                      onCreateTask={item => void addBookActionToTasks(item)}
+                    />
+                  </BookCollapsible>
+                  <div className="sb-book-log-wrap">
+                    <span className="sb-book-log-label">Raw chapter notes</span>
+                    <BookNotesLog rows={note.bookLog ?? []} onChange={bookLog => patchNote({ bookLog })} />
+                  </div>
+                </div>
               ) : (
                 <RichTextEditor
                   ref={bodyEditorRef}
