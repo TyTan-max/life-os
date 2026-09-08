@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, ReactNode } from 'react';
 import {
   Archive, ArchiveRestore, BookMarked, Check, ChevronDown, ChevronLeft, Clock, Code2, Command,
-  Landmark, Layers, Lightbulb, Link2, ListChecks, Pin, PinOff, Plus, Quote, Search, StickyNote, Tag, Trash2, TrendingUp, X
+  Layers, Lightbulb, Link2, ListChecks, Pin, PinOff, Plus, Quote, Search, StickyNote, Trash2, TrendingUp, X
 } from 'lucide-react';
 import { useStore, newRecord } from '../store';
 import type { BookActionItem, BookNoteRow, BookQuoteRow, BookStatus, Frequency, Goal, GoalHorizon, GoalProgressMode, GoalStatus, Note, NoteImage, ParaProjectStatus, ParaType, Priority, ProjectBoardColumn, ProjectSubtask, ResourceKind, ReviewCadence, Task, TaskStatus } from '../types';
@@ -34,10 +34,6 @@ function projectColumns(note: Note): ProjectBoardColumn[] {
 const REVIEW_CADENCES: ReviewCadence[] = ['Weekly', 'Monthly', 'Quarterly'];
 const RESOURCE_KINDS: ResourceKind[] = ['Idea', 'Snippet', 'Reference'];
 const BOOK_STATUSES: BookStatus[] = ['Reading', 'Completed', 'Wishlist'];
-const BOOK_TESTAMENTS: NonNullable<Note['bookTestament']>[] = ['Old Testament', 'New Testament'];
-// Scripture-mode's Genre — a fixed, small set of biblical genres rather than the freeform text
-// Genre field uses elsewhere, since a study note usually wants to filter/search by exactly these.
-const BIBLE_GENRES = ['Gospels', 'History', 'Prophets', 'Wisdom/Poetry', 'Epistles'];
 // A distinct icon per Kind so the Resources hub reads at a glance instead of three identical
 // bookmark icons — Idea gets the obvious lightbulb, Snippet a sticky-note (it's a plain quick
 // note now, not code — Code Vault owns the code-editor treatment), Reference keeps the bookmark
@@ -365,22 +361,7 @@ function SubtaskProgressBar({ progress, size }: { progress: { done: number; tota
 // point of a book note is chapter-by-chapter takeaways rather than one long essay. Each row edits
 // in place directly against the parent's `rows` prop (no local draft state) since nothing here
 // needs debouncing the way title/tags text fields do.
-// Column labels/placeholders swap for scripture mode (verse-shaped: Book & Chapter/Verse, Text/
-// Passage, Observation & Meaning, Application/My Thoughts) — same four BookNoteRow fields
-// (chapter/page/takeaway/application) underneath either way, just read differently.
-const BOOK_LOG_COLUMNS = {
-  default: {
-    chapter: 'Chapter / Section', page: 'Page #', takeaway: 'What I learned / key takeaway', application: 'My thoughts / personal application',
-    chapterPh: 'Chapter 1', pagePh: 'p. 14', takeawayPh: 'Small 1% improvements compound over time.', applicationPh: 'I can apply this to my morning routine…'
-  },
-  scripture: {
-    chapter: 'Book & Chapter / Verse', page: 'Text / Passage', takeaway: 'Observation & Meaning', application: 'Application / My Thoughts',
-    chapterPh: 'e.g., Romans 12:2', pagePh: '"Do not conform…"', takeawayPh: 'True transformation happens by changing the way we think.', applicationPh: 'What am I conforming to that I shouldn’t be?'
-  }
-};
-
-function BookNotesLog({ rows, onChange, scripture }: { rows: BookNoteRow[]; onChange: (rows: BookNoteRow[]) => void; scripture?: boolean }) {
-  const cols = scripture ? BOOK_LOG_COLUMNS.scripture : BOOK_LOG_COLUMNS.default;
+function BookNotesLog({ rows, onChange }: { rows: BookNoteRow[]; onChange: (rows: BookNoteRow[]) => void }) {
   const addRow = () => {
     onChange([...rows, { id: generateId(), chapter: '', page: '', takeaway: '', application: '' }]);
   };
@@ -397,20 +378,20 @@ function BookNotesLog({ rows, onChange, scripture }: { rows: BookNoteRow[]; onCh
           <table className="grid-table sb-book-log-table">
             <thead>
               <tr>
-                <th>{cols.chapter}</th>
-                <th>{cols.page}</th>
-                <th>{cols.takeaway}</th>
-                <th>{cols.application}</th>
+                <th>Chapter / Section</th>
+                <th>Page #</th>
+                <th>What I learned / key takeaway</th>
+                <th>My thoughts / personal application</th>
                 <th />
               </tr>
             </thead>
             <tbody>
               {rows.map(row => (
                 <tr key={row.id}>
-                  <td><input type="text" className="grid-cell-input" value={row.chapter} placeholder={cols.chapterPh} onChange={e => updateRow(row.id, { chapter: e.target.value })} /></td>
-                  <td><input type="text" className="grid-cell-input" value={row.page ?? ''} placeholder={cols.pagePh} onChange={e => updateRow(row.id, { page: e.target.value })} /></td>
-                  <td><textarea className="grid-cell-input sb-book-log-textarea" value={row.takeaway} placeholder={cols.takeawayPh} onChange={e => updateRow(row.id, { takeaway: e.target.value })} /></td>
-                  <td><textarea className="grid-cell-input sb-book-log-textarea" value={row.application} placeholder={cols.applicationPh} onChange={e => updateRow(row.id, { application: e.target.value })} /></td>
+                  <td><input type="text" className="grid-cell-input" value={row.chapter} placeholder="Chapter 1" onChange={e => updateRow(row.id, { chapter: e.target.value })} /></td>
+                  <td><input type="text" className="grid-cell-input" value={row.page ?? ''} placeholder="p. 14" onChange={e => updateRow(row.id, { page: e.target.value })} /></td>
+                  <td><textarea className="grid-cell-input sb-book-log-textarea" value={row.takeaway} placeholder="Small 1% improvements compound over time." onChange={e => updateRow(row.id, { takeaway: e.target.value })} /></td>
+                  <td><textarea className="grid-cell-input sb-book-log-textarea" value={row.application} placeholder="I can apply this to my morning routine…" onChange={e => updateRow(row.id, { application: e.target.value })} /></td>
                   <td className="collection-table-actions">
                     <button type="button" className="icon-btn danger" onClick={() => removeRow(row.id)} aria-label="Remove row"><Trash2 size={13} /></button>
                   </td>
@@ -534,41 +515,6 @@ function BookActionItemsField({
         </div>
       ))}
       <button type="button" className="btn ghost small" onClick={addRow}><Plus size={14} /> Add action item</button>
-    </div>
-  );
-}
-
-// A free-growing list of single lines — used for scripture mode's Cross-References (links to
-// other verses) and Historical & Cultural Context (bullet points), which are just "drop a line,
-// add another" the way Golden Quotes' quote text is, minus the extra page field.
-function BookSimpleListField({
-  values, onChange, placeholder, addLabel
-}: { values: string[]; onChange: (v: string[]) => void; placeholder: string; addLabel: string }) {
-  const addRow = () => onChange([...values, '']);
-  const updateRow = (i: number, text: string) => onChange(values.map((v, idx) => (idx === i ? text : v)));
-  const removeRow = (i: number) => onChange(values.filter((_, idx) => idx !== i));
-  return (
-    <div className="sb-book-simple-list">
-      {values.map((v, i) => (
-        <div className="sb-book-simple-row" key={i}>
-          <input type="text" value={v} placeholder={placeholder} onChange={e => updateRow(i, e.target.value)} />
-          <button type="button" className="icon-btn danger" onClick={() => removeRow(i)} aria-label="Remove"><Trash2 size={13} /></button>
-        </div>
-      ))}
-      <button type="button" className="btn ghost small" onClick={addRow}><Plus size={14} /> {addLabel}</button>
-    </div>
-  );
-}
-
-// A fixed set of toggle chips rather than freeform tags — scripture mode's Genre is meant to be
-// exactly these five biblical categories (filterable/searchable later), not open-ended text.
-function BookGenreChips({ value, onChange }: { value: string[]; onChange: (v: string[]) => void }) {
-  const toggle = (genre: string) => onChange(value.includes(genre) ? value.filter(g => g !== genre) : [...value, genre]);
-  return (
-    <div className="sb-book-genre-chips">
-      {BIBLE_GENRES.map(g => (
-        <button key={g} type="button" className={`sb-tag-chip ${value.includes(g) ? 'on' : ''}`} onClick={() => toggle(g)}>{g}</button>
-      ))}
     </div>
   );
 }
@@ -2203,113 +2149,45 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                   <BookCollapsible
                     title="Book details"
                     icon={<BookMarked size={14} />}
-                    count={
-                      note.bookScripture
-                        ? [note.bookTestament, note.bookCurrentPlan].filter(v => v?.trim()).length + (note.bookGenreTags ?? []).length
-                        : [note.bookAuthor, note.bookCategory, note.bookSummary].filter(v => v?.trim()).length
-                    }
+                    count={[note.bookAuthor, note.bookCategory, note.bookSummary].filter(v => v?.trim()).length}
                   >
                     <div className="sb-para-fields sb-book-details-fields">
-                      {note.bookScripture ? (
-                        <>
-                          <label>
-                            <span>Testament</span>
-                            <select value={note.bookTestament ?? ''} onChange={e => patchNote({ bookTestament: (e.target.value || undefined) as Note['bookTestament'] })}>
-                              <option value="">Select…</option>
-                              {BOOK_TESTAMENTS.map(t => <option key={t} value={t}>{t}</option>)}
-                            </select>
-                          </label>
-                          <label>
-                            <span>Status</span>
-                            <select value={note.bookStatus ?? 'Reading'} onChange={e => patchNote({ bookStatus: e.target.value as BookStatus })}>
-                              {BOOK_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
-                            </select>
-                          </label>
-                          <label className="wide">
-                            <span>Genre</span>
-                            <BookGenreChips value={note.bookGenreTags ?? []} onChange={bookGenreTags => patchNote({ bookGenreTags })} />
-                          </label>
-                          <label className="wide">
-                            <span>Current book / plan</span>
-                            <input type="text" value={note.bookCurrentPlan ?? ''} placeholder="Genesis, or “NT Reading Plan”…" onChange={e => patchNote({ bookCurrentPlan: e.target.value })} />
-                          </label>
-                        </>
-                      ) : (
-                        <>
-                          <label>
-                            <span>Author</span>
-                            <input type="text" value={note.bookAuthor ?? ''} placeholder="James Clear" onChange={e => patchNote({ bookAuthor: e.target.value })} />
-                          </label>
-                          <label>
-                            <span>Status</span>
-                            <select value={note.bookStatus ?? 'Reading'} onChange={e => patchNote({ bookStatus: e.target.value as BookStatus })}>
-                              {BOOK_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
-                            </select>
-                          </label>
-                          <label className="wide">
-                            <span>Main topic / category</span>
-                            <input type="text" value={note.bookCategory ?? ''} placeholder="Productivity, Psychology, Finance…" onChange={e => patchNote({ bookCategory: e.target.value })} />
-                          </label>
-                          <label className="wide">
-                            <span>One-sentence summary</span>
-                            <input type="text" value={note.bookSummary ?? ''} placeholder="Force yourself to explain the core premise in a single sentence." onChange={e => patchNote({ bookSummary: e.target.value })} />
-                          </label>
-                        </>
-                      )}
-                      <label className="inline wide">
-                        <input type="checkbox" checked={Boolean(note.bookScripture)} onChange={e => patchNote({ bookScripture: e.target.checked })} />
-                        <span>Scripture / study layout</span>
+                      <label>
+                        <span>Author</span>
+                        <input type="text" value={note.bookAuthor ?? ''} placeholder="James Clear" onChange={e => patchNote({ bookAuthor: e.target.value })} />
+                      </label>
+                      <label>
+                        <span>Status</span>
+                        <select value={note.bookStatus ?? 'Reading'} onChange={e => patchNote({ bookStatus: e.target.value as BookStatus })}>
+                          {BOOK_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+                        </select>
+                      </label>
+                      <label className="wide">
+                        <span>Main topic / category</span>
+                        <input type="text" value={note.bookCategory ?? ''} placeholder="Productivity, Psychology, Finance…" onChange={e => patchNote({ bookCategory: e.target.value })} />
+                      </label>
+                      <label className="wide">
+                        <span>One-sentence summary</span>
+                        <input type="text" value={note.bookSummary ?? ''} placeholder="Force yourself to explain the core premise in a single sentence." onChange={e => patchNote({ bookSummary: e.target.value })} />
                       </label>
                     </div>
                   </BookCollapsible>
-                  {note.bookScripture ? (
-                    <>
-                      <BookCollapsible title="Cross-references" icon={<Link2 size={14} />} count={(note.bookCrossRefs ?? []).filter(v => v.trim()).length}>
-                        <BookSimpleListField
-                          values={note.bookCrossRefs ?? []}
-                          onChange={bookCrossRefs => patchNote({ bookCrossRefs })}
-                          placeholder="e.g., links to another verse on the same theme or prophecy…"
-                          addLabel="Add cross-reference"
-                        />
-                      </BookCollapsible>
-                      <BookCollapsible title="Historical & cultural context" icon={<Landmark size={14} />} count={(note.bookContextNotes ?? []).filter(v => v.trim()).length}>
-                        <BookSimpleListField
-                          values={note.bookContextNotes ?? []}
-                          onChange={bookContextNotes => patchNote({ bookContextNotes })}
-                          placeholder="Who's speaking, who to, and the historical background…"
-                          addLabel="Add context note"
-                        />
-                      </BookCollapsible>
-                      <BookCollapsible title="Topical tags" icon={<Tag size={14} />} count={note.bookTopicalTags?.trim() ? 1 : 0}>
-                        <input
-                          type="text"
-                          className="sb-book-topical-tags"
-                          value={note.bookTopicalTags ?? ''}
-                          placeholder="#Grace, #Faith, #Patience, #Prayer…"
-                          onChange={e => patchNote({ bookTopicalTags: e.target.value })}
-                        />
-                      </BookCollapsible>
-                    </>
-                  ) : (
-                    <>
-                      <BookCollapsible title="Top 3 takeaways" icon={<ListChecks size={14} />} count={(note.bookTakeaways ?? []).filter(t => t.trim()).length}>
-                        <BookTakeawaysField value={note.bookTakeaways ?? []} onChange={bookTakeaways => patchNote({ bookTakeaways })} />
-                      </BookCollapsible>
-                      <BookCollapsible title="Golden quotes" icon={<Quote size={14} />} count={(note.bookQuotes ?? []).length}>
-                        <BookQuotesField rows={note.bookQuotes ?? []} onChange={bookQuotes => patchNote({ bookQuotes })} />
-                      </BookCollapsible>
-                      <BookCollapsible title="Future action items" icon={<Check size={14} />} count={(note.bookActionItems ?? []).length}>
-                        <BookActionItemsField
-                          items={note.bookActionItems ?? []}
-                          onChange={bookActionItems => patchNote({ bookActionItems })}
-                          onCreateTask={item => void addBookActionToTasks(item)}
-                        />
-                      </BookCollapsible>
-                    </>
-                  )}
+                  <BookCollapsible title="Top 3 takeaways" icon={<ListChecks size={14} />} count={(note.bookTakeaways ?? []).filter(t => t.trim()).length}>
+                    <BookTakeawaysField value={note.bookTakeaways ?? []} onChange={bookTakeaways => patchNote({ bookTakeaways })} />
+                  </BookCollapsible>
+                  <BookCollapsible title="Golden quotes" icon={<Quote size={14} />} count={(note.bookQuotes ?? []).length}>
+                    <BookQuotesField rows={note.bookQuotes ?? []} onChange={bookQuotes => patchNote({ bookQuotes })} />
+                  </BookCollapsible>
+                  <BookCollapsible title="Future action items" icon={<Check size={14} />} count={(note.bookActionItems ?? []).length}>
+                    <BookActionItemsField
+                      items={note.bookActionItems ?? []}
+                      onChange={bookActionItems => patchNote({ bookActionItems })}
+                      onCreateTask={item => void addBookActionToTasks(item)}
+                    />
+                  </BookCollapsible>
                   <div className="sb-book-log-wrap">
                     <span className="sb-book-log-label">Raw chapter notes</span>
-                    <BookNotesLog rows={note.bookLog ?? []} onChange={bookLog => patchNote({ bookLog })} scripture={note.bookScripture} />
+                    <BookNotesLog rows={note.bookLog ?? []} onChange={bookLog => patchNote({ bookLog })} />
                   </div>
                 </div>
               ) : (
