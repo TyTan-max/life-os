@@ -1413,8 +1413,18 @@ input, select, textarea { font-family: inherit; }
 .sb-book-log-scroll { flex: 1; min-height: 0; overflow-y: auto; border: 1px solid var(--border); border-radius: 9px; }
 .sb-book-log-table th, .sb-book-log-table td { vertical-align: top; }
 .sb-book-log-table .grid-cell-input { width: 100%; }
-.sb-book-log-textarea { resize: vertical; min-height: 44px; font: inherit; }
+.sb-book-log-textarea { resize: none; min-height: 44px; font: inherit; overflow-y: auto; }
+/* Chromium (the app's webview) draws a scrollbar with up/down arrow buttons by default on
+   Windows; the thumb-only bar below is the intended look everywhere else in the app. */
+.sb-book-log-textarea::-webkit-scrollbar { width: 8px; }
+.sb-book-log-textarea::-webkit-scrollbar-button { display: none; width: 0; height: 0; }
+.sb-book-log-textarea::-webkit-scrollbar-track { background: transparent; }
+.sb-book-log-textarea::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
 .sb-book-log-add { align-self: flex-start; margin-top: 10px; flex-shrink: 0; }
+.sb-book-log-expand { display: flex; flex-direction: column; gap: 14px; }
+.sb-book-log-expand label { display: flex; flex-direction: column; gap: 6px; }
+.sb-book-log-expand label span { font-size: 12px; font-weight: 650; color: var(--text-muted); }
+.sb-book-log-expand-textarea { min-height: 120px; resize: vertical; font: inherit; }
 
 /* The Book Note body is several stacked sections, not one field — .sb-book-sections takes over
    .sb-body-rte's old flex-fill-and-scroll role (same min-height:0 reasoning as above), with the

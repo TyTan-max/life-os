@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, ReactNode } from 'react';
 import {
   Archive, ArchiveRestore, BookMarked, Check, ChevronDown, ChevronLeft, Clock, Code2, Command,
-  Layers, Lightbulb, Link2, ListChecks, Lock, LockOpen, Pin, PinOff, Plus, Quote, Search, StickyNote, Trash2, TrendingUp, X
+  Layers, Lightbulb, Link2, ListChecks, Lock, LockOpen, Maximize2, Pin, PinOff, Plus, Quote, Search, StickyNote, Trash2, TrendingUp, X
 } from 'lucide-react';
 import { useStore, newRecord } from '../store';
 import type { BookActionItem, BookNoteRow, BookQuoteRow, BookStatus, Frequency, Goal, GoalHorizon, GoalProgressMode, GoalStatus, Note, NoteImage, ParaProjectStatus, ParaType, Priority, ProjectBoardColumn, ProjectSubtask, ResourceKind, ReviewCadence, Task, TaskStatus } from '../types';
@@ -383,6 +383,7 @@ const BOOK_LOG_COLUMNS = {
 function BookNotesLog({ rows, onChange, verseHeaders }: { rows: BookNoteRow[]; onChange: (rows: BookNoteRow[]) => void; verseHeaders?: boolean }) {
   const cols = verseHeaders ? BOOK_LOG_COLUMNS.verse : BOOK_LOG_COLUMNS.default;
   const [lookingUpId, setLookingUpId] = useState<string | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
   const addRow = () => {
     onChange([...rows, { id: generateId(), chapter: '', page: '', takeaway: '', application: '' }]);
   };
@@ -442,6 +443,7 @@ function BookNotesLog({ rows, onChange, verseHeaders }: { rows: BookNoteRow[]; o
                   <td><textarea className="grid-cell-input sb-book-log-textarea" value={row.takeaway} placeholder={cols.takeawayPh} onChange={e => updateRow(row.id, { takeaway: e.target.value })} /></td>
                   <td><textarea className="grid-cell-input sb-book-log-textarea" value={row.application} placeholder={cols.applicationPh} onChange={e => updateRow(row.id, { application: e.target.value })} /></td>
                   <td className="collection-table-actions">
+                    <button type="button" className="icon-btn" onClick={() => setExpandedId(row.id)} aria-label="Expand row"><Maximize2 size={13} /></button>
                     <button type="button" className="icon-btn danger" onClick={() => removeRow(row.id)} aria-label="Remove row"><Trash2 size={13} /></button>
                   </td>
                 </tr>
@@ -453,6 +455,40 @@ function BookNotesLog({ rows, onChange, verseHeaders }: { rows: BookNoteRow[]; o
         )}
       </div>
       <button type="button" className="btn ghost small sb-book-log-add" onClick={addRow}><Plus size={14} /> Add row</button>
+      {expandedId && (() => {
+        const row = rows.find(r => r.id === expandedId);
+        if (!row) return null;
+        return (
+          <Modal eyebrow="Chapter note" title={row.chapter || cols.chapterPh} onClose={() => setExpandedId(null)} size="wide">
+            <div className="sb-book-log-expand">
+              <label>
+                <span>{cols.chapter}</span>
+                <input
+                  type="text" className="grid-cell-input" value={row.chapter} placeholder={cols.chapterPh}
+                  onChange={e => updateRow(row.id, { chapter: e.target.value })}
+                  onBlur={() => void lookupVerseText(row)}
+                />
+              </label>
+              <label>
+                <span>{cols.page}</span>
+                <textarea
+                  className="grid-cell-input sb-book-log-expand-textarea" value={row.page ?? ''}
+                  placeholder={lookingUpId === row.id ? 'Looking up the passage…' : cols.pagePh}
+                  onChange={e => updateRow(row.id, { page: e.target.value })}
+                />
+              </label>
+              <label>
+                <span>{cols.takeaway}</span>
+                <textarea className="grid-cell-input sb-book-log-expand-textarea" value={row.takeaway} placeholder={cols.takeawayPh} onChange={e => updateRow(row.id, { takeaway: e.target.value })} />
+              </label>
+              <label>
+                <span>{cols.application}</span>
+                <textarea className="grid-cell-input sb-book-log-expand-textarea" value={row.application} placeholder={cols.applicationPh} onChange={e => updateRow(row.id, { application: e.target.value })} />
+              </label>
+            </div>
+          </Modal>
+        );
+      })()}
     </div>
   );
 }
