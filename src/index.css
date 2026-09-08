@@ -1451,6 +1451,11 @@ input, select, textarea { font-family: inherit; }
 .sb-book-action-row { display: flex; align-items: center; gap: 8px; }
 .sb-book-action-row input[type="text"] { flex: 1; }
 .sb-book-action-row input[type="text"].done { text-decoration: line-through; color: var(--text-faint); }
+.sb-book-genre-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.sb-book-simple-list { display: flex; flex-direction: column; gap: 6px; }
+.sb-book-simple-row { display: flex; align-items: center; gap: 8px; }
+.sb-book-simple-row input { flex: 1; }
+.sb-book-topical-tags { width: 100%; }
 .sb-book-log-wrap { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 /* Reuses .sb-para-fields' grid layout for the Author/Status/Category/Summary fields, but strips
    its standalone box chrome (background/border/margin) since it now lives inside a
@@ -3811,6 +3816,8 @@ input, select, textarea { font-family: inherit; }
 }
 .sb-para-fields label { display: flex; flex-direction: column; gap: 5px; font-size: 11.5px; color: var(--text-faint); font-weight: 600; }
 .sb-para-fields label.wide { grid-column: 1 / -1; }
+.sb-para-fields label.inline { flex-direction: row; align-items: center; gap: 7px; }
+.sb-para-fields label.inline input[type="checkbox"] { flex-shrink: 0; }
 .sb-para-fields select,
 .sb-para-fields input {
   border: 1px solid var(--border);

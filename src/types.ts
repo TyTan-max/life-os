@@ -323,6 +323,19 @@ export interface Note extends BaseRecord {
   bookTakeaways?: string[];
   bookQuotes?: BookQuoteRow[];
   bookActionItems?: BookActionItem[];
+
+  // Swaps the Book Note editor into a scripture/study layout — Testament/Genre/Current-plan in
+  // place of Author/Category/Summary, Cross-References/Historical Context/Topical Tags in place
+  // of Takeaways/Quotes/Action items, and verse-shaped column headers on the same bookLog table.
+  // A per-note toggle rather than a distinct resourceKind since everything else about a Book
+  // Note (search autofill, cover art, status, archiving) still applies unchanged.
+  bookScripture?: boolean;
+  bookTestament?: 'Old Testament' | 'New Testament';
+  bookGenreTags?: string[];
+  bookCurrentPlan?: string;
+  bookCrossRefs?: string[];
+  bookContextNotes?: string[];
+  bookTopicalTags?: string;
 }
 
 // A single session's per-set weights for one exercise (e.g. a 4-set ramp: [40, 50, 60, 70]),
