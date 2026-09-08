@@ -631,6 +631,12 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
   const [editingGoalId, setEditingGoalId] = useState<string | null>(null);
   const [goalForm, setGoalForm] = useState<Partial<Goal>>(blankGoal());
   const [confirmDeleteNote, setConfirmDeleteNote] = useState<{ id: string; message: string } | null>(null);
+  // A Book Note with no cover shows an empty placeholder slot in the sidebar — clicking it opens
+  // this instead of a native prompt(), matching how the rest of the app avoids those. `id` names
+  // which note's cover is being set so Save can look it up fresh rather than trusting a snapshot
+  // captured when the popover opened.
+  const [coverArtPromptId, setCoverArtPromptId] = useState<string | null>(null);
+  const [coverArtDraft, setCoverArtDraft] = useState('');
   const [confirmDeleteColumn, setConfirmDeleteColumn] = useState<{ id: string; message: string } | null>(null);
   // Knowledge Hub drill-down: set when a card is clicked, scopes the sidebar list
   // to just that Area's Projects or that Resource kind, until "Back" is clicked.
@@ -1581,9 +1587,21 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                   >
                     <div className="sb-list-item-row">
                       {n.resourceKind === 'Book Note' && (
-                        <div className="sb-list-item-cover">
-                          {n.bookCoverArt ? <img src={n.bookCoverArt} alt="" /> : <BookMarked size={16} />}
-                        </div>
+                        n.bookCoverArt ? (
+                          <div className="sb-list-item-cover">
+                            <img src={n.bookCoverArt} alt="" />
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            className="sb-list-item-cover sb-list-item-cover-add"
+                            onClick={e => { e.stopPropagation(); setCoverArtDraft(''); setCoverArtPromptId(n.id); }}
+                            title="Add cover art"
+                            aria-label="Add cover art"
+                          >
+                            <BookMarked size={16} />
+                          </button>
+                        )
                       )}
                       <div className="sb-list-item-body">
                         <div className="sb-list-item-head">
@@ -2449,6 +2467,45 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
           </>}
         >
           <p>{confirmDeleteNote.message}</p>
+        </Modal>
+      )}
+      {coverArtPromptId && (
+        <Modal
+          eyebrow="Life OS"
+          title="Add cover art"
+          onClose={() => setCoverArtPromptId(null)}
+          footer={<>
+            <button type="button" className="btn ghost" onClick={() => setCoverArtPromptId(null)}>Cancel</button>
+            <button
+              type="button"
+              className="btn teal"
+              disabled={!coverArtDraft.trim()}
+              onClick={() => {
+                const target = notes.find(n => n.id === coverArtPromptId);
+                if (target) void upsert('notes', { ...target, bookCoverArt: coverArtDraft.trim() });
+                setCoverArtPromptId(null);
+              }}
+            >
+              Save
+            </button>
+          </>}
+        >
+          <label>
+            <span>Cover / poster art URL</span>
+            <input
+              type="text"
+              autoFocus
+              value={coverArtDraft}
+              placeholder="https://…"
+              onChange={e => setCoverArtDraft(e.target.value)}
+              onKeyDown={e => {
+                if (e.key !== 'Enter' || !coverArtDraft.trim()) return;
+                const target = notes.find(n => n.id === coverArtPromptId);
+                if (target) void upsert('notes', { ...target, bookCoverArt: coverArtDraft.trim() });
+                setCoverArtPromptId(null);
+              }}
+            />
+          </label>
         </Modal>
       )}
       {confirmDeleteColumn && (
