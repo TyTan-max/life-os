@@ -2,7 +2,9 @@
 // auto-fill a chapter table's "Text / Passage" column from what's typed into "Chapter / Verse"
 // when a Book Note is in verse-labeled mode (see SecondBrain.tsx's BookNotesLog).
 export async function fetchVerseText(reference: string): Promise<string | undefined> {
-  const trimmed = reference.trim();
+  // The API only knows books by their bare name ("Matthew", "John") — a traditional "St."/"Saint"
+  // prefix (St. Matthew, Saint John) it doesn't recognize, and would otherwise 404 on.
+  const trimmed = reference.trim().replace(/^(st\.?|saint)\s+/i, '');
   if (!trimmed) return undefined;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 8000);
