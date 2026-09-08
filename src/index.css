@@ -1397,10 +1397,15 @@ input, select, textarea { font-family: inherit; }
 .rte-compact .rte-body { min-height: 34px; max-height: 160px; padding: 7px 10px; }
 .rte-compact .rte-placeholder { top: 7px; left: 10px; }
 /* A Project/Area/Resource's main body — grows to fill the remaining page height instead of the
-   default's fixed ~340px cap, matching how the old plain textarea used to fill this same spot. */
-.sb-body-rte { display: flex; flex-direction: column; flex: 1; min-height: 200px; }
-.sb-body-rte .rte-body-wrap { flex: 1; display: flex; }
-.sb-body-rte .rte-body { flex: 1; max-height: none; }
+   default's fixed ~340px cap, matching how the old plain textarea used to fill this same spot.
+   Every level here needs min-height:0 — a flex item's default min-height:auto refuses to shrink
+   below its content's intrinsic size, so without it a long paste just grows this box (and every
+   ancestor up to .sb-shell, which clips instead of scrolling) rather than scrolling internally
+   via .rte-body's own overflow-y:auto. flex:1 already fills the available height for short
+   content, so min-height:0 doesn't make an empty note look any smaller. */
+.sb-body-rte { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.sb-body-rte .rte-body-wrap { flex: 1; display: flex; min-height: 0; }
+.sb-body-rte .rte-body { flex: 1; max-height: none; min-height: 0; }
 /* A subtask's own notes field — a bit taller than the default modal-field size, but still capped
    since it sits inside a fixed-size modal rather than a scrolling page. */
 .sb-subtask-notes-rte .rte-body { min-height: 140px; max-height: 260px; }
