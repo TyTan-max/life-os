@@ -2144,32 +2144,41 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                 />
               ) : note.resourceKind === 'Book Note' ? (
                 <div className="sb-book-sections">
-                  <BookCollapsible
-                    title="Book details"
-                    icon={<BookMarked size={14} />}
-                    count={[note.bookAuthor, note.bookCategory, note.bookSummary].filter(v => v?.trim()).length}
-                  >
-                    <div className="sb-para-fields sb-book-details-fields">
-                      <label>
-                        <span>Author</span>
-                        <input type="text" value={note.bookAuthor ?? ''} placeholder="James Clear" onChange={e => patchNote({ bookAuthor: e.target.value })} />
-                      </label>
-                      <label>
-                        <span>Status</span>
-                        <select value={note.bookStatus ?? 'Reading'} onChange={e => patchNote({ bookStatus: e.target.value as BookStatus })}>
-                          {BOOK_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
-                        </select>
-                      </label>
-                      <label className="wide">
-                        <span>Main topic / category</span>
-                        <input type="text" value={note.bookCategory ?? ''} placeholder="Productivity, Psychology, Finance…" onChange={e => patchNote({ bookCategory: e.target.value })} />
-                      </label>
-                      <label className="wide">
-                        <span>One-sentence summary</span>
-                        <input type="text" value={note.bookSummary ?? ''} placeholder="Force yourself to explain the core premise in a single sentence." onChange={e => patchNote({ bookSummary: e.target.value })} />
-                      </label>
-                    </div>
-                  </BookCollapsible>
+                  {note.bookDetailsHidden ? (
+                    <button type="button" className="btn ghost small sb-book-details-reveal" onClick={() => patchNote({ bookDetailsHidden: false })}>
+                      <BookMarked size={13} /> Show book details
+                    </button>
+                  ) : (
+                    <BookCollapsible
+                      title="Book details"
+                      icon={<BookMarked size={14} />}
+                      count={[note.bookAuthor, note.bookCategory, note.bookSummary].filter(v => v?.trim()).length}
+                    >
+                      <div className="sb-para-fields sb-book-details-fields">
+                        <label>
+                          <span>Author</span>
+                          <input type="text" value={note.bookAuthor ?? ''} placeholder="James Clear" onChange={e => patchNote({ bookAuthor: e.target.value })} />
+                        </label>
+                        <label>
+                          <span>Status</span>
+                          <select value={note.bookStatus ?? 'Reading'} onChange={e => patchNote({ bookStatus: e.target.value as BookStatus })}>
+                            {BOOK_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+                          </select>
+                        </label>
+                        <label className="wide">
+                          <span>Main topic / category</span>
+                          <input type="text" value={note.bookCategory ?? ''} placeholder="Productivity, Psychology, Finance…" onChange={e => patchNote({ bookCategory: e.target.value })} />
+                        </label>
+                        <label className="wide">
+                          <span>One-sentence summary</span>
+                          <input type="text" value={note.bookSummary ?? ''} placeholder="Force yourself to explain the core premise in a single sentence." onChange={e => patchNote({ bookSummary: e.target.value })} />
+                        </label>
+                      </div>
+                      <button type="button" className="sb-book-details-hide" onClick={() => patchNote({ bookDetailsHidden: true })}>
+                        Hide this section
+                      </button>
+                    </BookCollapsible>
+                  )}
                   <BookCollapsible title="Key takeaways" icon={<ListChecks size={14} />} count={(note.bookTakeaways ?? []).filter(t => t.trim()).length}>
                     <BookTakeawaysField value={note.bookTakeaways ?? []} onChange={bookTakeaways => patchNote({ bookTakeaways })} />
                   </BookCollapsible>

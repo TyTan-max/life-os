@@ -323,6 +323,10 @@ export interface Note extends BaseRecord {
   bookTakeaways?: string[];
   bookQuotes?: BookQuoteRow[];
   bookActionItems?: BookActionItem[];
+  // Per-note escape hatch for a book where Author/Status/Category/Summary just aren't useful
+  // (e.g. a reference text you already know everything about) — hides the whole "Book details"
+  // section rather than leaving it sitting there permanently collapsed and empty.
+  bookDetailsHidden?: boolean;
 }
 
 // A single session's per-set weights for one exercise (e.g. a 4-set ramp: [40, 50, 60, 70]),

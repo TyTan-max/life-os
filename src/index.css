@@ -1457,6 +1457,12 @@ input, select, textarea { font-family: inherit; }
    .sb-book-section, which already draws that same framing — nesting both looked like a box
    inside a box. */
 .sb-book-details-fields { background: none; border: none; padding: 0; margin-bottom: 0; }
+.sb-book-details-reveal { align-self: flex-start; color: var(--text-faint); flex-shrink: 0; }
+.sb-book-details-hide {
+  border: none; background: none; color: var(--text-faint); font-size: 11px; font-weight: 600;
+  padding: 8px 0 0; cursor: pointer; text-decoration: underline; text-underline-offset: 2px;
+}
+.sb-book-details-hide:hover { color: var(--text); }
 .sb-book-log-label { font-size: 12px; font-weight: 650; color: var(--text-muted); margin-bottom: 6px; }
 .sb-book-log-wrap .sb-book-log { flex: 1; min-height: 0; }
 /* A subtask's own notes field — a bit taller than the default modal-field size, but still capped
