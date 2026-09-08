@@ -1415,7 +1415,7 @@ input, select, textarea { font-family: inherit; }
 .sb-book-log-table .grid-cell-input { width: 100%; }
 /* Chapter/verse references ("Romans 12:2") are short and fixed-format — giving this column the
    same share as the free-text passage/notes columns just wastes space they need more. */
-.sb-book-log-table th:first-child, .sb-book-log-table td:first-child { width: 110px; white-space: normal; }
+.sb-book-log-table th:first-child, .sb-book-log-table td:first-child { width: 150px; white-space: normal; }
 .sb-book-log-textarea { resize: none; min-height: 44px; font: inherit; overflow-y: auto; }
 /* Chromium (the app's webview) draws a scrollbar with up/down arrow buttons by default on
    Windows; the thumb-only bar below is the intended look everywhere else in the app. */
