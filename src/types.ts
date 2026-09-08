@@ -210,6 +210,18 @@ export type ParaType = 'Project' | 'Area' | 'Resource';
 export type ParaProjectStatus = 'Not Started' | 'In Progress' | 'Blocked' | 'Completed';
 export type ResourceKind = 'Article' | 'Snippet' | 'Reference' | 'Idea' | 'Book Note' | 'Repo';
 export type ReviewCadence = 'Weekly' | 'Monthly' | 'Quarterly';
+export type BookStatus = 'Reading' | 'Completed' | 'Wishlist';
+
+// One row of a book's reading log — a chapter/section paired with the page it's on, what was
+// learned there, and how the reader plans to apply it. Free-text chapter/page (not numbers) since
+// a book's own sections are just as often named ("Introduction", "Part II") as numbered.
+export interface BookNoteRow {
+  id: string;
+  chapter: string;
+  page?: string;
+  takeaway: string;
+  application: string;
+}
 
 // A Project's own Kanban board — small work items scoped to that one Project. Each project can
 // define its own column set (see Note.boardColumns) rather than sharing one fixed lifecycle, so
@@ -282,6 +294,13 @@ export interface Note extends BaseRecord {
   language?: string;
   repoUrl?: string;
   docsUrl?: string;
+
+  // Books (Resources where resourceKind is 'Book Note') — the body/RichTextEditor is unused for
+  // these; bookLog is the structured reading-notes table shown instead.
+  bookAuthor?: string;
+  bookStatus?: BookStatus;
+  bookCategory?: string;
+  bookLog?: BookNoteRow[];
 }
 
 // A single session's per-set weights for one exercise (e.g. a 4-set ramp: [40, 50, 60, 70]),

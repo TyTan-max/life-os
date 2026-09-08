@@ -1406,6 +1406,15 @@ input, select, textarea { font-family: inherit; }
 .sb-body-rte { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .sb-body-rte .rte-body-wrap { flex: 1; display: flex; min-height: 0; }
 .sb-body-rte .rte-body { flex: 1; max-height: none; min-height: 0; }
+/* A Book Note's reading log reuses .sb-body-rte's fill-and-scroll layout (same min-height:0
+   reasoning as above) but swaps the rich text body for a table — the scroll area and the
+   "Add row" button beneath it are two separate flex children so the button stays put rather
+   than scrolling away with a long log. */
+.sb-book-log-scroll { flex: 1; min-height: 0; overflow-y: auto; border: 1px solid var(--border); border-radius: 9px; }
+.sb-book-log-table th, .sb-book-log-table td { vertical-align: top; }
+.sb-book-log-table .grid-cell-input { width: 100%; }
+.sb-book-log-textarea { resize: vertical; min-height: 44px; font: inherit; }
+.sb-book-log-add { align-self: flex-start; margin-top: 10px; flex-shrink: 0; }
 /* A subtask's own notes field — a bit taller than the default modal-field size, but still capped
    since it sits inside a fixed-size modal rather than a scrolling page. */
 .sb-subtask-notes-rte .rte-body { min-height: 140px; max-height: 260px; }
@@ -3834,6 +3843,9 @@ input, select, textarea { font-family: inherit; }
 .sb-status-pill.status-in-progress { background: var(--accent-soft); color: var(--accent); }
 .sb-status-pill.status-blocked { background: var(--red-soft); color: var(--red); }
 .sb-status-pill.status-completed { background: var(--green-soft); color: var(--green); }
+.sb-status-pill.status-book-reading { background: var(--amber-soft); color: var(--amber); }
+.sb-status-pill.status-book-completed { background: var(--green-soft); color: var(--green); }
+.sb-status-pill.status-book-wishlist { background: var(--surface-hover); color: var(--text-faint); }
 
 .sb-due-chip { display: inline-flex; font-size: 10.5px; font-weight: 650; padding: 2px 8px; border-radius: 6px; background: var(--surface-hover); color: var(--text-faint); white-space: nowrap; }
 .sb-due-chip.overdue { background: var(--red-soft); color: var(--red); }
