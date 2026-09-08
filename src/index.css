@@ -3636,6 +3636,7 @@ input, select, textarea { font-family: inherit; }
 .sb-editor-toolbar { display: flex; align-items: center; gap: 4px; margin-bottom: 10px; flex-shrink: 0; }
 .sb-editor-meta { margin-left: auto; font-size: 11.5px; color: var(--text-faint); }
 .sb-title-input {
+  width: 100%;
   border: none;
   background: transparent;
   color: var(--text);
