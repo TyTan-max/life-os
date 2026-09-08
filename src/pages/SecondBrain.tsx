@@ -385,6 +385,7 @@ function BookNotesLog({ rows, onChange, verseHeaders }: { rows: BookNoteRow[]; o
   const [lookingUpId, setLookingUpId] = useState<string | null>(null);
   const [lookingUpObservationId, setLookingUpObservationId] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [confirmRemoveId, setConfirmRemoveId] = useState<string | null>(null);
   // The verse-text and observation lookups below both resolve asynchronously off the same blur
   // event and each patch a different field on the same row — if both read `rows` from their own
   // render-time closure, whichever's onChange lands second overwrites the first's edit with a
@@ -399,7 +400,13 @@ function BookNotesLog({ rows, onChange, verseHeaders }: { rows: BookNoteRow[]; o
     onChange(rowsRef.current.map(r => (r.id === id ? { ...r, ...patch } : r)));
   };
   const removeRow = (id: string) => {
-    onChange(rows.filter(r => r.id !== id));
+    onChange(rowsRef.current.filter(r => r.id !== id));
+  };
+  const removeRowNow = () => {
+    if (!confirmRemoveId) return;
+    removeRow(confirmRemoveId);
+    setExpandedId(prev => (prev === confirmRemoveId ? null : prev));
+    setConfirmRemoveId(null);
   };
   // Only in verse mode, only when the passage cell is still blank — leaves ordinary book rows
   // (where "page" really is a page number) and any manually-written passage text untouched.
@@ -472,7 +479,7 @@ function BookNotesLog({ rows, onChange, verseHeaders }: { rows: BookNoteRow[]; o
                   <td><textarea className="grid-cell-input sb-book-log-textarea" value={row.application} placeholder={cols.applicationPh} onChange={e => updateRow(row.id, { application: e.target.value })} /></td>
                   <td className="collection-table-actions">
                     <button type="button" className="icon-btn" onClick={() => setExpandedId(row.id)} aria-label="Expand row"><Maximize2 size={13} /></button>
-                    <button type="button" className="icon-btn danger" onClick={() => removeRow(row.id)} aria-label="Remove row"><Trash2 size={13} /></button>
+                    <button type="button" className="icon-btn danger" onClick={() => setConfirmRemoveId(row.id)} aria-label="Remove row"><Trash2 size={13} /></button>
                   </td>
                 </tr>
               ))}
@@ -487,14 +494,17 @@ function BookNotesLog({ rows, onChange, verseHeaders }: { rows: BookNoteRow[]; o
         const row = rows.find(r => r.id === expandedId);
         if (!row) return null;
         return (
-          <Modal eyebrow="Chapter note" title={row.chapter || cols.chapterPh} onClose={() => setExpandedId(null)} size="wide">
+          <Modal
+            eyebrow="Chapter note" title={row.chapter || cols.chapterPh} onClose={() => setExpandedId(null)} size="wide"
+            footer={<button type="button" className="btn danger ghost small" onClick={() => setConfirmRemoveId(row.id)}><Trash2 size={13} /> Remove row</button>}
+          >
             <div className="sb-book-log-expand">
               <label>
                 <span>{cols.chapter}</span>
                 <input
                   type="text" className="grid-cell-input" value={row.chapter} placeholder={cols.chapterPh}
                   onChange={e => updateRow(row.id, { chapter: e.target.value })}
-                  onBlur={() => void lookupVerseText(row)}
+                  onBlur={() => lookupRowDetails(row)}
                 />
               </label>
               <label>
@@ -521,6 +531,17 @@ function BookNotesLog({ rows, onChange, verseHeaders }: { rows: BookNoteRow[]; o
           </Modal>
         );
       })()}
+      {confirmRemoveId && (
+        <Modal
+          eyebrow="Chapter note" title="Remove this row?" onClose={() => setConfirmRemoveId(null)}
+          footer={<>
+            <button type="button" className="btn ghost" onClick={() => setConfirmRemoveId(null)}>Cancel</button>
+            <button type="button" className="btn danger" onClick={removeRowNow}>Remove</button>
+          </>}
+        >
+          <p>This deletes the chapter/verse, passage, and notes in this row. This cannot be undone.</p>
+        </Modal>
+      )}
     </div>
   );
 }
