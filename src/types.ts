@@ -332,6 +332,10 @@ export interface Note extends BaseRecord {
   // (e.g. a reference text you already know everything about) — hides the whole "Book details"
   // section rather than leaving it sitting there permanently collapsed and empty.
   bookDetailsHidden?: boolean;
+  // Swaps the chapter-notes table's column headers/placeholders to verse-shaped ones (Chapter /
+  // Verse, Text / Passage, Observation & Meaning, Application / My Thoughts) — same BookNoteRow
+  // fields underneath, just relabeled for a note where "chapter" and "page" don't fit.
+  bookVerseHeaders?: boolean;
 }
 
 // A single session's per-set weights for one exercise (e.g. a 4-set ramp: [40, 50, 60, 70]),

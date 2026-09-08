@@ -1462,7 +1462,9 @@ input, select, textarea { font-family: inherit; }
   padding: 8px 0 0; cursor: pointer; text-decoration: underline; text-underline-offset: 2px;
 }
 .sb-book-details-hide:hover { color: var(--text); }
-.sb-book-log-label { font-size: 12px; font-weight: 650; color: var(--text-muted); margin-bottom: 6px; }
+.sb-book-log-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+.sb-book-log-label { font-size: 12px; font-weight: 650; color: var(--text-muted); }
+.sb-book-log-verse-toggle { display: flex; align-items: center; gap: 6px; font-size: 11.5px; font-weight: 600; color: var(--text-faint); cursor: pointer; }
 .sb-book-log-wrap .sb-book-log { flex: 1; min-height: 0; }
 /* A subtask's own notes field — a bit taller than the default modal-field size, but still capped
    since it sits inside a fixed-size modal rather than a scrolling page. */

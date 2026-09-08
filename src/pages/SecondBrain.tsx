@@ -361,7 +361,22 @@ function SubtaskProgressBar({ progress, size }: { progress: { done: number; tota
 // point of a book note is chapter-by-chapter takeaways rather than one long essay. Each row edits
 // in place directly against the parent's `rows` prop (no local draft state) since nothing here
 // needs debouncing the way title/tags text fields do.
-function BookNotesLog({ rows, onChange }: { rows: BookNoteRow[]; onChange: (rows: BookNoteRow[]) => void }) {
+// Column labels/placeholders swap per note (bookVerseHeaders) — same four BookNoteRow fields
+// (chapter/page/takeaway/application) underneath either way, just read differently for a book
+// where "chapter" and "page" don't fit (e.g. a verse-referenced text).
+const BOOK_LOG_COLUMNS = {
+  default: {
+    chapter: 'Chapter / Section', page: 'Page #', takeaway: 'What I learned / key takeaway', application: 'My thoughts / personal application',
+    chapterPh: 'Chapter 1', pagePh: 'p. 14', takeawayPh: 'Small 1% improvements compound over time.', applicationPh: 'I can apply this to my morning routine…'
+  },
+  verse: {
+    chapter: 'Chapter / Verse', page: 'Text / Passage', takeaway: 'Observation & Meaning', application: 'Application / My Thoughts',
+    chapterPh: 'e.g., Romans 12:2', pagePh: '"Do not conform…"', takeawayPh: 'True transformation happens by changing the way we think.', applicationPh: 'What am I conforming to that I shouldn’t be?'
+  }
+};
+
+function BookNotesLog({ rows, onChange, verseHeaders }: { rows: BookNoteRow[]; onChange: (rows: BookNoteRow[]) => void; verseHeaders?: boolean }) {
+  const cols = verseHeaders ? BOOK_LOG_COLUMNS.verse : BOOK_LOG_COLUMNS.default;
   const addRow = () => {
     onChange([...rows, { id: generateId(), chapter: '', page: '', takeaway: '', application: '' }]);
   };
@@ -378,20 +393,20 @@ function BookNotesLog({ rows, onChange }: { rows: BookNoteRow[]; onChange: (rows
           <table className="grid-table sb-book-log-table">
             <thead>
               <tr>
-                <th>Chapter / Section</th>
-                <th>Page #</th>
-                <th>What I learned / key takeaway</th>
-                <th>My thoughts / personal application</th>
+                <th>{cols.chapter}</th>
+                <th>{cols.page}</th>
+                <th>{cols.takeaway}</th>
+                <th>{cols.application}</th>
                 <th />
               </tr>
             </thead>
             <tbody>
               {rows.map(row => (
                 <tr key={row.id}>
-                  <td><input type="text" className="grid-cell-input" value={row.chapter} placeholder="Chapter 1" onChange={e => updateRow(row.id, { chapter: e.target.value })} /></td>
-                  <td><input type="text" className="grid-cell-input" value={row.page ?? ''} placeholder="p. 14" onChange={e => updateRow(row.id, { page: e.target.value })} /></td>
-                  <td><textarea className="grid-cell-input sb-book-log-textarea" value={row.takeaway} placeholder="Small 1% improvements compound over time." onChange={e => updateRow(row.id, { takeaway: e.target.value })} /></td>
-                  <td><textarea className="grid-cell-input sb-book-log-textarea" value={row.application} placeholder="I can apply this to my morning routine…" onChange={e => updateRow(row.id, { application: e.target.value })} /></td>
+                  <td><input type="text" className="grid-cell-input" value={row.chapter} placeholder={cols.chapterPh} onChange={e => updateRow(row.id, { chapter: e.target.value })} /></td>
+                  <td><input type="text" className="grid-cell-input" value={row.page ?? ''} placeholder={cols.pagePh} onChange={e => updateRow(row.id, { page: e.target.value })} /></td>
+                  <td><textarea className="grid-cell-input sb-book-log-textarea" value={row.takeaway} placeholder={cols.takeawayPh} onChange={e => updateRow(row.id, { takeaway: e.target.value })} /></td>
+                  <td><textarea className="grid-cell-input sb-book-log-textarea" value={row.application} placeholder={cols.applicationPh} onChange={e => updateRow(row.id, { application: e.target.value })} /></td>
                   <td className="collection-table-actions">
                     <button type="button" className="icon-btn danger" onClick={() => removeRow(row.id)} aria-label="Remove row"><Trash2 size={13} /></button>
                   </td>
@@ -2207,8 +2222,14 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                     />
                   </BookCollapsible>
                   <div className="sb-book-log-wrap">
-                    <span className="sb-book-log-label">Raw chapter notes</span>
-                    <BookNotesLog rows={note.bookLog ?? []} onChange={bookLog => patchNote({ bookLog })} />
+                    <div className="sb-book-log-header">
+                      <span className="sb-book-log-label">Raw chapter notes</span>
+                      <label className="sb-book-log-verse-toggle">
+                        <input type="checkbox" checked={Boolean(note.bookVerseHeaders)} onChange={e => patchNote({ bookVerseHeaders: e.target.checked })} />
+                        <span>Verse labels</span>
+                      </label>
+                    </div>
+                    <BookNotesLog rows={note.bookLog ?? []} onChange={bookLog => patchNote({ bookLog })} verseHeaders={note.bookVerseHeaders} />
                   </div>
                 </div>
               ) : (
