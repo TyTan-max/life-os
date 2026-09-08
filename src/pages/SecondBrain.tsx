@@ -2144,11 +2144,7 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                 />
               ) : note.resourceKind === 'Book Note' ? (
                 <div className="sb-book-sections">
-                  {note.bookDetailsHidden ? (
-                    <button type="button" className="btn ghost small sb-book-details-reveal" onClick={() => patchNote({ bookDetailsHidden: false })}>
-                      <BookMarked size={13} /> Show book details
-                    </button>
-                  ) : (
+                  {!note.bookDetailsHidden && (
                     <BookCollapsible
                       title="Book details"
                       icon={<BookMarked size={14} />}
