@@ -428,29 +428,27 @@ function BookCollapsible({
   );
 }
 
-// Fixed at exactly three slots (not an add/remove list) — the whole point of "top 3" is a forced
-// constraint that makes you pick the takeaways that actually matter, rather than a growing pile
-// of "things the book said."
+// An open-ended, numbered add/remove list — not capped at three, so a book that genuinely
+// changed how you think about ten different things isn't forced to cut nine of them.
 function BookTakeawaysField({ value, onChange }: { value: string[]; onChange: (v: string[]) => void }) {
-  const rows = [0, 1, 2].map(i => value[i] ?? '');
-  const setRow = (i: number, text: string) => {
-    const next = [...rows];
-    next[i] = text;
-    onChange(next);
-  };
+  const addRow = () => onChange([...value, '']);
+  const updateRow = (i: number, text: string) => onChange(value.map((v, idx) => (idx === i ? text : v)));
+  const removeRow = (i: number) => onChange(value.filter((_, idx) => idx !== i));
   return (
     <div className="sb-book-takeaways">
-      {rows.map((text, i) => (
+      {value.map((text, i) => (
         <div className="sb-book-takeaway-row" key={i}>
           <span className="sb-book-takeaway-num">{i + 1}</span>
           <input
             type="text"
             value={text}
             placeholder={i === 0 ? 'What will you change or implement based on this book?' : ''}
-            onChange={e => setRow(i, e.target.value)}
+            onChange={e => updateRow(i, e.target.value)}
           />
+          <button type="button" className="icon-btn danger" onClick={() => removeRow(i)} aria-label="Remove takeaway"><Trash2 size={13} /></button>
         </div>
       ))}
+      <button type="button" className="btn ghost small" onClick={addRow}><Plus size={14} /> Add takeaway</button>
     </div>
   );
 }
@@ -2172,7 +2170,7 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                       </label>
                     </div>
                   </BookCollapsible>
-                  <BookCollapsible title="Top 3 takeaways" icon={<ListChecks size={14} />} count={(note.bookTakeaways ?? []).filter(t => t.trim()).length}>
+                  <BookCollapsible title="Key takeaways" icon={<ListChecks size={14} />} count={(note.bookTakeaways ?? []).filter(t => t.trim()).length}>
                     <BookTakeawaysField value={note.bookTakeaways ?? []} onChange={bookTakeaways => patchNote({ bookTakeaways })} />
                   </BookCollapsible>
                   <BookCollapsible title="Golden quotes" icon={<Quote size={14} />} count={(note.bookQuotes ?? []).length}>
