@@ -237,8 +237,8 @@ function MultiSelectField({
   );
 }
 
-function TitleAutofillField({
-  value, onChange, onPick, search, placeholder, disabledReason
+export function TitleAutofillField({
+  value, onChange, onPick, search, placeholder, disabledReason, className
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -246,6 +246,9 @@ function TitleAutofillField({
   search: (q: string) => Promise<AutofillResult[]>;
   placeholder?: string;
   disabledReason?: string;
+  // Lets a caller whose surrounding layout expects a specific input style (e.g. a page-title-
+  // sized field) apply it directly to the underlying <input> instead of only the wrapper.
+  className?: string;
 }) {
   const [results, setResults] = useState<AutofillResult[]>([]);
   const [open, setOpen] = useState(false);
@@ -318,6 +321,7 @@ function TitleAutofillField({
       <input
         ref={inputRef}
         type="text"
+        className={className}
         value={value}
         placeholder={placeholder}
         onChange={e => { onChange(e.target.value); runSearch(e.target.value); }}

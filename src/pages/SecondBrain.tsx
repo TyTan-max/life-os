@@ -18,6 +18,8 @@ import { useFabAction } from '../hooks/useFabAction';
 import { SwipeRow } from '../components/SwipeRow';
 import { MobileRecordList } from '../components/MobileRecordList';
 import { VaultOnboarding } from '../components/VaultOnboarding';
+import { TitleAutofillField } from '../components/CollectionPage';
+import { searchBooks } from '../lib/openLibrary';
 
 const WIKILINK_PATTERN = /\[\[([^\]]+)\]\]/g;
 
@@ -1905,13 +1907,27 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                   <Trash2 size={15} />
                 </button>
               </div>
-              <input
-                type="text"
-                className="sb-title-input"
-                placeholder="Untitled"
-                value={note.title}
-                onChange={e => patchNote({ title: e.target.value })}
-              />
+              {note.resourceKind === 'Book Note' ? (
+                <TitleAutofillField
+                  className="sb-title-input"
+                  value={note.title}
+                  onChange={title => patchNote({ title })}
+                  onPick={patch => patchNote({
+                    title: (patch.title as string) ?? note.title,
+                    bookAuthor: (patch.author as string) ?? note.bookAuthor
+                  })}
+                  search={searchBooks}
+                  placeholder="Untitled"
+                />
+              ) : (
+                <input
+                  type="text"
+                  className="sb-title-input"
+                  placeholder="Untitled"
+                  value={note.title}
+                  onChange={e => patchNote({ title: e.target.value })}
+                />
+              )}
               {duplicateTitle && (
                 <p className="sb-title-warning">Another note already has this title — [[wikilinks]] to either one may be ambiguous.</p>
               )}
