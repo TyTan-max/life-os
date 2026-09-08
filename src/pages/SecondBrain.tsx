@@ -20,6 +20,7 @@ import { MobileRecordList } from '../components/MobileRecordList';
 import { VaultOnboarding } from '../components/VaultOnboarding';
 import { TitleAutofillField } from '../components/CollectionPage';
 import { searchBooks } from '../lib/openLibrary';
+import { fetchVerseText } from '../lib/bibleVerse';
 
 const WIKILINK_PATTERN = /\[\[([^\]]+)\]\]/g;
 
@@ -381,6 +382,7 @@ const BOOK_LOG_COLUMNS = {
 
 function BookNotesLog({ rows, onChange, verseHeaders }: { rows: BookNoteRow[]; onChange: (rows: BookNoteRow[]) => void; verseHeaders?: boolean }) {
   const cols = verseHeaders ? BOOK_LOG_COLUMNS.verse : BOOK_LOG_COLUMNS.default;
+  const [lookingUpId, setLookingUpId] = useState<string | null>(null);
   const addRow = () => {
     onChange([...rows, { id: generateId(), chapter: '', page: '', takeaway: '', application: '' }]);
   };
@@ -389,6 +391,17 @@ function BookNotesLog({ rows, onChange, verseHeaders }: { rows: BookNoteRow[]; o
   };
   const removeRow = (id: string) => {
     onChange(rows.filter(r => r.id !== id));
+  };
+  // Only in verse mode, only when the passage cell is still blank — leaves ordinary book rows
+  // (where "page" really is a page number) and any manually-written passage text untouched.
+  // Fires on blur rather than every keystroke since a reference like "John 3:16" isn't valid
+  // (and shouldn't trigger a lookup) until the person's actually finished typing it.
+  const lookupVerseText = async (row: BookNoteRow) => {
+    if (!verseHeaders || !row.chapter.trim() || row.page?.trim()) return;
+    setLookingUpId(row.id);
+    const text = await fetchVerseText(row.chapter);
+    setLookingUpId(prev => (prev === row.id ? null : prev));
+    if (text) updateRow(row.id, { page: text });
   };
   return (
     <div className="sb-body-rte sb-book-log">
@@ -407,8 +420,25 @@ function BookNotesLog({ rows, onChange, verseHeaders }: { rows: BookNoteRow[]; o
             <tbody>
               {rows.map(row => (
                 <tr key={row.id}>
-                  <td><input type="text" className="grid-cell-input" value={row.chapter} placeholder={cols.chapterPh} onChange={e => updateRow(row.id, { chapter: e.target.value })} /></td>
-                  <td><input type="text" className="grid-cell-input" value={row.page ?? ''} placeholder={cols.pagePh} onChange={e => updateRow(row.id, { page: e.target.value })} /></td>
+                  <td>
+                    <input
+                      type="text"
+                      className="grid-cell-input"
+                      value={row.chapter}
+                      placeholder={cols.chapterPh}
+                      onChange={e => updateRow(row.id, { chapter: e.target.value })}
+                      onBlur={() => void lookupVerseText(row)}
+                    />
+                  </td>
+                  <td>
+                    <input
+                      type="text"
+                      className="grid-cell-input"
+                      value={row.page ?? ''}
+                      placeholder={lookingUpId === row.id ? 'Looking up the passage…' : cols.pagePh}
+                      onChange={e => updateRow(row.id, { page: e.target.value })}
+                    />
+                  </td>
                   <td><textarea className="grid-cell-input sb-book-log-textarea" value={row.takeaway} placeholder={cols.takeawayPh} onChange={e => updateRow(row.id, { takeaway: e.target.value })} /></td>
                   <td><textarea className="grid-cell-input sb-book-log-textarea" value={row.application} placeholder={cols.applicationPh} onChange={e => updateRow(row.id, { application: e.target.value })} /></td>
                   <td className="collection-table-actions">
