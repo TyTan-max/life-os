@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, ReactNode } from 'react';
-import { Calculator as CalculatorIcon, Calendar as CalendarIcon, ChevronDown, ChevronLeft, ChevronRight, ImagePlus, Minus, Plus, RotateCcw, StickyNote, Table2, TrendingDown, TrendingUp, Trash2, Upload, X } from 'lucide-react';
+import { Calculator as CalculatorIcon, Calendar as CalendarIcon, ChevronDown, ChevronLeft, ChevronRight, Delete, ImagePlus, Minus, Plus, RotateCcw, StickyNote, Table2, TrendingDown, TrendingUp, Trash2, Upload, X } from 'lucide-react';
 import { useStore, newRecord } from '../store';
 import type { DailyLog, TradingScreenshot } from '../types';
 import { formatCurrency, Modal } from '../components/UI';
@@ -886,6 +886,9 @@ function CalculatorPopup({ onClose }: { onClose: () => void }) {
       </div>
       <div className="tj-calc-body">
         <div className={`tj-calc-display ${justEvaluated ? 'tj-calc-display-result' : ''}`}>
+          <button type="button" className="tj-calc-backspace" onClick={backspace} aria-label="Backspace" title="Backspace">
+            <Delete size={15} />
+          </button>
           {operator && prevValue !== null && (
             <span className="tj-calc-display-sub">{calcFormat(prevValue)} {operator}</span>
           )}
