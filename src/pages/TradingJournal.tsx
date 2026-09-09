@@ -891,29 +891,32 @@ function CalculatorPopup({ onClose }: { onClose: () => void }) {
           )}
           <span className="tj-calc-display-value">{display}</span>
         </div>
+        {/* Backspace takes ÷'s old top-right slot; ÷/×/−/+ each cascade down one row into the
+            slot the next operator down used to occupy, landing + in the final row next to 0/. */}
         <div className="tj-calc-grid">
           <button type="button" className="tj-calc-btn tj-calc-btn-fn" onClick={clear}>C</button>
           <button type="button" className="tj-calc-btn tj-calc-btn-fn" onClick={toggleSign}>±</button>
           <button type="button" className="tj-calc-btn tj-calc-btn-fn" onClick={inputPercent}>%</button>
-          <button type="button" className={`tj-calc-btn tj-calc-btn-op ${operator === '÷' && waitingForOperand ? 'active' : ''}`} onClick={() => performOperator('÷')}>÷</button>
+          <button type="button" className="tj-calc-btn tj-calc-btn-fn" onClick={backspace} aria-label="Backspace" title="Backspace">⌫</button>
 
           <button type="button" className="tj-calc-btn" onClick={() => inputDigit('7')}>7</button>
           <button type="button" className="tj-calc-btn" onClick={() => inputDigit('8')}>8</button>
           <button type="button" className="tj-calc-btn" onClick={() => inputDigit('9')}>9</button>
-          <button type="button" className={`tj-calc-btn tj-calc-btn-op ${operator === '×' && waitingForOperand ? 'active' : ''}`} onClick={() => performOperator('×')}>×</button>
+          <button type="button" className={`tj-calc-btn tj-calc-btn-op ${operator === '÷' && waitingForOperand ? 'active' : ''}`} onClick={() => performOperator('÷')}>÷</button>
 
           <button type="button" className="tj-calc-btn" onClick={() => inputDigit('4')}>4</button>
           <button type="button" className="tj-calc-btn" onClick={() => inputDigit('5')}>5</button>
           <button type="button" className="tj-calc-btn" onClick={() => inputDigit('6')}>6</button>
-          <button type="button" className={`tj-calc-btn tj-calc-btn-op ${operator === '-' && waitingForOperand ? 'active' : ''}`} onClick={() => performOperator('-')}>−</button>
+          <button type="button" className={`tj-calc-btn tj-calc-btn-op ${operator === '×' && waitingForOperand ? 'active' : ''}`} onClick={() => performOperator('×')}>×</button>
 
           <button type="button" className="tj-calc-btn" onClick={() => inputDigit('1')}>1</button>
           <button type="button" className="tj-calc-btn" onClick={() => inputDigit('2')}>2</button>
           <button type="button" className="tj-calc-btn" onClick={() => inputDigit('3')}>3</button>
-          <button type="button" className={`tj-calc-btn tj-calc-btn-op ${operator === '+' && waitingForOperand ? 'active' : ''}`} onClick={() => performOperator('+')}>+</button>
+          <button type="button" className={`tj-calc-btn tj-calc-btn-op ${operator === '-' && waitingForOperand ? 'active' : ''}`} onClick={() => performOperator('-')}>−</button>
 
           <button type="button" className="tj-calc-btn tj-calc-btn-span2" onClick={() => inputDigit('0')}>0</button>
-          <button type="button" className="tj-calc-btn tj-calc-btn-span2" onClick={inputDecimal}>.</button>
+          <button type="button" className="tj-calc-btn" onClick={inputDecimal}>.</button>
+          <button type="button" className={`tj-calc-btn tj-calc-btn-op ${operator === '+' && waitingForOperand ? 'active' : ''}`} onClick={() => performOperator('+')}>+</button>
 
           <button type="button" className="tj-calc-btn tj-calc-btn-eq" onClick={equals}>=</button>
         </div>
