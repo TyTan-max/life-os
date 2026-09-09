@@ -3208,7 +3208,6 @@ input, select, textarea { font-family: inherit; }
 .tj-calc-btn-eq { grid-column: span 4; background: var(--teal); color: #fff; }
 .tj-calc-btn-eq:hover { filter: brightness(1.08); }
 .tj-calc-btn-span2 { grid-column: span 2; }
-.tj-calc-btn-backspace { display: flex; align-items: center; justify-content: center; }
 
 /* Monthly calendar view */
 .tj-cal-open { margin-left: 4px; }

@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, ReactNode } from 'react';
-import { Calculator as CalculatorIcon, Calendar as CalendarIcon, ChevronDown, ChevronLeft, ChevronRight, Delete, ImagePlus, Minus, Plus, RotateCcw, StickyNote, Table2, TrendingDown, TrendingUp, Trash2, Upload, X } from 'lucide-react';
+import { Calculator as CalculatorIcon, Calendar as CalendarIcon, ChevronDown, ChevronLeft, ChevronRight, ImagePlus, Minus, Plus, RotateCcw, StickyNote, Table2, TrendingDown, TrendingUp, Trash2, Upload, X } from 'lucide-react';
 import { useStore, newRecord } from '../store';
 import type { DailyLog, TradingScreenshot } from '../types';
 import { formatCurrency, Modal } from '../components/UI';
@@ -891,15 +891,7 @@ function CalculatorPopup({ onClose }: { onClose: () => void }) {
           )}
           <span className="tj-calc-display-value">{display}</span>
         </div>
-        {/* Backspace sits alone in its own row, directly above ÷ — same 4-column grid as
-            everything below, just with the first 3 cells left empty so it lines up over the
-            division button instead of crowding into the C/±/% row. */}
         <div className="tj-calc-grid">
-          <span aria-hidden="true" />
-          <span aria-hidden="true" />
-          <span aria-hidden="true" />
-          <button type="button" className="tj-calc-btn tj-calc-btn-fn tj-calc-btn-backspace" onClick={backspace} aria-label="Backspace" title="Backspace"><Delete size={15} /></button>
-
           <button type="button" className="tj-calc-btn tj-calc-btn-fn" onClick={clear}>C</button>
           <button type="button" className="tj-calc-btn tj-calc-btn-fn" onClick={toggleSign}>±</button>
           <button type="button" className="tj-calc-btn tj-calc-btn-fn" onClick={inputPercent}>%</button>
