@@ -54,7 +54,12 @@ export async function searchBooks(query: string): Promise<AutofillResult[]> {
         author,
         // Open Library's own subject ordering leads with its most-curated tag — a reasonable
         // one-line "main topic" default, but still just a starting point the caller can edit.
+        // Two keys for the same value: `category` is what the Second Brain Book Note form reads
+        // (a single string field); `genre` is what the Movies/Books collection page reads (its
+        // multiselect field wants an array). Each caller's form only has one of these fields, so
+        // the other key is silently ignored there — this isn't duplicated data, just two shapes.
         category: d.subject?.[0],
+        genre: d.subject?.[0] ? [d.subject[0]] : undefined,
         coverArt: coverFull,
         pageCount: d.number_of_pages_median || undefined,
         description: await fetchDescription(d.key)
