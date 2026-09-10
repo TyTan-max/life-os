@@ -745,6 +745,8 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
   const [projectDetailTab, setProjectDetailTab] = useState<'Board' | 'Notes'>('Board');
   const [tableSort, setTableSort] = useState<SortState<'pinned' | 'title' | 'type' | 'tags' | 'updated'>>({ key: 'pinned', dir: 'desc' });
   const [linkPickerOpen, setLinkPickerOpen] = useState(false);
+  const [projectEditOpen, setProjectEditOpen] = useState(false);
+  const [projectEditForm, setProjectEditForm] = useState<Partial<Note>>({});
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [taskFilter, setTaskFilter] = useState<TaskFilter>('Open');
   const [showTaskForm, setShowTaskForm] = useState(false);
@@ -1121,6 +1123,23 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
     if (patch.title !== undefined && oldTitle.trim()) {
       void cascadeRename(oldTitle, patch.title, notes, note.id, upsert);
     }
+  };
+
+  // A project's own fields (status, due date, next action, area, tags, write-up) otherwise only
+  // get edited piecemeal — status from the board card, everything else not at all from the
+  // note's own view. This gathers them into one form, mirroring the Edit goal modal.
+  const openProjectEdit = () => {
+    if (!note) return;
+    setProjectEditForm({
+      title: note.title, status: note.status, dueDate: note.dueDate,
+      nextAction: note.nextAction, areaId: note.areaId, tags: note.tags, body: note.body
+    });
+    setProjectEditOpen(true);
+  };
+  const setProjectEditField = <K extends keyof Note>(key: K, value: Note[K]) => setProjectEditForm(prev => ({ ...prev, [key]: value }));
+  const saveProjectEdit = () => {
+    patchNote(projectEditForm);
+    setProjectEditOpen(false);
   };
 
   // Creates a real Task from a book's action item — the whole point of this section is turning
@@ -2094,7 +2113,7 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                 <span className="sb-editor-meta">
                   {note.archived ? `Archived ${formatDate(note.archivedAt)}` : `Updated ${formatDate(note.updatedAt)}`}
                 </span>
-                <button type="button" className="icon-btn" onClick={() => setProjectDetailTab('Notes')} title="Edit note">
+                <button type="button" className="icon-btn" onClick={openProjectEdit} title="Edit project">
                   <Pencil size={15} />
                 </button>
                 {!note.locked && (
@@ -2579,6 +2598,44 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
               </select>
             </label>
             <label className="field-full"><span>Notes</span><RichTextEditor value={goalForm.notes ?? ''} onChange={v => setGoalField('notes', v)} /></label>
+          </div>
+        </Modal>
+      )}
+      {projectEditOpen && note && (
+        <Modal
+          eyebrow="Life OS"
+          title="Edit project"
+          onClose={() => setProjectEditOpen(false)}
+          footer={<>
+            <button type="button" className="btn ghost" onClick={() => setProjectEditOpen(false)}>Cancel</button>
+            <button type="button" className="btn teal" onClick={saveProjectEdit}>Save</button>
+          </>}
+        >
+          <div className="form-grid">
+            <label className="field-full"><span>Title</span><input value={projectEditForm.title ?? ''} onChange={e => setProjectEditField('title', e.target.value)} /></label>
+            <label>
+              <span>Status</span>
+              <select value={projectEditForm.status ?? 'Not Started'} onChange={e => setProjectEditField('status', e.target.value as ParaProjectStatus)}>
+                {PROJECT_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </label>
+            <label>
+              <span>Due date</span>
+              <DatePicker value={projectEditForm.dueDate} onChange={v => setProjectEditField('dueDate', v)} placeholder="Select date" />
+            </label>
+            <label className="field-full"><span>Next action</span><input value={projectEditForm.nextAction ?? ''} onChange={e => setProjectEditField('nextAction', e.target.value)} placeholder="What's the very next step?" /></label>
+            <label className="field-full">
+              <span>Linked area</span>
+              <select value={projectEditForm.areaId ?? ''} onChange={e => setProjectEditField('areaId', e.target.value || undefined)}>
+                <option value="">None</option>
+                {areaNotes.map(a => <option key={a.id} value={a.id}>{a.title || 'Untitled'}</option>)}
+              </select>
+            </label>
+            <label className="field-full">
+              <span>Tags</span>
+              <TagsField value={projectEditForm.tags ?? []} onChange={v => setProjectEditField('tags', v)} />
+            </label>
+            <label className="field-full"><span>Notes</span><RichTextEditor value={projectEditForm.body ?? ''} onChange={v => setProjectEditField('body', v)} /></label>
           </div>
         </Modal>
       )}
