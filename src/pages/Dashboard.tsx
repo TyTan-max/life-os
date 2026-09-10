@@ -347,13 +347,13 @@ export function Dashboard({navigate}:{navigate:(page:string, tab?: string)=>void
         </div>
       </DashCard>
       <DashCard
-        icon={undefined} title="Goal progress" isMobile={isMobile}
+        icon={undefined} title="To Do" isMobile={isMobile}
         quiet expanded={expandedCards.has('goals')} onToggle={()=>toggleCard('goals')}
-        summary={`${avgGoal}% avg · ${annualGoals.length} tracked`}
+        summary={`${avgGoal}% avg`}
         action={<b>{avgGoal}%</b>}
         orderStyle={slot(13)}
       >
-        <ProgressBar value={avgGoal}/><div className="metric-pair"><span>Annual goals tracked</span><b>{annualGoals.length}</b></div>
+        <ProgressBar value={avgGoal}/>
         <div className="metric-pair"><span>Tasks</span><b>{openTasks.length}</b></div>
         <div className="metric-pair"><span>Goals</span><b>{currentGoals.length}</b></div>
         <div className="metric-pair"><span>Projects</span><b>{currentProjects.length}</b></div>
