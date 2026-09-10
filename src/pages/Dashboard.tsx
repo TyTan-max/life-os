@@ -131,7 +131,11 @@ export function Dashboard({navigate}:{navigate:(page:string, tab?: string)=>void
   const in7Iso = localIso(in7);
   const upcomingBills = data.bills.filter(b=>(b.kind ?? 'Bill') === 'Bill' && b.nextDue>=today && b.nextDue<=in7Iso);
   const upcomingBillsTotal = upcomingBills.reduce((s,b)=>s+b.amount,0);
-  const tradingLogs = loadLocalArray<DailyLog>('life-os-trading-journal-daily-v1');
+  // Trading Journal moved to the real IndexedDB-backed store a while back — this card was never
+  // updated off the old localStorage key it used to read, so it's been silently showing 0 days
+  // logged / $0.00 regardless of actual data ever since. YouTube Analytics below is unaffected;
+  // that page never migrated off its own localStorage collection, so its key is still live.
+  const tradingLogs = data.dailyLogs;
   const youtubeSnapshots = loadLocalArray<VideoSnapshot>('life-os-youtube-analytics-v1');
   const tradingPnl = tradingLogs.reduce((sum, log) => sum + netOf(log), 0);
   const tradingWinRate = tradingLogs.length ? Math.round((tradingLogs.filter(log => netOf(log) > 0).length / tradingLogs.length) * 100) : 0;
@@ -264,7 +268,7 @@ export function Dashboard({navigate}:{navigate:(page:string, tab?: string)=>void
         orderStyle={slot(7)}
       >
         <div className="metric-pair"><span>Days logged</span><b>{tradingLogs.length}</b></div>
-        <div className="metric-pair"><span>Green days</span><b>{tradingWinRate}%</b></div>
+        <div className="metric-pair"><span>Win rate</span><b>{tradingWinRate}%</b></div>
         <div className="metric-pair"><span>Net P/L</span><b className={tradingPnl >= 0 ? 'positive' : 'negative'}>{tradingPnl >= 0 ? '+' : ''}{tradingPnl.toFixed(2)}</b></div>
       </DashCard>
       <DashCard
