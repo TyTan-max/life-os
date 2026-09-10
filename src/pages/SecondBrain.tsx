@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, ReactNode } from 'react';
 import {
   Archive, ArchiveRestore, BookMarked, Check, ChevronDown, ChevronLeft, Clock, Code2, Command,
-  Layers, Lightbulb, Link2, ListChecks, Lock, LockOpen, Maximize2, Pin, PinOff, Plus, Quote, Search, StickyNote, Trash2, TrendingUp, X
+  Layers, Lightbulb, Link2, ListChecks, Lock, LockOpen, Maximize2, Pencil, Pin, PinOff, Plus, Quote, Search, StickyNote, Trash2, TrendingUp, X
 } from 'lucide-react';
 import { useStore, newRecord } from '../store';
 import type { BookActionItem, BookNoteRow, BookNoteStatus, BookQuoteRow, Frequency, Goal, GoalHorizon, GoalProgressMode, GoalStatus, Note, NoteImage, ParaProjectStatus, ParaType, Priority, ProjectBoardColumn, ProjectSubtask, ResourceKind, ReviewCadence, Task, TaskStatus } from '../types';
@@ -2094,6 +2094,9 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                 <span className="sb-editor-meta">
                   {note.archived ? `Archived ${formatDate(note.archivedAt)}` : `Updated ${formatDate(note.updatedAt)}`}
                 </span>
+                <button type="button" className="icon-btn" onClick={() => setProjectDetailTab('Notes')} title="Edit note">
+                  <Pencil size={15} />
+                </button>
                 {!note.locked && (
                   <button type="button" className="icon-btn danger" onClick={() => deleteNote(note.id)} title="Delete note">
                     <Trash2 size={15} />
