@@ -46,20 +46,27 @@ export async function searchBooks(query: string): Promise<AutofillResult[]> {
     const year = d.first_publish_year;
     const coverThumb = d.cover_i ? `https://covers.openlibrary.org/b/id/${d.cover_i}-M.jpg` : undefined;
     const coverFull = d.cover_i ? `https://covers.openlibrary.org/b/id/${d.cover_i}-L.jpg` : undefined;
+    // Open Library folds series membership into the same subject list as genre tags, marked
+    // with a "series:" prefix (e.g. "series:Harry_Potter") — pull that one out separately so it
+    // doesn't get picked as the genre, and clean up its underscore-for-space encoding.
+    const seriesTag = d.subject?.find((s: string) => s.startsWith('series:'));
+    const series = seriesTag ? seriesTag.slice('series:'.length).replace(/_/g, ' ') : undefined;
+    const genreTag = d.subject?.find((s: string) => !s.startsWith('series:'));
     return {
       label: `${d.title}${author ? ` · ${author}` : ''}${year ? ` · ${year}` : ''}`,
       cover: coverThumb,
       resolvePatch: async () => ({
         title: d.title,
         author,
+        series,
         // Open Library's own subject ordering leads with its most-curated tag — a reasonable
         // one-line "main topic" default, but still just a starting point the caller can edit.
         // Two keys for the same value: `category` is what the Second Brain Book Note form reads
         // (a single string field); `genre` is what the Movies/Books collection page reads (its
         // multiselect field wants an array). Each caller's form only has one of these fields, so
         // the other key is silently ignored there — this isn't duplicated data, just two shapes.
-        category: d.subject?.[0],
-        genre: d.subject?.[0] ? [d.subject[0]] : undefined,
+        category: genreTag,
+        genre: genreTag ? [genreTag] : undefined,
         coverArt: coverFull,
         pageCount: d.number_of_pages_median || undefined,
         description: await fetchDescription(d.key)
