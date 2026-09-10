@@ -1242,6 +1242,8 @@ export function TradingJournal() {
   const worstDay = filteredLogs.length ? Math.min(...filteredLogs.map(netOf)) : 0;
   const avgGreenDay = greenDays.length ? greenDays.reduce((s, l) => s + netOf(l), 0) / greenDays.length : 0;
   const avgRedDay = redDays.length ? redDays.reduce((s, l) => s + netOf(l), 0) / redDays.length : 0;
+  const totalPositiveGains = greenDays.reduce((s, l) => s + netOf(l), 0);
+  const totalNegativeLoss = redDays.reduce((s, l) => s + netOf(l), 0);
 
   // Equity curve: real cumulative balance across ALL history, sliced to the selected period's window,
   // so a Week/Month/Year view shows the actual balance trajectory (not a curve reset to zero).
@@ -1493,8 +1495,8 @@ export function TradingJournal() {
                     <StatTiles tiles={[
                       { label: 'Avg Green', value: avgGreenDay },
                       { label: 'Avg Red', value: avgRedDay },
-                      { label: 'Best Day', value: bestDay },
-                      { label: 'Worst Day', value: worstDay }
+                      { label: 'Total Positive Gains', value: totalPositiveGains },
+                      { label: 'Total Negative Loss', value: totalNegativeLoss }
                     ]} />
                   </ChartCard>
                 )
@@ -1536,8 +1538,8 @@ export function TradingJournal() {
             <StatTiles tiles={[
               { label: 'Avg Green', value: avgGreenDay },
               { label: 'Avg Red', value: avgRedDay },
-              { label: 'Best Day', value: bestDay },
-              { label: 'Worst Day', value: worstDay }
+              { label: 'Total Positive Gains', value: totalPositiveGains },
+              { label: 'Total Negative Loss', value: totalNegativeLoss }
             ]} />
           </ChartCard>
 
