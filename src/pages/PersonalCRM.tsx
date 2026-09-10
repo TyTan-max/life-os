@@ -1,4 +1,5 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import type { PointerEvent as ReactPointerEvent } from 'react';
 import {
   Archive, Briefcase, Cake, CalendarCheck, CalendarDays, Camera, ChevronLeft, ChevronRight, CircleSlash, Gift, GraduationCap,
   Handshake, Home, LayoutGrid, Link2, Mail, MapPin, Medal, MessageCircle, Pencil, Phone,
@@ -124,9 +125,10 @@ function ContactAvatar({ contact, size }: { contact: Pick<Contact, 'id' | 'name'
   );
 }
 
-// Downscaled + re-encoded to JPEG so a phone-camera photo (often several MB) doesn't blow up
-// the local IndexedDB payload for what only ever displays as a small circular avatar.
-function fileToCompressedDataUrl(file: File, maxDim = 640, quality = 0.85): Promise<string> {
+// Downscaled + re-encoded to JPEG so a phone-camera photo (often several MB) doesn't sit around
+// at full resolution — capped generously (well above the crop viewport below) since this is the
+// working copy PhotoCropModal pans/zooms across, not the final small avatar it produces.
+function fileToCompressedDataUrl(file: File, maxDim = 1600, quality = 0.9): Promise<string> {
   return new Promise((resolve, reject) => {
     const img = new Image();
     const reader = new FileReader();
@@ -149,6 +151,120 @@ function fileToCompressedDataUrl(file: File, maxDim = 640, quality = 0.85): Prom
     };
     reader.readAsDataURL(file);
   });
+}
+
+const CROP_VIEWPORT = 260;
+const CROP_OUTPUT = 480;
+
+// A minimal pan/zoom cropper — no library, since this is the only place in the app that needs
+// one. Always "covers" the square viewport (zoom 1 = the tightest fit, never smaller), so the
+// output is always a fully-filled square with no letterboxing to reason about.
+function PhotoCropModal({ src, onCancel, onSave }: { src: string; onCancel: () => void; onSave: (dataUrl: string) => void }) {
+  const [natural, setNatural] = useState<{ w: number; h: number } | null>(null);
+  const [loadError, setLoadError] = useState(false);
+  const [zoom, setZoom] = useState(1);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const dragRef = useRef<{ startX: number; startY: number; panX: number; panY: number } | null>(null);
+
+  useEffect(() => {
+    setNatural(null);
+    setLoadError(false);
+    setZoom(1);
+    setPan({ x: 0, y: 0 });
+    const img = new Image();
+    img.onload = () => setNatural({ w: img.naturalWidth, h: img.naturalHeight });
+    img.onerror = () => setLoadError(true);
+    img.src = src;
+  }, [src]);
+
+  const baseScale = natural ? CROP_VIEWPORT / Math.min(natural.w, natural.h) : 1;
+  const dispW = (natural?.w ?? 0) * baseScale * zoom;
+  const dispH = (natural?.h ?? 0) * baseScale * zoom;
+  const minX = Math.min(0, CROP_VIEWPORT - dispW);
+  const minY = Math.min(0, CROP_VIEWPORT - dispH);
+  const clamp = (x: number, y: number) => ({ x: Math.min(0, Math.max(minX, x)), y: Math.min(0, Math.max(minY, y)) });
+
+  // Re-clamp whenever zooming changes the bounds — panned to a corner at 1x, then zoomed out,
+  // would otherwise leave a gap between the image edge and the viewport edge.
+  useEffect(() => { setPan(p => clamp(p.x, p.y)); }, [zoom, natural]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const onPointerDown = (e: ReactPointerEvent) => {
+    (e.target as Element).setPointerCapture(e.pointerId);
+    dragRef.current = { startX: e.clientX, startY: e.clientY, panX: pan.x, panY: pan.y };
+  };
+  const onPointerMove = (e: ReactPointerEvent) => {
+    if (!dragRef.current) return;
+    const { startX, startY, panX, panY } = dragRef.current;
+    setPan(clamp(panX + (e.clientX - startX), panY + (e.clientY - startY)));
+  };
+  const endDrag = () => { dragRef.current = null; };
+
+  const [exportError, setExportError] = useState<string | null>(null);
+  const confirmCrop = () => {
+    if (!natural) return;
+    setExportError(null);
+    const scaleFactor = CROP_OUTPUT / CROP_VIEWPORT;
+    const canvas = document.createElement('canvas');
+    canvas.width = CROP_OUTPUT;
+    canvas.height = CROP_OUTPUT;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    // A fresh Image (rather than reusing the on-screen <img>) with crossOrigin set — needed to
+    // read pixel data back out via toDataURL at all for a remote URL. Data URLs (every uploaded
+    // file) and same-origin images work regardless; a pasted external URL only works if that
+    // host happens to send CORS headers, which not all do.
+    const exportImg = new Image();
+    exportImg.crossOrigin = 'anonymous';
+    exportImg.onload = () => {
+      try {
+        ctx.drawImage(exportImg, pan.x * scaleFactor, pan.y * scaleFactor, dispW * scaleFactor, dispH * scaleFactor);
+        onSave(canvas.toDataURL('image/jpeg', 0.88));
+      } catch {
+        setExportError("This photo can't be cropped because it's hosted on another site that doesn't allow it. Try uploading the file directly instead.");
+      }
+    };
+    exportImg.onerror = () => {
+      setExportError("This photo can't be cropped because it's hosted on another site that doesn't allow it. Try uploading the file directly instead.");
+    };
+    exportImg.src = src;
+  };
+
+  return (
+    <Modal
+      eyebrow="Personal CRM"
+      title="Adjust photo"
+      onClose={onCancel}
+      footer={<>
+        <button type="button" className="btn ghost" onClick={onCancel}>Cancel</button>
+        <button type="button" className="btn teal" onClick={confirmCrop} disabled={!natural}>Save</button>
+      </>}
+    >
+      {loadError ? (
+        <p className="muted">Couldn't load that photo to crop it.</p>
+      ) : !natural ? (
+        <p className="muted">Loading photo…</p>
+      ) : (
+        <>
+          <div
+            className="crm-crop-viewport"
+            style={{ width: CROP_VIEWPORT, height: CROP_VIEWPORT }}
+            onPointerDown={onPointerDown}
+            onPointerMove={onPointerMove}
+            onPointerUp={endDrag}
+            onPointerCancel={endDrag}
+          >
+            <img src={src} alt="" draggable={false} style={{ left: pan.x, top: pan.y, width: dispW, height: dispH }} />
+          </div>
+          <label className="crm-crop-zoom">
+            <span>Zoom</span>
+            <input type="range" min={1} max={3} step={0.01} value={zoom} onChange={e => setZoom(Number(e.target.value))} />
+          </label>
+          <p className="muted">Drag to reposition, use the slider to zoom.</p>
+          {exportError && <p className="crm-crop-error">{exportError}</p>}
+        </>
+      )}
+    </Modal>
+  );
 }
 
 // Fixed, explicit icon per category (grouped by relationship "kind") rather than a hash — so
@@ -227,6 +343,7 @@ export function PersonalCRM() {
   const [showLocationSuggest, setShowLocationSuggest] = useState(false);
   const [tagDraft, setTagDraft] = useState('');
   const contactPhotoFileRef = useRef<HTMLInputElement>(null);
+  const [contactCropSrc, setContactCropSrc] = useState<string | null>(null);
 
   const [selectedContactId, setSelectedContactId] = useState<string | null>(null);
 
@@ -420,8 +537,7 @@ export function PersonalCRM() {
 
   const uploadContactPhoto = async (file: File) => {
     try {
-      const dataUrl = await fileToCompressedDataUrl(file);
-      setContactField('photoUrl', dataUrl);
+      setContactCropSrc(await fileToCompressedDataUrl(file));
     } catch {
       /* unreadable file — the Photo URL field is still there to paste a link instead */
     }
@@ -878,6 +994,11 @@ export function PersonalCRM() {
                   <button type="button" className="btn ghost small" onClick={() => contactPhotoFileRef.current?.click()}>
                     <Upload size={13} /> Upload
                   </button>
+                  {contactForm.photoUrl && (
+                    <button type="button" className="btn ghost small" onClick={() => setContactCropSrc(contactForm.photoUrl!)}>
+                      Adjust crop
+                    </button>
+                  )}
                 </div>
               </label>
 
@@ -984,6 +1105,14 @@ export function PersonalCRM() {
             </div>
           </div>
         </Modal>
+      )}
+
+      {contactCropSrc && (
+        <PhotoCropModal
+          src={contactCropSrc}
+          onCancel={() => setContactCropSrc(null)}
+          onSave={dataUrl => { setContactField('photoUrl', dataUrl); setContactCropSrc(null); }}
+        />
       )}
 
       {selectedContact && (
@@ -1125,6 +1254,7 @@ function PersonPageModal({
   const [logForm, setLogForm] = useState<Partial<ContactInteraction>>(blankInteraction());
   const [photoPromptOpen, setPhotoPromptOpen] = useState(false);
   const [photoDraft, setPhotoDraft] = useState('');
+  const [cropSrc, setCropSrc] = useState<string | null>(null);
   const photoFileRef = useRef<HTMLInputElement>(null);
 
   const submitLog = () => {
@@ -1140,14 +1270,12 @@ function PersonPageModal({
 
   const openPhotoPrompt = () => { setPhotoDraft(contact.photoUrl ?? ''); setPhotoPromptOpen(true); };
   const savePhoto = () => { onPatch({ photoUrl: photoDraft.trim() || undefined }); setPhotoPromptOpen(false); };
-  // A picked file goes straight to the record — unlike the URL field, there's no "typed
-  // value" here worth previewing or letting the user edit before committing, and showing the
-  // raw base64 data URL in a text input would be pretty ugly.
+  // A freshly-picked file goes straight into the cropper (using the full working-resolution
+  // copy, not yet the final small square) rather than being saved as-is — that's the whole
+  // point of the crop feature, so it should apply to a new upload too, not only an existing photo.
   const uploadPhoto = async (file: File) => {
     try {
-      const dataUrl = await fileToCompressedDataUrl(file);
-      onPatch({ photoUrl: dataUrl });
-      setPhotoPromptOpen(false);
+      setCropSrc(await fileToCompressedDataUrl(file));
     } catch {
       /* unreadable file — leave the prompt open so the URL field is still usable */
     }
@@ -1315,8 +1443,20 @@ function PersonPageModal({
           <button type="button" className="btn ghost small" onClick={() => photoFileRef.current?.click()}>
             <Upload size={13} /> Upload a photo
           </button>
+          {contact.photoUrl && (
+            <button type="button" className="btn ghost small" onClick={() => setCropSrc(contact.photoUrl!)}>
+              Adjust crop
+            </button>
+          )}
         </div>
       </Modal>
+    )}
+    {cropSrc && (
+      <PhotoCropModal
+        src={cropSrc}
+        onCancel={() => setCropSrc(null)}
+        onSave={dataUrl => { onPatch({ photoUrl: dataUrl }); setCropSrc(null); setPhotoPromptOpen(false); }}
+      />
     )}
   </>
   );

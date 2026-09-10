@@ -4635,6 +4635,22 @@ input, select, textarea { font-family: inherit; }
 .crm-photo-upload-row { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
 .crm-photo-field-row { display: flex; align-items: center; gap: 8px; }
 .crm-photo-field-row input:not([hidden]) { flex: 1; }
+.crm-crop-viewport {
+  position: relative;
+  margin: 0 auto;
+  overflow: hidden;
+  border-radius: 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  touch-action: none;
+  cursor: grab;
+}
+.crm-crop-viewport:active { cursor: grabbing; }
+.crm-crop-viewport img { position: absolute; max-width: none; user-select: none; -webkit-user-drag: none; }
+.crm-crop-zoom { display: flex; align-items: center; gap: 10px; margin-top: 14px; }
+.crm-crop-zoom span { font-size: 12px; font-weight: 650; color: var(--text-muted); flex-shrink: 0; }
+.crm-crop-zoom input[type="range"] { flex: 1; }
+.crm-crop-error { color: var(--red); font-size: 13px; }
 .crm-contact-avatar-edit-badge {
   position: absolute;
   bottom: -2px;
