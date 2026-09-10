@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
-import { Clock, Sparkles } from 'lucide-react';
+import { Sparkles } from 'lucide-react';
 import { CollectionPage } from '../components/CollectionPage';
 import { DiscoveryDeck } from '../components/DiscoveryDeck';
 import { useStore, newRecord } from '../store';
-import { checkIgdbConfigured, fetchTimeToBeatByTitle, searchGames } from '../lib/igdb';
+import { checkIgdbConfigured, searchGames } from '../lib/igdb';
 import { resolveRealCoverArt } from '../lib/coverArt';
 import {
   VIDEOGAME_DISCOVERY_DECK, VIDEOGAME_DECK_SYSTEM_PROMPT, buildVideogameDeckPrompt, parseVideogameDeckIdeas,
@@ -18,35 +18,6 @@ export function Videogames() {
   const { data, upsert } = useStore();
   const [deckOpen, setDeckOpen] = useState(false);
   const existingTitles = new Set(data.videogames.map(v => v.title.trim().toLowerCase()));
-
-  // Fills in the three new How Long to Beat fields for games added before that feature
-  // existed — a game already carrying any of them is left alone, so re-running this later
-  // (say, after adding more games) only ever touches what's still missing, never a value
-  // you've since edited by hand.
-  const [backfilling, setBackfilling] = useState(false);
-  const [backfillStatus, setBackfillStatus] = useState<string | null>(null);
-  const backfillTimeToBeat = async () => {
-    const todo = data.videogames.filter(v => v.hltbMain === undefined && v.hltbMainExtra === undefined && v.hltbCompletionist === undefined);
-    if (!todo.length) { setBackfillStatus('Every game already has this — nothing to backfill.'); return; }
-    setBackfilling(true);
-    let updated = 0;
-    for (let i = 0; i < todo.length; i++) {
-      const game = todo[i];
-      setBackfillStatus(`Checking ${i + 1} / ${todo.length}: ${game.title}`);
-      try {
-        const patch = await fetchTimeToBeatByTitle(game.title);
-        if (patch) { await upsert('videogames', { ...game, ...patch }); updated++; }
-      } catch {
-        // A transient failure just leaves this one for the next run — not worth aborting the
-        // whole backfill over a single title.
-      }
-      // Same IGDB rate limit (4 req/sec) as the bulk importer — two requests per game here
-      // (search + time-to-beat), so a longer pause between games than that importer uses.
-      await new Promise(resolve => setTimeout(resolve, 400));
-    }
-    setBackfilling(false);
-    setBackfillStatus(`Done — filled in ${updated} of ${todo.length} game${todo.length === 1 ? '' : 's'} (the rest have no How Long to Beat entry on IGDB yet).`);
-  };
 
   const addFromDeck = (idea: VideogameDeckIdea) => {
     void upsert('videogames', newRecord<Videogame>({
@@ -122,16 +93,7 @@ export function Videogames() {
         dateSortKey="releaseDate"
         dateSortLabel="release date"
         headerExtra={
-          <>
-            <button type="button" className="btn ghost" onClick={() => setDeckOpen(true)}><Sparkles size={16} /> Discover</button>
-            <button
-              type="button" className="btn ghost" onClick={() => void backfillTimeToBeat()} disabled={backfilling}
-              title="Fill in How Long to Beat for games added before that field existed"
-            >
-              <Clock size={16} /> {backfilling ? 'Backfilling…' : 'Backfill How Long to Beat'}
-            </button>
-            {backfillStatus && <small className="muted">{backfillStatus}</small>}
-          </>
+          <button type="button" className="btn ghost" onClick={() => setDeckOpen(true)}><Sparkles size={16} /> Discover</button>
         }
       />
       {deckOpen && (

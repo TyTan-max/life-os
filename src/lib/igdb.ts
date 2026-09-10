@@ -71,25 +71,6 @@ async function toPatch(g: IgdbGame): Promise<Record<string, unknown>> {
   };
 }
 
-// For backfilling an already-saved game by its exact title (see the "Backfill How Long to
-// Beat" action in Videogames.tsx) — a fuzzy `search` result could easily pick a different
-// game (a remaster, a sequel with a similar name), silently attaching the wrong times to an
-// existing record. `mode=exact` on the proxy only matches the literal title.
-export async function fetchTimeToBeatByTitle(title: string): Promise<Record<string, unknown> | undefined> {
-  const res = await fetch(`${IGDB_ORIGIN}/api/igdb/search?q=${encodeURIComponent(title)}&mode=exact`);
-  if (!res.ok) throw new Error(`IGDB search failed: ${res.status}`);
-  const data: IgdbGame[] = await res.json();
-  if (!data.length) return undefined;
-  const ttb = await fetchTimeToBeat(data[0].id);
-  if (!ttb) return undefined;
-  const patch = {
-    hltbMain: toHours(ttb.hastily),
-    hltbMainExtra: toHours(ttb.normally),
-    hltbCompletionist: toHours(ttb.completely)
-  };
-  return Object.values(patch).some(v => v !== undefined) ? patch : undefined;
-}
-
 export async function checkIgdbConfigured(): Promise<boolean> {
   try {
     const res = await fetch(`${IGDB_ORIGIN}/api/igdb/status`);
