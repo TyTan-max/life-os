@@ -84,17 +84,8 @@ export function Videogames() {
           allExcludesGrouped: true
         }}
         genreFilter={{ key: 'genre' }}
-        numberFilter={{
-          key: 'hltbMain',
-          label: 'How Long to Beat',
-          buckets: [
-            { label: 'Under 5 hrs', max: 5 },
-            { label: '5-15 hrs', min: 5, max: 15 },
-            { label: '15-30 hrs', min: 15, max: 30 },
-            { label: '30-60 hrs', min: 30, max: 60 },
-            { label: '60+ hrs', min: 60 }
-          ]
-        }}
+        numberSortKey="hltbMain"
+        numberSortLabel="How Long to Beat"
         autofill={{
           titleKey: 'title',
           search: searchGames,
