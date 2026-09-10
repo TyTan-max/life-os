@@ -138,6 +138,9 @@ export function Dashboard({navigate}:{navigate:(page:string, tab?: string)=>void
   const tradingLogs = data.dailyLogs;
   const youtubeSnapshots = loadLocalArray<VideoSnapshot>('life-os-youtube-analytics-v1');
   const tradingPnl = tradingLogs.reduce((sum, log) => sum + netOf(log), 0);
+  // Same formula as the Trading Journal page's own Current Balance: a configurable starting
+  // balance plus all-time net (not scoped to any period, since this card has no date filter).
+  const tradingCurrentBalance = (data.settings.tradingStartBalance ?? 50000) + tradingPnl;
   const tradingWinRate = tradingLogs.length ? Math.round((tradingLogs.filter(log => netOf(log) > 0).length / tradingLogs.length) * 100) : 0;
   const tradingTotalTrades = tradingLogs.reduce((sum, log) => sum + (log.totalTrades || 0), 0);
   const youtubeViews = youtubeSnapshots.reduce((sum, item) => sum + Number(item.views || 0), 0);
@@ -267,7 +270,7 @@ export function Dashboard({navigate}:{navigate:(page:string, tab?: string)=>void
         action={<button className="text-btn" onClick={()=>navigate('Trading Journal')}>Open <ArrowRight size={15}/></button>}
         orderStyle={slot(7)}
       >
-        <div className="metric-pair"><span>Days logged</span><b>{tradingLogs.length}</b></div>
+        <div className="metric-pair"><span>Current balance</span><b>{formatCurrency(tradingCurrentBalance)}</b></div>
         <div className="metric-pair"><span>Win rate</span><b>{tradingWinRate}%</b></div>
         <div className="metric-pair"><span>Net P/L</span><b className={tradingPnl >= 0 ? 'positive' : 'negative'}>{tradingPnl >= 0 ? '+' : ''}{tradingPnl.toFixed(2)}</b></div>
       </DashCard>
