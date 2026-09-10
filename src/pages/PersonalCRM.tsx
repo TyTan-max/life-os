@@ -1,8 +1,8 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import {
   Archive, Briefcase, Cake, CalendarCheck, CalendarDays, Camera, ChevronLeft, ChevronRight, CircleSlash, Gift, GraduationCap,
   Handshake, Home, LayoutGrid, Link2, Mail, MapPin, Medal, MessageCircle, Pencil, Phone,
-  Plus, Search, Send, SlidersHorizontal, Sparkles, Star, Table2, Tag as TagIcon, Trash2, UserPlus, Users, Wrench, X
+  Plus, Search, Send, SlidersHorizontal, Sparkles, Star, Table2, Tag as TagIcon, Trash2, Upload, UserPlus, Users, Wrench, X
 } from 'lucide-react';
 import { useStore, newRecord } from '../store';
 import { Badge, Card, EmptyState, Kpi, Modal, PageHeader, formatDate } from '../components/UI';
@@ -124,6 +124,33 @@ function ContactAvatar({ contact, size }: { contact: Pick<Contact, 'id' | 'name'
   );
 }
 
+// Downscaled + re-encoded to JPEG so a phone-camera photo (often several MB) doesn't blow up
+// the local IndexedDB payload for what only ever displays as a small circular avatar.
+function fileToCompressedDataUrl(file: File, maxDim = 640, quality = 0.85): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const reader = new FileReader();
+    reader.onerror = () => reject(reader.error);
+    reader.onload = () => {
+      img.onerror = () => reject(new Error('Could not read image'));
+      img.onload = () => {
+        const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+        const w = Math.round(img.width * scale);
+        const h = Math.round(img.height * scale);
+        const canvas = document.createElement('canvas');
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) { resolve(reader.result as string); return; }
+        ctx.drawImage(img, 0, 0, w, h);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+      img.src = reader.result as string;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
 // Fixed, explicit icon per category (grouped by relationship "kind") rather than a hash — so
 // e.g. every people-network category (Family/Friends/Relatives/Acquaintances) reads at a glance
 // as "people", regardless of which specific category it is.
@@ -199,6 +226,7 @@ export function PersonalCRM() {
   const [locationDraft, setLocationDraft] = useState('');
   const [showLocationSuggest, setShowLocationSuggest] = useState(false);
   const [tagDraft, setTagDraft] = useState('');
+  const contactPhotoFileRef = useRef<HTMLInputElement>(null);
 
   const [selectedContactId, setSelectedContactId] = useState<string | null>(null);
 
@@ -389,6 +417,15 @@ export function PersonalCRM() {
   };
 
   const setContactField = <K extends keyof Contact>(key: K, value: Contact[K]) => setContactForm(prev => ({ ...prev, [key]: value }));
+
+  const uploadContactPhoto = async (file: File) => {
+    try {
+      const dataUrl = await fileToCompressedDataUrl(file);
+      setContactField('photoUrl', dataUrl);
+    } catch {
+      /* unreadable file — the Photo URL field is still there to paste a link instead */
+    }
+  };
 
   const addCategory = (name: string) => {
     if (allCategories.some(c => c.toLowerCase() === name.toLowerCase())) return;
@@ -830,7 +867,19 @@ export function PersonalCRM() {
 
             <div className="form-grid">
               <label className="field-full"><span>Name</span><input value={contactForm.name ?? ''} onChange={e => setContactField('name', e.target.value)} /></label>
-              <label className="field-full"><span>Photo URL</span><input value={contactForm.photoUrl ?? ''} onChange={e => setContactField('photoUrl', e.target.value)} placeholder="https://…" /></label>
+              <label className="field-full">
+                <span>Photo URL</span>
+                <div className="crm-photo-field-row">
+                  <input value={contactForm.photoUrl ?? ''} onChange={e => setContactField('photoUrl', e.target.value)} placeholder="https://…" />
+                  <input
+                    ref={contactPhotoFileRef} type="file" accept="image/*" hidden
+                    onChange={e => { const file = e.target.files?.[0]; if (file) void uploadContactPhoto(file); e.target.value = ''; }}
+                  />
+                  <button type="button" className="btn ghost small" onClick={() => contactPhotoFileRef.current?.click()}>
+                    <Upload size={13} /> Upload
+                  </button>
+                </div>
+              </label>
 
               <label>
                 <span>Check up</span>
@@ -1076,6 +1125,7 @@ function PersonPageModal({
   const [logForm, setLogForm] = useState<Partial<ContactInteraction>>(blankInteraction());
   const [photoPromptOpen, setPhotoPromptOpen] = useState(false);
   const [photoDraft, setPhotoDraft] = useState('');
+  const photoFileRef = useRef<HTMLInputElement>(null);
 
   const submitLog = () => {
     if (isEmptyHtml(logForm.summary ?? '')) return;
@@ -1090,6 +1140,18 @@ function PersonPageModal({
 
   const openPhotoPrompt = () => { setPhotoDraft(contact.photoUrl ?? ''); setPhotoPromptOpen(true); };
   const savePhoto = () => { onPatch({ photoUrl: photoDraft.trim() || undefined }); setPhotoPromptOpen(false); };
+  // A picked file goes straight to the record — unlike the URL field, there's no "typed
+  // value" here worth previewing or letting the user edit before committing, and showing the
+  // raw base64 data URL in a text input would be pretty ugly.
+  const uploadPhoto = async (file: File) => {
+    try {
+      const dataUrl = await fileToCompressedDataUrl(file);
+      onPatch({ photoUrl: dataUrl });
+      setPhotoPromptOpen(false);
+    } catch {
+      /* unreadable file — leave the prompt open so the URL field is still usable */
+    }
+  };
 
   return (
   <>
@@ -1244,6 +1306,16 @@ function PersonPageModal({
         </>}
       >
         <label><span>Photo URL</span><input type="text" autoFocus value={photoDraft} onChange={e => setPhotoDraft(e.target.value)} placeholder="https://…" /></label>
+        <div className="crm-photo-upload-row">
+          <span className="muted">or</span>
+          <input
+            ref={photoFileRef} type="file" accept="image/*" hidden
+            onChange={e => { const file = e.target.files?.[0]; if (file) void uploadPhoto(file); e.target.value = ''; }}
+          />
+          <button type="button" className="btn ghost small" onClick={() => photoFileRef.current?.click()}>
+            <Upload size={13} /> Upload a photo
+          </button>
+        </div>
       </Modal>
     )}
   </>

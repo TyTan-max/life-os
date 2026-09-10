@@ -4632,6 +4632,9 @@ input, select, textarea { font-family: inherit; }
   display: inline-flex;
   cursor: pointer;
 }
+.crm-photo-upload-row { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+.crm-photo-field-row { display: flex; align-items: center; gap: 8px; }
+.crm-photo-field-row input:not([hidden]) { flex: 1; }
 .crm-contact-avatar-edit-badge {
   position: absolute;
   bottom: -2px;
