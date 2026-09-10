@@ -310,15 +310,15 @@ export function Dashboard({navigate}:{navigate:(page:string, tab?: string)=>void
       >
         <button type="button" className="backlog-row" onClick={()=>navigate('Movies')}>
           <span className="backlog-row-label"><Clapperboard size={16}/> Movies &amp; TV</span>
-          <span className="backlog-row-counts"><b>{movies.filter(m=>m.status==='To Watch').length}</b> to watch<span className="backlog-row-sep">·</span><b>{movies.filter(m=>m.status==='Watching').length}</b> watching</span>
+          <span className="backlog-row-counts"><b>{movies.filter(m=>m.status==='To Watch').length}</b> to watch<span className="backlog-row-sep">·</span><b>{movies.filter(m=>m.status==='Watching').length}</b> watching<span className="backlog-row-sep">·</span><b>{movies.filter(m=>m.status==='Watched').length}</b> watched</span>
         </button>
         <button type="button" className="backlog-row" onClick={()=>navigate('Videogames')}>
           <span className="backlog-row-label"><Gamepad2 size={16}/> Games</span>
-          <span className="backlog-row-counts"><b>{videogames.filter(g=>g.status==='To Play').length}</b> to play<span className="backlog-row-sep">·</span><b>{videogames.filter(g=>g.status==='Playing').length}</b> playing</span>
+          <span className="backlog-row-counts"><b>{videogames.filter(g=>g.status==='To Play').length}</b> to play<span className="backlog-row-sep">·</span><b>{videogames.filter(g=>g.status==='Playing').length}</b> playing<span className="backlog-row-sep">·</span><b>{videogames.filter(g=>g.status==='Completed').length}</b> completed</span>
         </button>
         <button type="button" className="backlog-row" onClick={()=>navigate('Books')}>
           <span className="backlog-row-label"><BookOpen size={16}/> Books</span>
-          <span className="backlog-row-counts"><b>{books.filter(b=>b.status==='To Read').length}</b> to read<span className="backlog-row-sep">·</span><b>{books.filter(b=>b.status==='Reading').length}</b> reading</span>
+          <span className="backlog-row-counts"><b>{books.filter(b=>b.status==='To Read').length}</b> to read<span className="backlog-row-sep">·</span><b>{books.filter(b=>b.status==='Reading').length}</b> reading<span className="backlog-row-sep">·</span><b>{books.filter(b=>b.status==='Read').length}</b> read</span>
         </button>
       </DashCard>
       <DashCard
