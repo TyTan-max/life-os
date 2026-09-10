@@ -32,6 +32,25 @@ async function fetchDescription(workKey: string | undefined): Promise<string | u
   }
 }
 
+// Open Library has no explicit "book 3 of 7" field anywhere — the closest available signal is
+// publish order within the series' own subject listing. Only trusted when the book being added
+// actually shows up in that listing (its work key must be present) — some editions across a
+// series get tagged inconsistently, so a series that's incompletely indexed here returns
+// undefined rather than a confidently-wrong number.
+async function fetchSeriesNumber(seriesTag: string, workKey: string | undefined): Promise<number | undefined> {
+  if (!workKey) return undefined;
+  try {
+    const slug = seriesTag.toLowerCase();
+    const data = await fetchJson(`https://openlibrary.org/subjects/${encodeURIComponent(slug)}.json?limit=100`);
+    const works: { key: string; first_publish_year?: number }[] = data.works ?? [];
+    const sorted = [...works].sort((a, b) => (a.first_publish_year ?? Infinity) - (b.first_publish_year ?? Infinity));
+    const index = sorted.findIndex(w => w.key === workKey);
+    return index >= 0 ? index + 1 : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export async function searchBooks(query: string): Promise<AutofillResult[]> {
   // Let a failed request (network hiccup, Open Library rate limit) throw instead of silently
   // becoming an empty result — swallowing it made bulk import report a real match as "No match
@@ -59,6 +78,10 @@ export async function searchBooks(query: string): Promise<AutofillResult[]> {
         title: d.title,
         author,
         series,
+        // A best-effort guess from publish order, not a fact — series with prequels, spin-offs,
+        // or box sets can still publish out of reading order. Still worth defaulting to, same as
+        // every other autofilled field here: a starting point the caller can correct.
+        seriesNumber: seriesTag ? await fetchSeriesNumber(seriesTag, d.key) : undefined,
         // Open Library's own subject ordering leads with its most-curated tag — a reasonable
         // one-line "main topic" default, but still just a starting point the caller can edit.
         // Two keys for the same value: `category` is what the Second Brain Book Note form reads
