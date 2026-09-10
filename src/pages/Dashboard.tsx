@@ -176,8 +176,6 @@ export function Dashboard({navigate}:{navigate:(page:string, tab?: string)=>void
     ];
     return rows.sort((a,b)=>a.at.localeCompare(b.at));
   },[data,openTasks,today]);
-  const annualGoals = data.goals.filter(g=>g.horizon==='Annual');
-  const avgGoal = Math.round(annualGoals.reduce((s,g)=>s+g.progress,0)/Math.max(1,annualGoals.length));
   const currentGoals = data.goals.filter(g=>g.status!=='Completed');
   const currentProjects = data.notes.filter(n=>n.paraType==='Project' && !n.archived && n.status!=='Completed');
   const focus = [...[...overdue].sort((a,b)=>a.dueDate.localeCompare(b.dueDate)),...dueToday,...openTasks.filter(t=>t.dueDate>today).sort((a,b)=>a.dueDate.localeCompare(b.dueDate))];
@@ -349,11 +347,9 @@ export function Dashboard({navigate}:{navigate:(page:string, tab?: string)=>void
       <DashCard
         icon={undefined} title="To Do" isMobile={isMobile}
         quiet expanded={expandedCards.has('goals')} onToggle={()=>toggleCard('goals')}
-        summary={`${avgGoal}% avg`}
-        action={<b>{avgGoal}%</b>}
+        summary={`${openTasks.length} tasks · ${currentGoals.length} goals · ${currentProjects.length} projects`}
         orderStyle={slot(13)}
       >
-        <ProgressBar value={avgGoal}/>
         <div className="metric-pair"><span>Tasks</span><b>{openTasks.length}</b></div>
         <div className="metric-pair"><span>Goals</span><b>{currentGoals.length}</b></div>
         <div className="metric-pair"><span>Projects</span><b>{currentProjects.length}</b></div>
