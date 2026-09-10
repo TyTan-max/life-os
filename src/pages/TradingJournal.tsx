@@ -364,7 +364,7 @@ function EquityTable({ points }: { points: { label: string; value: number }[] })
   );
 }
 
-function VBars({ data }: { data: { label: string; value: number }[] }) {
+function VBars({ data }: { data: { label: string; value: number; count?: number }[] }) {
   if (!data.length) return <p className="muted tj-empty">No data yet.</p>;
   const max = Math.max(1, ...data.map(d => Math.abs(d.value)));
   const n = data.length;
@@ -378,9 +378,10 @@ function VBars({ data }: { data: { label: string; value: number }[] }) {
           const x = i * bw + bw * 0.22;
           const w = bw * 0.56;
           const y = d.value >= 0 ? 30 - h : 30;
+          const dayCount = d.count !== undefined ? ` (${d.count} day${d.count === 1 ? '' : 's'} logged)` : '';
           return (
             <rect key={d.label} x={x} y={y} width={w} height={Math.max(h, 0.6)} rx={0.8} className={d.value >= 0 ? 'tj-fill-pos' : 'tj-fill-neg'}>
-              <title>{`${d.label}: ${fmt(d.value)}`}</title>
+              <title>{`${d.label}: ${fmt(d.value)}${dayCount}`}</title>
             </rect>
           );
         })}
@@ -398,7 +399,7 @@ function CatBars({ data }: { data: { label: string; value: number; cls: string }
       {data.map(d => (
         <div className="tj-catbar-col" key={d.label}>
           <div className="tj-catbar-track">
-            <div className={`tj-catbar-fill ${d.cls}`} style={{ height: `${(d.value / max) * 100}%` }} title={`${d.label}: ${d.value}`} />
+            <div className={`tj-catbar-fill ${d.cls}`} style={{ height: `${(d.value / max) * 100}%` }} title={`${d.label}: ${d.value} day${d.value === 1 ? '' : 's'} logged`} />
           </div>
           <span>{d.label}</span>
         </div>
@@ -1263,7 +1264,10 @@ export function TradingJournal() {
     [filteredLogs]
   );
   const emotionPerf = useMemo(
-    () => EMOTIONS.map(e => ({ label: e.value, value: filteredLogs.filter(l => l.emotion === e.value).reduce((s, l) => s + netOf(l), 0) })),
+    () => EMOTIONS.map(e => {
+      const days = filteredLogs.filter(l => l.emotion === e.value);
+      return { label: e.value, value: days.reduce((s, l) => s + netOf(l), 0), count: days.length };
+    }),
     [filteredLogs]
   );
 
