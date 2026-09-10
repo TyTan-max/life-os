@@ -75,6 +75,16 @@ export function Books() {
           allExcludesGrouped: true
         }}
         genreFilter={{ key: 'genre' }}
+        numberFilter={{
+          key: 'pageCount',
+          label: 'Page Count',
+          buckets: [
+            { label: 'Under 200 pages', max: 199 },
+            { label: '200-400 pages', min: 200, max: 400 },
+            { label: '400-600 pages', min: 401, max: 600 },
+            { label: '600+ pages', min: 601 }
+          ]
+        }}
         autofill={{ titleKey: 'title', search: searchBooks }}
         needsReviewKey="needsReview"
         headerExtra={

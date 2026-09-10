@@ -76,6 +76,16 @@ export function Movies() {
           allExcludesGrouped: true
         }}
         genreFilter={{ key: 'genres' }}
+        numberFilter={{
+          key: 'runtimeMin',
+          label: 'Runtime',
+          buckets: [
+            { label: 'Under 90 min', max: 89 },
+            { label: '90-120 min', min: 90, max: 120 },
+            { label: '2-3 hrs', min: 121, max: 180 },
+            { label: '3+ hrs', min: 181 }
+          ]
+        }}
         autofill={{
           titleKey: 'title',
           search: searchMoviesAndTv,

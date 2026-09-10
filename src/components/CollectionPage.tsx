@@ -47,6 +47,19 @@ export interface GenreFilterConfig<T> {
   label?: string;
 }
 
+export interface NumberFilterBucket {
+  label: string;
+  // Both inclusive; omit min for "under X", omit max for "X or more".
+  min?: number;
+  max?: number;
+}
+
+export interface NumberFilterConfig<T> {
+  key: keyof T & string;
+  label: string;
+  buckets: NumberFilterBucket[];
+}
+
 export interface AutofillResult {
   label: string;
   cover?: string;
@@ -83,6 +96,7 @@ interface CollectionPageProps<T extends CollectionRecord> {
   gallery?: GalleryConfig<T>;
   statusFilter?: StatusFilterConfig<T>;
   genreFilter?: GenreFilterConfig<T>;
+  numberFilter?: NumberFilterConfig<T>;
   autofill?: AutofillConfig<T>;
   leading?: (record: T) => ReactNode;
   table?: TableConfig<T>;
@@ -692,8 +706,47 @@ function GenreDropdown({
   );
 }
 
+function NumberFilterDropdown({
+  label, buckets, value, onChange
+}: {
+  label: string;
+  buckets: NumberFilterBucket[];
+  value: NumberFilterBucket | null;
+  onChange: (v: NumberFilterBucket | null) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onMouseDown = (e: MouseEvent) => {
+      if (wrapRef.current?.contains(e.target as Node)) return;
+      setOpen(false);
+    };
+    window.addEventListener('mousedown', onMouseDown);
+    return () => window.removeEventListener('mousedown', onMouseDown);
+  }, [open]);
+
+  return (
+    <div className="genre-filter" ref={wrapRef}>
+      <button type="button" className={`genre-filter-trigger ${value ? 'active' : ''}`} onClick={() => setOpen(o => !o)}>
+        {value?.label ?? label}
+        <ChevronDown size={14} />
+      </button>
+      {open && (
+        <div className="genre-filter-dropdown">
+          <button type="button" className={!value ? 'on' : ''} onClick={() => { onChange(null); setOpen(false); }}>Any {label}</button>
+          {buckets.map(b => (
+            <button type="button" key={b.label} className={value?.label === b.label ? 'on' : ''} onClick={() => { onChange(b); setOpen(false); }}>{b.label}</button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function CollectionPage<T extends CollectionRecord>({
-  collection, title, subtitle, itemLabel, fields, defaults, renderTitle, renderSubtitle, sortBy, gallery, statusFilter, genreFilter, autofill, leading, table, embedded, onFieldChange, needsReviewKey, headerExtra, dateSortKey, dateSortLabel
+  collection, title, subtitle, itemLabel, fields, defaults, renderTitle, renderSubtitle, sortBy, gallery, statusFilter, genreFilter, numberFilter, autofill, leading, table, embedded, onFieldChange, needsReviewKey, headerExtra, dateSortKey, dateSortLabel
 }: CollectionPageProps<T>) {
   const { data, upsert: rawUpsert, remove } = useStore();
   // upsert is typed per-collection at the call site (K extends CollectionName); this generic page
@@ -732,6 +785,7 @@ export function CollectionPage<T extends CollectionRecord>({
   const [view, setView] = useState<'gallery' | 'list' | 'review'>(gallery ? 'gallery' : 'list');
   const [statusTab, setStatusTab] = useState('All');
   const [genreTab, setGenreTab] = useState<string | null>(null);
+  const [numberBucket, setNumberBucket] = useState<NumberFilterBucket | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -760,10 +814,21 @@ export function CollectionPage<T extends CollectionRecord>({
     if (genreFilter && genreTab) {
       list = list.filter(r => ((r[genreFilter.key] as unknown as string[] | undefined) ?? []).includes(genreTab));
     }
+    if (numberFilter && numberBucket) {
+      // A record with no value for this field (never entered, or never autofilled) can't
+      // belong to any duration bucket — excluded rather than guessed into one.
+      list = list.filter(r => {
+        const value = r[numberFilter.key];
+        if (typeof value !== 'number') return false;
+        if (numberBucket.min !== undefined && value < numberBucket.min) return false;
+        if (numberBucket.max !== undefined && value > numberBucket.max) return false;
+        return true;
+      });
+    }
     const term = searchQuery.trim().toLowerCase();
     if (term) list = list.filter(r => renderTitle(r).toLowerCase().includes(term));
     return list;
-  }, [allRecords, statusFilter, statusTab, genreFilter, genreTab, searchQuery, renderTitle]);
+  }, [allRecords, statusFilter, statusTab, genreFilter, genreTab, numberFilter, numberBucket, searchQuery, renderTitle]);
 
   // A-Z/Z-A and Oldest/Newest each override the default order; a third click of either
   // returns to it. Shuffle is a one-shot randomization re-rolled on every click (shuffleTick
@@ -906,7 +971,7 @@ export function CollectionPage<T extends CollectionRecord>({
 
   const visibleCount = view === 'review' ? reviewRecords.length : orderedRecords.length;
 
-  const toolbar = (statusFilter || genreFilter || gallery) ? (
+  const toolbar = (statusFilter || genreFilter || numberFilter || gallery) ? (
     <div className="collection-toolbar">
       <div className="toolbar-filters">
         {searchOpen ? (
@@ -937,6 +1002,9 @@ export function CollectionPage<T extends CollectionRecord>({
         )}
         {genreFilter && (
           <GenreDropdown label={genreFilter.label ?? 'Genre'} options={genreOptions} value={genreTab} onChange={setGenreTab} />
+        )}
+        {numberFilter && (
+          <NumberFilterDropdown label={numberFilter.label} buckets={numberFilter.buckets} value={numberBucket} onChange={setNumberBucket} />
         )}
         <span className="toolbar-count">{visibleCount} {noun.toLowerCase()}{visibleCount === 1 ? '' : 's'}</span>
       </div>
