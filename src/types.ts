@@ -672,6 +672,7 @@ export const CONTACT_CATEGORIES: ContactCategory[] = [
 
 export interface Contact extends BaseRecord {
   name: string;
+  photoUrl?: string;
   tier: ContactTier;
   category?: ContactCategory;
   company?: string;

@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import {
-  Archive, Briefcase, Cake, CalendarCheck, CalendarDays, ChevronLeft, ChevronRight, CircleSlash, Gift, GraduationCap,
+  Archive, Briefcase, Cake, CalendarCheck, CalendarDays, Camera, ChevronLeft, ChevronRight, CircleSlash, Gift, GraduationCap,
   Handshake, Home, LayoutGrid, Link2, Mail, MapPin, Medal, MessageCircle, Pencil, Phone,
   Plus, Search, Send, SlidersHorizontal, Sparkles, Star, Table2, Tag as TagIcon, Trash2, UserPlus, Users, Wrench, X
 } from 'lucide-react';
@@ -106,6 +106,22 @@ function avatarColorFor(id: string): string {
   let hash = 0;
   for (let i = 0; i < id.length; i++) hash = (hash * 31 + id.charCodeAt(i)) | 0;
   return AVATAR_PALETTE[Math.abs(hash) % AVATAR_PALETTE.length];
+}
+
+// A real photo when one's been set, falling back to the colored-initials avatar otherwise —
+// used everywhere a contact's avatar shows up (card, table row, detail header) so all three
+// stay in sync with a single rendering rule. "card" reuses the card grid's own avatar class
+// (a fixed white-on-color style, no size modifier) rather than crm-contact-avatar's small/large.
+function ContactAvatar({ contact, size }: { contact: Pick<Contact, 'id' | 'name' | 'photoUrl'>; size: 'card' | 'small' | 'large' }) {
+  const className = size === 'card' ? 'crm-card-avatar' : `crm-contact-avatar ${size}`;
+  if (contact.photoUrl) {
+    return <img className={className} src={contact.photoUrl} alt="" />;
+  }
+  return (
+    <span className={className} style={{ background: avatarColorFor(contact.id) }}>
+      {initials(contact.name)}
+    </span>
+  );
 }
 
 // Fixed, explicit icon per category (grouped by relationship "kind") rather than a hash — so
@@ -577,7 +593,7 @@ export function PersonalCRM() {
                               trailing={{ label: 'Delete', icon: <Trash2 size={16} />, onTrigger: () => requestDeleteContact(c) }}
                             >
                               <button type="button" className="crm-card-body" onClick={() => setSelectedContactId(c.id)}>
-                                <span className="crm-card-avatar" style={{ background: avatarColorFor(c.id) }}>{initials(c.name)}</span>
+                                <ContactAvatar contact={c} size="card" />
                                 <b>{c.name}</b>
                                 {c.email && <small>{c.email}</small>}
                                 {c.phone && <small>{c.phone}</small>}
@@ -814,6 +830,7 @@ export function PersonalCRM() {
 
             <div className="form-grid">
               <label className="field-full"><span>Name</span><input value={contactForm.name ?? ''} onChange={e => setContactField('name', e.target.value)} /></label>
+              <label className="field-full"><span>Photo URL</span><input value={contactForm.photoUrl ?? ''} onChange={e => setContactField('photoUrl', e.target.value)} placeholder="https://…" /></label>
 
               <label>
                 <span>Check up</span>
@@ -953,7 +970,7 @@ export function PersonalCRM() {
               <div className="crm-quicklog-candidates">
                 {quickLogCandidates.length ? quickLogCandidates.map(c => (
                   <button type="button" key={c.id} className="crm-quicklog-candidate" onClick={() => setQuickLogContactId(c.id)}>
-                    <span className="crm-contact-avatar small" style={{ background: avatarColorFor(c.id) }}>{initials(c.name)}</span>
+                    <ContactAvatar contact={c} size="small" />
                     <span>{c.name}</span>
                   </button>
                 )) : <EmptyState>No matching contacts.</EmptyState>}
@@ -1057,6 +1074,8 @@ function PersonPageModal({
   onEdit: () => void;
 }) {
   const [logForm, setLogForm] = useState<Partial<ContactInteraction>>(blankInteraction());
+  const [photoPromptOpen, setPhotoPromptOpen] = useState(false);
+  const [photoDraft, setPhotoDraft] = useState('');
 
   const submitLog = () => {
     if (isEmptyHtml(logForm.summary ?? '')) return;
@@ -1069,7 +1088,11 @@ function PersonPageModal({
   const age = ageFromBirthYear(contact.birthYear, contact.birthday, today);
   const socials: [string, string | undefined][] = [['LinkedIn', contact.linkedin], ['Instagram', contact.instagram], ['Facebook', contact.facebook]];
 
+  const openPhotoPrompt = () => { setPhotoDraft(contact.photoUrl ?? ''); setPhotoPromptOpen(true); };
+  const savePhoto = () => { onPatch({ photoUrl: photoDraft.trim() || undefined }); setPhotoPromptOpen(false); };
+
   return (
+  <>
     <Modal
       eyebrow="Personal CRM"
       title={contact.name}
@@ -1077,7 +1100,10 @@ function PersonPageModal({
       footer={<button type="button" className="btn ghost" onClick={onEdit}><Pencil size={14} /> Edit details</button>}
     >
       <div className="crm-person-head">
-        <span className="crm-contact-avatar large" style={{ background: avatarColorFor(contact.id) }}>{initials(contact.name)}</span>
+        <button type="button" className="crm-contact-avatar-edit" onClick={openPhotoPrompt} aria-label="Add or change photo" title="Add or change photo">
+          <ContactAvatar contact={contact} size="large" />
+          <span className="crm-contact-avatar-edit-badge"><Camera size={11} /></span>
+        </button>
         <div className="crm-person-head-meta">
           <div className="crm-person-head-line">
             <Badge tone={STATUS_BADGE_TONE[status.status]}>{status.status}</Badge>
@@ -1204,5 +1230,22 @@ function PersonPageModal({
         ) : <EmptyState>No interactions logged yet.</EmptyState>}
       </div>
     </Modal>
+    {photoPromptOpen && (
+      <Modal
+        eyebrow="Personal CRM"
+        title="Contact photo"
+        onClose={() => setPhotoPromptOpen(false)}
+        footer={<>
+          {contact.photoUrl && (
+            <button type="button" className="btn ghost danger" onClick={() => { onPatch({ photoUrl: undefined }); setPhotoPromptOpen(false); }}>Remove photo</button>
+          )}
+          <button type="button" className="btn ghost" onClick={() => setPhotoPromptOpen(false)}>Cancel</button>
+          <button type="button" className="btn teal" onClick={savePhoto}>Save</button>
+        </>}
+      >
+        <label><span>Photo URL</span><input type="text" autoFocus value={photoDraft} onChange={e => setPhotoDraft(e.target.value)} placeholder="https://…" /></label>
+      </Modal>
+    )}
+  </>
   );
 }
