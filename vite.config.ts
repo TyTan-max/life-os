@@ -31,6 +31,24 @@ function igdbProxyPlugin(clientId: string | undefined, clientSecret: string | un
     res.end(JSON.stringify(body));
   }
 
+  // IGDB caps requests at 4/sec per key — shared by both endpoints below so a burst (bulk
+  // import, or a time-to-beat lookup right after a search) usually just resolves in place
+  // instead of surfacing a 429 the frontend can't tell apart from "this doesn't exist."
+  async function igdbFetch(accessToken: string, endpoint: string, body: string): Promise<Response> {
+    let res: Response | undefined;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      res = await fetch(`https://api.igdb.com/v4/${endpoint}`, {
+        method: 'POST',
+        headers: { 'Client-ID': clientId as string, Authorization: `Bearer ${accessToken}`, 'Content-Type': 'text/plain' },
+        body
+      });
+      if (res.status !== 429) break;
+      await new Promise(resolve => setTimeout(resolve, 500 * (attempt + 1)));
+    }
+    if (!res || !res.ok) throw new Error(`IGDB ${endpoint} failed: ${res?.status}`);
+    return res;
+  }
+
   return {
     name: 'igdb-proxy',
     configureServer(server) {
@@ -61,28 +79,30 @@ function igdbProxyPlugin(clientId: string | undefined, clientSecret: string | un
             'involved_companies.company.name, involved_companies.developer, involved_companies.publisher; ' +
             'limit 20;';
 
-          // IGDB caps requests at 4/sec per key — a bulk import can burst past that even with
-          // client-side throttling, and a 429 here previously surfaced as a plain 500, which
-          // the frontend couldn't tell apart from "this game doesn't exist." Retrying in place
-          // means a rate-limited request usually just resolves correctly instead of the caller
-          // needing to notice, wait, and re-paste it later.
-          let igdbRes: Response | undefined;
-          for (let attempt = 0; attempt < 3; attempt++) {
-            igdbRes = await fetch('https://api.igdb.com/v4/games', {
-              method: 'POST',
-              headers: {
-                'Client-ID': clientId as string,
-                Authorization: `Bearer ${accessToken}`,
-                'Content-Type': 'text/plain'
-              },
-              body
-            });
-            if (igdbRes.status !== 429) break;
-            await new Promise(resolve => setTimeout(resolve, 500 * (attempt + 1)));
-          }
-          if (!igdbRes || !igdbRes.ok) throw new Error(`IGDB search failed: ${igdbRes?.status}`);
+          const igdbRes = await igdbFetch(accessToken, 'games', body);
+          sendJson(res, 200, await igdbRes.json());
+        } catch (err) {
+          sendJson(res, 500, { error: (err as Error).message });
+        }
+      });
+
+      // A separate endpoint, not an expandable field on /games — IGDB's time-to-beat data
+      // lives in its own game_time_to_beats table, keyed by game_id.
+      server.middlewares.use('/api/igdb/time-to-beat', async (req, res) => {
+        try {
+          const url = new URL(req.url ?? '', 'http://localhost');
+          const gameId = url.searchParams.get('gameId')?.trim();
+          if (!gameId || !/^\d+$/.test(gameId)) return sendJson(res, 200, null);
+
+          const accessToken = await getAccessToken();
+          if (!accessToken) return sendJson(res, 200, null);
+
+          const igdbRes = await igdbFetch(
+            accessToken, 'game_time_to_beats',
+            `fields hastily, normally, completely; where game_id = ${gameId};`
+          );
           const data = await igdbRes.json();
-          sendJson(res, 200, data);
+          sendJson(res, 200, data[0] ?? null);
         } catch (err) {
           sendJson(res, 500, { error: (err as Error).message });
         }

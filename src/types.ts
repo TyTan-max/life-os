@@ -546,6 +546,11 @@ export interface Videogame extends BaseRecord {
   releaseDate?: string;
   status: VideogameStatus;
   rating?: number;
+  // From IGDB's game_time_to_beats (community-submitted, in hours) — how long the game
+  // typically takes, distinct from playtimeHours below (this reader's own tracked time).
+  hltbMain?: number;
+  hltbMainExtra?: number;
+  hltbCompletionist?: number;
   playtimeHours?: number;
   completionPct?: number;
   dateCompleted?: string;

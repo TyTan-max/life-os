@@ -14,6 +14,7 @@ interface IgdbCompany {
 }
 
 interface IgdbGame {
+  id: number;
   name: string;
   cover?: { image_id: string };
   first_release_date?: number;
@@ -23,11 +24,38 @@ interface IgdbGame {
   involved_companies?: IgdbCompany[];
 }
 
+interface IgdbTimeToBeat {
+  hastily?: number;
+  normally?: number;
+  completely?: number;
+}
+
+// Time-to-beat isn't an expandable field on /games — it lives in IGDB's own
+// game_time_to_beats table, keyed by game_id, so it's always a second request. Not every
+// game has an entry (community-submitted), so a miss here just means those three fields
+// stay blank rather than the whole autofill failing.
+async function fetchTimeToBeat(gameId: number): Promise<IgdbTimeToBeat | undefined> {
+  try {
+    const res = await fetch(`${IGDB_ORIGIN}/api/igdb/time-to-beat?gameId=${gameId}`);
+    if (!res.ok) return undefined;
+    return (await res.json()) ?? undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+// IGDB's own values are in seconds; the Videogame form's hltb* fields are in hours, rounded
+// to one decimal place — precise enough to be useful, not falsely precise.
+function toHours(seconds: number | undefined): number | undefined {
+  return seconds ? Math.round((seconds / 3600) * 10) / 10 : undefined;
+}
+
 function coverUrl(imageId: string | undefined, size: 'thumb' | 'cover_big'): string | undefined {
   return imageId ? `https://images.igdb.com/igdb/image/upload/t_${size}/${imageId}.jpg` : undefined;
 }
 
-function toPatch(g: IgdbGame): Record<string, unknown> {
+async function toPatch(g: IgdbGame): Promise<Record<string, unknown>> {
+  const ttb = await fetchTimeToBeat(g.id);
   return {
     title: g.name,
     coverArt: coverUrl(g.cover?.image_id, 'cover_big'),
@@ -36,7 +64,10 @@ function toPatch(g: IgdbGame): Record<string, unknown> {
     platforms: (g.platforms ?? []).map(p => p.name),
     genre: (g.genres ?? []).map(gn => gn.name),
     description: g.summary || undefined,
-    releaseDate: g.first_release_date ? new Date(g.first_release_date * 1000).toISOString().slice(0, 10) : undefined
+    releaseDate: g.first_release_date ? new Date(g.first_release_date * 1000).toISOString().slice(0, 10) : undefined,
+    hltbMain: toHours(ttb?.hastily),
+    hltbMainExtra: toHours(ttb?.normally),
+    hltbCompletionist: toHours(ttb?.completely)
   };
 }
 
@@ -60,12 +91,12 @@ export async function searchGames(query: string): Promise<AutofillResult[]> {
   if (!res.ok) throw new Error(`IGDB search failed: ${res.status}`);
   const data: IgdbGame[] = await res.json();
 
-  return data.map(g => {
-    const patch = toPatch(g);
-    return {
-      label: `${g.name}${g.first_release_date ? ` · ${new Date(g.first_release_date * 1000).getFullYear()}` : ''}`,
-      cover: coverUrl(g.cover?.image_id, 'thumb'),
-      resolvePatch: async () => patch
-    };
-  });
+  // Time-to-beat is fetched lazily inside toPatch — deferred to resolvePatch (called once,
+  // for the game actually picked) rather than eagerly for every row here, same reasoning as
+  // openLibrary.ts's description fetch: it shouldn't multiply the request count per search.
+  return data.map(g => ({
+    label: `${g.name}${g.first_release_date ? ` · ${new Date(g.first_release_date * 1000).getFullYear()}` : ''}`,
+    cover: coverUrl(g.cover?.image_id, 'thumb'),
+    resolvePatch: () => toPatch(g)
+  }));
 }

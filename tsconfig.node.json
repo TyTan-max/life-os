@@ -1,6 +1,14 @@
 {
   "compilerOptions": {
+    // A composite project (required for the `references` link from tsconfig.json) can't set
+    // noEmit — TS requires it to be able to produce output. Left at the default, `tsc -b`
+    // emitted vite.config.js/.d.ts right next to vite.config.ts, which Vite then silently
+    // preferred over the real .ts source on every subsequent `npm run dev` — edits to
+    // vite.config.ts stopped having any effect until someone noticed and deleted the stray
+    // files (see the vite.config.ts fix commit). Redirecting the output here instead of
+    // suppressing it keeps `tsc -b` working exactly as before, just out of the way.
     "composite": true,
+    "outDir": "node_modules/.tsc-node-out",
     "skipLibCheck": true,
     "module": "ESNext",
     "moduleResolution": "bundler",

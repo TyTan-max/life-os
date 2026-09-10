@@ -2,3 +2,10 @@ node_modules
 dist
 .DS_Store
 *.local
+
+# Stray tsc output that once shadowed vite.config.ts for every local dev run — see the
+# vite.config.ts fix commit. vite.config.ts itself is never compiled on purpose; if these
+# reappear, something ran `tsc` without excluding it.
+/vite.config.js
+/vite.config.d.ts
+*.tsbuildinfo

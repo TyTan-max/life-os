@@ -54,6 +54,24 @@ async function getAccessToken(env) {
   return cachedToken.value;
 }
 
+// IGDB caps requests at 4/sec per key — shared by every endpoint below so a burst (bulk
+// import, or a time-to-beat lookup right after a search) usually just resolves in place
+// instead of surfacing a 429 the frontend can't tell apart from "this doesn't exist."
+async function igdbFetch(accessToken, env, endpoint, body) {
+  let res;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    res = await fetch(`https://api.igdb.com/v4/${endpoint}`, {
+      method: 'POST',
+      headers: { 'Client-ID': env.IGDB_CLIENT_ID, Authorization: `Bearer ${accessToken}`, 'Content-Type': 'text/plain' },
+      body
+    });
+    if (res.status !== 429) break;
+    await new Promise(resolve => setTimeout(resolve, 500 * (attempt + 1)));
+  }
+  if (!res || !res.ok) throw new Error(`IGDB ${endpoint} failed: ${res?.status}`);
+  return res;
+}
+
 async function handleSearch(url, env) {
   const q = url.searchParams.get('q')?.trim();
   if (!q) return [];
@@ -73,24 +91,23 @@ async function handleSearch(url, env) {
     'involved_companies.company.name, involved_companies.developer, involved_companies.publisher; ' +
     'limit 20;';
 
-  // IGDB caps requests at 4/sec per key — retry once or twice on a 429 instead of surfacing it
-  // as a hard failure the caller can't tell apart from "this game doesn't exist."
-  let igdbRes;
-  for (let attempt = 0; attempt < 3; attempt++) {
-    igdbRes = await fetch('https://api.igdb.com/v4/games', {
-      method: 'POST',
-      headers: {
-        'Client-ID': env.IGDB_CLIENT_ID,
-        Authorization: `Bearer ${accessToken}`,
-        'Content-Type': 'text/plain'
-      },
-      body
-    });
-    if (igdbRes.status !== 429) break;
-    await new Promise(resolve => setTimeout(resolve, 500 * (attempt + 1)));
-  }
-  if (!igdbRes || !igdbRes.ok) throw new Error(`IGDB search failed: ${igdbRes?.status}`);
+  const igdbRes = await igdbFetch(accessToken, env, 'games', body);
   return igdbRes.json();
+}
+
+// A separate endpoint, not an expandable field on /games — IGDB's time-to-beat data lives in
+// its own game_time_to_beats table, keyed by game_id.
+async function handleTimeToBeat(url, env) {
+  const gameId = url.searchParams.get('gameId')?.trim();
+  if (!gameId || !/^\d+$/.test(gameId)) return null;
+
+  const accessToken = await getAccessToken(env);
+  const igdbRes = await igdbFetch(
+    accessToken, env, 'game_time_to_beats',
+    `fields hastily, normally, completely; where game_id = ${gameId};`
+  );
+  const data = await igdbRes.json();
+  return data[0] ?? null;
 }
 
 export default {
@@ -106,6 +123,9 @@ export default {
       }
       if (url.pathname === '/api/igdb/search') {
         return json(await handleSearch(url, env), 200, headers);
+      }
+      if (url.pathname === '/api/igdb/time-to-beat') {
+        return json(await handleTimeToBeat(url, env), 200, headers);
       }
       return json({ error: 'Not found' }, 404, headers);
     } catch (err) {
