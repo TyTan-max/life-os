@@ -243,6 +243,7 @@ function NotesField({ value, onChange }: { value: string; onChange: (v: string) 
       rows={expanded ? 4 : 1}
       placeholder="Add a note…"
       value={value}
+      title={value}
       onFocus={() => setExpanded(true)}
       onBlur={() => setExpanded(false)}
       onChange={e => onChange(e.target.value)}
