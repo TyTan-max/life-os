@@ -595,6 +595,9 @@ export interface Settings {
   customTransactionTypes?: string[];
   customSavingsCategories?: string[];
   customDebtTypes?: string[];
+  // Learned from manual categorization: normalized merchant text -> categoryId, so future
+  // transactions (typed or CSV-imported) from the same merchant auto-fill the same category.
+  merchantCategoryMap?: Record<string, string>;
   weightUnit?: WeightUnit;
   weightGoalTarget?: number;
   sleepTargetHours?: number;

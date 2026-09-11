@@ -30,3 +30,16 @@ export function suggestCategory(merchant: string): string | undefined {
   for (const rule of RULES) if (rule.pattern.test(text)) return rule.category;
   return undefined;
 }
+
+export function normalizeMerchantKey(merchant: string): string {
+  return merchant.trim().toLowerCase();
+}
+
+// Looks up a categoryId previously learned for this exact merchant string (see
+// Settings.merchantCategoryMap) — takes priority over the generic keyword rules above since it
+// reflects a choice the user actually made for this specific merchant text.
+export function lookupMerchantCategoryId(merchant: string, map: Record<string, string> | undefined): string | undefined {
+  const key = normalizeMerchantKey(merchant);
+  if (!key || !map) return undefined;
+  return map[key];
+}

@@ -12,7 +12,7 @@ import { Sheet } from '../components/Sheet';
 import { useIsMobile } from '../hooks/useIsMobile';
 import { useFabAction } from '../hooks/useFabAction';
 import { formatCurrency, formatDate } from '../components/UI';
-import { suggestCategory } from '../lib/autoCategorize';
+import { suggestCategory, lookupMerchantCategoryId, normalizeMerchantKey } from '../lib/autoCategorize';
 import { reconcileTransferBalances } from '../lib/transferBalance';
 import { isLiabilityAccount } from './FinanceAccounts';
 import { CORE_TRANSACTION_TYPES } from '../types';
@@ -63,19 +63,59 @@ export function FinanceTransactions({ typeFilter }: { typeFilter?: TransactionTy
   const typeOptions = allTypes.filter(ty => ty !== 'Income');
   const [manager, setManager] = useState<ManagerTarget>(null);
   const [showImport, setShowImport] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkCategoryId, setBulkCategoryId] = useState('');
+
+  const toggleSelected = (id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    setSelectedIds(prev => prev.size === sortedTransactions.length ? new Set() : new Set(sortedTransactions.map(t => t.id)));
+  };
+
+  const applyBulkCategory = () => {
+    if (!bulkCategoryId) return;
+    for (const t of sortedTransactions) {
+      if (selectedIds.has(t.id)) patch(t, { categoryId: bulkCategoryId });
+    }
+    setSelectedIds(new Set());
+    setBulkCategoryId('');
+  };
 
   const importTransactions = (records: Transaction[]) => {
     for (const record of records) void upsert('transactions', record);
     setShowImport(false);
   };
 
+  const merchantCategoryMap = data.settings.merchantCategoryMap ?? {};
+
   const patch = (t: Transaction, p: Partial<Transaction>) => {
     const next = { ...t, ...p };
     if ('merchant' in p && !t.categoryId) {
-      const suggestion = suggestCategory(String(p.merchant));
-      if (suggestion) {
-        const match = categories.find(c => c.name.toLowerCase() === suggestion.toLowerCase());
-        if (match) next.categoryId = match.id;
+      const merchant = String(p.merchant);
+      const mapped = lookupMerchantCategoryId(merchant, merchantCategoryMap);
+      if (mapped && categories.some(c => c.id === mapped)) {
+        next.categoryId = mapped;
+      } else {
+        const suggestion = suggestCategory(merchant);
+        if (suggestion) {
+          const match = categories.find(c => c.name.toLowerCase() === suggestion.toLowerCase());
+          if (match) next.categoryId = match.id;
+        }
+      }
+    }
+    // A category assigned by hand is a stronger signal than the keyword rules — remember it
+    // against this exact merchant text so future transactions (typed or CSV-imported) from the
+    // same merchant auto-fill the same category instead of coming in blank.
+    if ('categoryId' in p && p.categoryId && next.merchant) {
+      const key = normalizeMerchantKey(next.merchant);
+      if (key && merchantCategoryMap[key] !== p.categoryId) {
+        void updateSettings({ merchantCategoryMap: { ...merchantCategoryMap, [key]: p.categoryId } });
       }
     }
     for (const account of reconcileTransferBalances(t, next, accounts)) void upsert('financeAccounts', account);
@@ -170,6 +210,7 @@ export function FinanceTransactions({ typeFilter }: { typeFilter?: TransactionTy
             accounts={accountOptions}
             categories={categories}
             existingTransactions={data.transactions}
+            merchantCategoryMap={merchantCategoryMap}
             onImport={importTransactions}
             onClose={() => setShowImport(false)}
           />
@@ -236,10 +277,29 @@ export function FinanceTransactions({ typeFilter }: { typeFilter?: TransactionTy
 
   return (
     <>
+      {selectedIds.size > 0 && (
+        <div className="bulk-action-bar">
+          <span>{selectedIds.size} selected</span>
+          <select value={bulkCategoryId} onChange={e => setBulkCategoryId(e.target.value)}>
+            <option value="">Set category…</option>
+            {relevantCategories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+          <button type="button" className="btn teal" disabled={!bulkCategoryId} onClick={applyBulkCategory}>Apply</button>
+          <button type="button" className="btn ghost" onClick={() => setSelectedIds(new Set())}>Clear selection</button>
+        </div>
+      )}
       <div className="grid-table-wrap grid-table-scroll">
         <table className="grid-table">
           <thead>
             <tr>
+              <th className="grid-th-checkbox">
+                <input
+                  type="checkbox"
+                  checked={sortedTransactions.length > 0 && selectedIds.size === sortedTransactions.length}
+                  onChange={toggleSelectAll}
+                  aria-label="Select all"
+                />
+              </th>
               <SortableTh label="Date" sortKey="date" state={sort} onSort={k => setSort(s => toggleSort(s, k, 'desc'))} />
               <SortableTh label="Merchant / Payee" sortKey="merchant" state={sort} onSort={k => setSort(s => toggleSort(s, k))} />
               <SortableTh label="Amount" sortKey="amount" state={sort} onSort={k => setSort(s => toggleSort(s, k, 'desc'))} />
@@ -272,7 +332,10 @@ export function FinanceTransactions({ typeFilter }: { typeFilter?: TransactionTy
           </thead>
           <tbody>
             {sortedTransactions.map(t => (
-              <tr key={t.id}>
+              <tr key={t.id} className={selectedIds.has(t.id) ? 'grid-row-selected' : ''}>
+                <td className="grid-th-checkbox">
+                  <input type="checkbox" checked={selectedIds.has(t.id)} onChange={() => toggleSelected(t.id)} aria-label={`Select ${t.merchant || noun}`} />
+                </td>
                 <td><DatePicker value={t.date} onChange={v => patch(t, { date: v })} /></td>
                 <td><input type="text" className="grid-cell-input" value={t.merchant} placeholder="e.g. Walmart, Paycheck…" onChange={e => patch(t, { merchant: e.target.value })} /></td>
                 <td className="grid-td-compact"><NumberCell value={t.amount} onChange={n => patch(t, { amount: n })} min={0} decimals={2} /></td>
@@ -333,6 +396,7 @@ export function FinanceTransactions({ typeFilter }: { typeFilter?: TransactionTy
           accounts={accountOptions}
           categories={categories}
           existingTransactions={data.transactions}
+          merchantCategoryMap={merchantCategoryMap}
           onImport={importTransactions}
           onClose={() => setShowImport(false)}
         />

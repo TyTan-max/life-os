@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Modal } from './UI';
 import { parseCSV, normalizeCsvDate, parseCsvAmount } from '../lib/csv';
-import { suggestCategory } from '../lib/autoCategorize';
+import { suggestCategory, lookupMerchantCategoryId } from '../lib/autoCategorize';
 import { newRecord } from '../store';
 import type { FinanceAccount, FinanceCategory, Transaction } from '../types';
 
@@ -25,11 +25,12 @@ function duplicateKey(accountId: string, date: string, amount: number, merchant:
 }
 
 export function ImportTransactionsModal({
-  accounts, categories, existingTransactions, onImport, onClose
+  accounts, categories, existingTransactions, merchantCategoryMap, onImport, onClose
 }: {
   accounts: FinanceAccount[];
   categories: FinanceCategory[];
   existingTransactions: Transaction[];
+  merchantCategoryMap: Record<string, string>;
   onImport: (transactions: Transaction[]) => void;
   onClose: () => void;
 }) {
@@ -129,20 +130,33 @@ export function ImportTransactionsModal({
 
   const canMap = accountId && dateCol && merchantCol && (amountMode === 'single' ? amountCol : (debitCol || creditCol));
 
+  // Prefers a category the user has already picked for this exact merchant text before, since
+  // that's a stronger signal than the generic keyword rules and is what makes repeat imports from
+  // the same bank (with the same messy merchant strings) get categorized automatically over time.
+  const categoryFor = (merchant: string, isIncome: boolean) => {
+    const kind = isIncome ? 'income' : 'expense';
+    const mappedId = lookupMerchantCategoryId(merchant, merchantCategoryMap);
+    if (mappedId) {
+      const mapped = categories.find(c => c.id === mappedId && c.kind === kind);
+      if (mapped) return mapped.id;
+    }
+    const suggestion = suggestCategory(merchant);
+    if (suggestion) {
+      const match = categories.find(c => c.name.toLowerCase() === suggestion.toLowerCase() && c.kind === kind);
+      if (match) return match.id;
+    }
+    return undefined;
+  };
+
   const doImport = () => {
-    const records = rowsToImport.map(r => {
-      const type = r.isIncome ? 'Income' : 'Expense';
-      const suggestion = suggestCategory(r.merchant);
-      const category = suggestion ? categories.find(c => c.name.toLowerCase() === suggestion.toLowerCase() && c.kind === (r.isIncome ? 'income' : 'expense')) : undefined;
-      return newRecord<Transaction>({
-        date: r.date,
-        merchant: r.merchant,
-        amount: r.amount,
-        type,
-        accountId,
-        categoryId: category?.id
-      });
-    });
+    const records = rowsToImport.map(r => newRecord<Transaction>({
+      date: r.date,
+      merchant: r.merchant,
+      amount: r.amount,
+      type: r.isIncome ? 'Income' : 'Expense',
+      accountId,
+      categoryId: categoryFor(r.merchant, r.isIncome)
+    }));
     onImport(records);
   };
 
@@ -279,18 +293,23 @@ export function ImportTransactionsModal({
           <div className="grid-table-wrap grid-table-scroll">
             <table className="grid-table">
               <thead>
-                <tr><th>Date</th><th>Merchant</th><th>Amount</th><th>Type</th><th>Status</th></tr>
+                <tr><th>Date</th><th>Merchant</th><th>Amount</th><th>Type</th><th>Category</th><th>Status</th></tr>
               </thead>
               <tbody>
-                {parsedRows.slice(0, 50).map((r, i) => (
-                  <tr key={i} className={r.isDuplicate && skipDuplicates ? 'import-row-skipped' : ''}>
-                    <td>{r.date}</td>
-                    <td>{r.merchant}</td>
-                    <td>{r.amount.toFixed(2)}</td>
-                    <td>{r.isIncome ? 'Income' : 'Expense'}</td>
-                    <td>{r.isDuplicate ? <span className="import-duplicate-tag">Possible duplicate</span> : ''}</td>
-                  </tr>
-                ))}
+                {parsedRows.slice(0, 50).map((r, i) => {
+                  const categoryId = categoryFor(r.merchant, r.isIncome);
+                  const categoryLabel = categoryId ? categories.find(c => c.id === categoryId)?.name : undefined;
+                  return (
+                    <tr key={i} className={r.isDuplicate && skipDuplicates ? 'import-row-skipped' : ''}>
+                      <td>{r.date}</td>
+                      <td>{r.merchant}</td>
+                      <td>{r.amount.toFixed(2)}</td>
+                      <td>{r.isIncome ? 'Income' : 'Expense'}</td>
+                      <td>{categoryLabel ?? <span className="muted">—</span>}</td>
+                      <td>{r.isDuplicate ? <span className="import-duplicate-tag">Possible duplicate</span> : ''}</td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
