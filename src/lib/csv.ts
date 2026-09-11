@@ -52,11 +52,15 @@ export function normalizeCsvDate(raw: string): string {
   return value;
 }
 
-// Matches bank CSV descriptions for "you paid your credit card bill" (CRCARDPMT, CARDMEMBER SERV,
-// etc.) — deliberately narrow so it doesn't also catch an ordinary purchase whose description
-// happens to contain the word "payment" (e.g. a Microsoft Xbox "payment").
+// Matches bank/card CSV descriptions for "you paid your credit card bill" — both the bank's side
+// (CRCARDPMT, CARDMEMBER SERV) and the card issuer's own side (e.g. Capital One's "AUTOPAY PYMT",
+// "AUTOMATIC PAYMENT - THANK YOU"). Deliberately narrow so it doesn't also catch an ordinary
+// purchase whose description happens to contain the word "payment" (e.g. a Microsoft Xbox
+// "payment") or a subscription's own "autopay" mention (e.g. "NETFLIX AUTOPAY") — the patterns
+// here specifically combine payment-confirmation wording (PYMT, THANK YOU) rather than matching
+// "autopay" or "payment" alone.
 export function isCreditCardPaymentMerchant(merchant: string): boolean {
-  return /crcardpmt|cr\s*card\s*pmt|credit\s*card\s*(payment|pmt)|cardmember\s*serv|\bcc\s*payment\b/i.test(merchant);
+  return /crcardpmt|cr\s*card\s*pmt|credit\s*card\s*(payment|pmt)|cardmember\s*serv|\bcc\s*payment\b|autopay\s*pymt|auto\s*pay\s*pymt|automatic\s*payment|payment.*thank\s*you|thank\s*you.*payment/i.test(merchant);
 }
 
 // Bank/card issuers export their own spending category alongside each transaction (Capital One's

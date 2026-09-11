@@ -14,6 +14,7 @@ interface ParsedRow {
   isIncome: boolean;
   isDuplicate: boolean;
   isTransferLike: boolean;
+  isLikelyPaymentReceived: boolean;
   csvCategory: string;
 }
 
@@ -49,6 +50,7 @@ export function ImportTransactionsModal({
   const [debitCol, setDebitCol] = useState(NONE);
   const [creditCol, setCreditCol] = useState(NONE);
   const [skipDuplicates, setSkipDuplicates] = useState(true);
+  const [skipLikelyPayments, setSkipLikelyPayments] = useState(true);
   const [transferToAccountId, setTransferToAccountId] = useState(NONE);
   const [categoryCol, setCategoryCol] = useState(NONE);
 
@@ -143,12 +145,20 @@ export function ImportTransactionsModal({
       // received on the card's own statement) — that reverse case is left as Income for the user
       // to fix by hand, rather than guessing and getting the direction backwards.
       const isTransferLike = !isIncome && isCreditCardPaymentMerchant(merchant);
-      return { date, merchant, amount, isIncome, isDuplicate, isTransferLike, csvCategory };
+      // The reverse of isTransferLike: a payment showing up as money *received* on the card's own
+      // statement. That same payment was (or will be) logged as a Transfer from the paying
+      // account's side, so importing this one too as Income would double-count it as money earned
+      // when it's really just the other half of a transfer already accounted for elsewhere.
+      const isLikelyPaymentReceived = isIncome && isCreditCardPaymentMerchant(merchant);
+      return { date, merchant, amount, isIncome, isDuplicate, isTransferLike, isLikelyPaymentReceived, csvCategory };
     }).filter(r => r.date && r.merchant);
   }, [step, dataRows, dateCol, merchantCol, amountMode, amountCol, debitCol, creditCol, flipSign, existingKeys, accountId, categoryCol]);
 
   const duplicateCount = parsedRows.filter(r => r.isDuplicate).length;
-  const rowsToImport = skipDuplicates ? parsedRows.filter(r => !r.isDuplicate) : parsedRows;
+  const likelyPaymentCount = parsedRows.filter(r => r.isLikelyPaymentReceived).length;
+  const rowsToImport = parsedRows.filter(r =>
+    !(skipDuplicates && r.isDuplicate) && !(skipLikelyPayments && r.isLikelyPaymentReceived)
+  );
 
   const canMap = accountId && dateCol && merchantCol && (amountMode === 'single' ? amountCol : (debitCol || creditCol));
 
@@ -335,6 +345,15 @@ export function ImportTransactionsModal({
               </span>
             </label>
           )}
+          {likelyPaymentCount > 0 && (
+            <label className="import-dedupe-toggle">
+              <input type="checkbox" checked={skipLikelyPayments} onChange={e => setSkipLikelyPayments(e.target.checked)} />
+              <span>
+                Skip {likelyPaymentCount} row{likelyPaymentCount === 1 ? '' : 's'} that look{likelyPaymentCount === 1 ? 's' : ''} like a credit card payment received —
+                likely already recorded as a Transfer from the account that paid it
+              </span>
+            </label>
+          )}
           <div className="grid-table-wrap grid-table-scroll">
             <table className="grid-table">
               <thead>
@@ -346,8 +365,9 @@ export function ImportTransactionsModal({
                   const categoryId = asTransfer ? undefined : categoryFor(r.merchant, r.isIncome, r.csvCategory);
                   const categoryLabel = categoryId ? categories.find(c => c.id === categoryId)?.name : undefined;
                   const typeLabel = asTransfer ? 'Transfer' : (r.isIncome ? 'Income' : 'Expense');
+                  const skippedRow = (r.isDuplicate && skipDuplicates) || (r.isLikelyPaymentReceived && skipLikelyPayments);
                   return (
-                    <tr key={i} className={r.isDuplicate && skipDuplicates ? 'import-row-skipped' : ''}>
+                    <tr key={i} className={skippedRow ? 'import-row-skipped' : ''}>
                       <td>{r.date}</td>
                       <td>{r.merchant}</td>
                       <td>{r.amount.toFixed(2)}</td>
@@ -356,6 +376,7 @@ export function ImportTransactionsModal({
                       <td>
                         {r.isDuplicate && <span className="import-duplicate-tag">Possible duplicate</span>}
                         {!r.isDuplicate && r.isTransferLike && !transferToAccountId && <span className="import-duplicate-tag">Looks like a card payment</span>}
+                        {!r.isDuplicate && r.isLikelyPaymentReceived && <span className="import-duplicate-tag">Likely already a transfer</span>}
                       </td>
                     </tr>
                   );
