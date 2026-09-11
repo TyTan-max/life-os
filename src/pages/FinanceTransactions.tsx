@@ -21,6 +21,8 @@ import type { FinanceAccount, FinanceCategory, Transaction, TransactionType } fr
 type ManagerTarget = 'account' | 'category' | 'type' | null;
 type TxSortKey = 'date' | 'merchant' | 'amount' | 'type' | 'account' | 'category';
 
+const UNCATEGORIZED_FILTER = '__uncategorized__';
+
 export function FinanceTransactions({ typeFilter }: { typeFilter?: TransactionType } = {}) {
   const { data, upsert, remove, updateSettings } = useStore();
   const isMobile = useIsMobile();
@@ -46,29 +48,39 @@ export function FinanceTransactions({ typeFilter }: { typeFilter?: TransactionTy
 
   const accountName = (id?: string) => accounts.find(a => a.id === id)?.name ?? '';
   const categoryName = (id?: string) => categories.find(c => c.id === id)?.name ?? '';
+  const incomeCategories = categories.filter(c => c.kind === 'income');
+  const expenseCategories = categories.filter(c => c.kind === 'expense');
+  const relevantCategories = isIncomeView ? incomeCategories : expenseCategories;
 
   // Date range filter (inclusive on both ends) — dates are stored as YYYY-MM-DD strings so plain
   // string comparison sorts correctly without parsing.
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
-  const dateFilteredTransactions = useMemo(() => {
-    if (!dateFrom && !dateTo) return transactions;
-    return transactions.filter(t => (!dateFrom || t.date >= dateFrom) && (!dateTo || t.date <= dateTo));
-  }, [transactions, dateFrom, dateTo]);
+  // Category filter: '' = all categories, UNCATEGORIZED_FILTER = rows with no category set, else a categoryId.
+  const [categoryFilter, setCategoryFilter] = useState('');
+  const filteredTransactions = useMemo(() => {
+    return transactions.filter(t => {
+      if (dateFrom && t.date < dateFrom) return false;
+      if (dateTo && t.date > dateTo) return false;
+      if (categoryFilter === UNCATEGORIZED_FILTER) { if (t.categoryId) return false; }
+      else if (categoryFilter && t.categoryId !== categoryFilter) return false;
+      return true;
+    });
+  }, [transactions, dateFrom, dateTo, categoryFilter]);
 
   // Matches merchant, notes, account, and category text — a history in the thousands (e.g. after
   // a few bank CSV imports) is otherwise unnavigable without scrolling and eyeballing every row.
   const [search, setSearch] = useState('');
   const searchedTransactions = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return dateFilteredTransactions;
-    return dateFilteredTransactions.filter(t =>
+    if (!q) return filteredTransactions;
+    return filteredTransactions.filter(t =>
       t.merchant.toLowerCase().includes(q) ||
       (t.notes ?? '').toLowerCase().includes(q) ||
       accountName(t.accountId).toLowerCase().includes(q) ||
       categoryName(t.categoryId).toLowerCase().includes(q)
     );
-  }, [dateFilteredTransactions, search, accounts, categories]);
+  }, [filteredTransactions, search, accounts, categories]);
 
   const [sort, setSort] = useState<SortState<TxSortKey>>({ key: 'date', dir: 'desc' });
 
@@ -108,9 +120,6 @@ export function FinanceTransactions({ typeFilter }: { typeFilter?: TransactionTy
   }), [searchedTransactions, sort, accounts, categories]);
   // Income can't land in a liability account (a loan or credit card isn't a deposit destination).
   const accountOptions = isIncomeView ? accounts.filter(a => !isLiabilityAccount(a.type)) : accounts;
-  const incomeCategories = categories.filter(c => c.kind === 'income');
-  const expenseCategories = categories.filter(c => c.kind === 'expense');
-  const relevantCategories = isIncomeView ? incomeCategories : expenseCategories;
   const today = new Date().toISOString().slice(0, 10);
   const noun = isIncomeView ? 'income' : 'transaction';
   // The Income tab is locked to Income — reclassifying away would just make the row vanish from
@@ -304,7 +313,7 @@ export function FinanceTransactions({ typeFilter }: { typeFilter?: TransactionTy
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: 0 });
     setScrollTop(0);
-  }, [search, sort, dateFrom, dateTo]);
+  }, [search, sort, dateFrom, dateTo, categoryFilter]);
 
   const searchBox = (
     <div className="toolbar-search tx-search">
@@ -342,11 +351,33 @@ export function FinanceTransactions({ typeFilter }: { typeFilter?: TransactionTy
     </div>
   );
 
+  const categoryFilterSelect = (
+    <div className="tx-category-filter">
+      <select value={categoryFilter} onChange={e => setCategoryFilter(e.target.value)} aria-label="Filter by category">
+        <option value="">All categories</option>
+        <option value={UNCATEGORIZED_FILTER}>Uncategorized</option>
+        {relevantCategories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+      </select>
+      {categoryFilter && (
+        <button
+          type="button"
+          className="icon-btn"
+          onClick={() => setCategoryFilter('')}
+          aria-label="Clear category filter"
+          title="Clear category filter"
+        >
+          <X size={14} />
+        </button>
+      )}
+    </div>
+  );
+
   if (isMobile) {
     return (
       <>
         {searchBox}
         {dateRangeFilter}
+        {categoryFilterSelect}
         <MobileRecordList
           items={sortedTransactions}
           primary={t => t.merchant || `(no ${noun === 'income' ? 'source' : 'merchant'})`}
@@ -441,6 +472,7 @@ export function FinanceTransactions({ typeFilter }: { typeFilter?: TransactionTy
       <div className="tx-filters-row">
         {searchBox}
         {dateRangeFilter}
+        {categoryFilterSelect}
       </div>
       {selectedIds.size > 0 && (
         <div className="bulk-action-bar">

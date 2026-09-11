@@ -1874,6 +1874,11 @@ input, select, textarea { font-family: inherit; }
 .tx-filters-row .tx-search { margin-bottom: 12px; }
 .tx-date-range-filter { display: flex; align-items: center; gap: 6px; margin-bottom: 12px; }
 .tx-date-range-sep { color: var(--text-faint); font-size: 12.5px; }
+.tx-category-filter { display: flex; align-items: center; gap: 6px; margin-bottom: 12px; }
+.tx-category-filter select {
+  border: 1px solid var(--border); border-radius: 10px; background: var(--surface); color: var(--text);
+  font-size: 13px; padding: 0 8px; height: 32px; min-width: 150px;
+}
 .grid-cell-with-action { display: flex; align-items: center; gap: 4px; }
 .grid-cell-with-action .grid-cell-input { flex: 1; min-width: 0; }
 .grid-cell-with-action .icon-btn { flex-shrink: 0; opacity: 0; transition: opacity 0.1s; }
