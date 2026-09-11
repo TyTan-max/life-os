@@ -62,6 +62,29 @@ export function FinanceTransactions({ typeFilter }: { typeFilter?: TransactionTy
   }, [transactions, search, accounts, categories]);
 
   const [sort, setSort] = useState<SortState<TxSortKey>>({ key: 'date', dir: 'desc' });
+
+  // Merchant/Payee column width: null means the regular auto-sized width. Dragging the resize
+  // handle sets an explicit width; double-clicking it clears back to null.
+  const [merchantColWidth, setMerchantColWidth] = useState<number | null>(null);
+  const merchantResizeRef = useRef<{ startX: number; startWidth: number } | null>(null);
+  const startMerchantResize = (e: React.MouseEvent<HTMLSpanElement>) => {
+    e.preventDefault();
+    const th = e.currentTarget.closest('th');
+    const startWidth = th?.getBoundingClientRect().width ?? 200;
+    merchantResizeRef.current = { startX: e.clientX, startWidth };
+    const onMove = (ev: MouseEvent) => {
+      if (!merchantResizeRef.current) return;
+      const delta = ev.clientX - merchantResizeRef.current.startX;
+      setMerchantColWidth(Math.min(600, Math.max(120, merchantResizeRef.current.startWidth + delta)));
+    };
+    const onUp = () => {
+      merchantResizeRef.current = null;
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  };
   const sortedTransactions = useMemo(() => searchedTransactions.slice().sort((a, b) => {
     let cmp = 0;
     switch (sort.key) {
@@ -422,6 +445,18 @@ export function FinanceTransactions({ typeFilter }: { typeFilter?: TransactionTy
       )}
       <div className="grid-table-wrap grid-table-scroll" ref={scrollRef} onScroll={e => setScrollTop(e.currentTarget.scrollTop)}>
         <table className="grid-table">
+          <colgroup>
+            <col />
+            <col />
+            <col style={merchantColWidth != null ? { width: merchantColWidth } : undefined} />
+            <col />
+            <col />
+            <col />
+            {!isIncomeView && <col />}
+            <col />
+            <col />
+            <col />
+          </colgroup>
           <thead>
             <tr>
               <th className="grid-th-checkbox">
@@ -433,7 +468,15 @@ export function FinanceTransactions({ typeFilter }: { typeFilter?: TransactionTy
                 />
               </th>
               <SortableTh label="Date" sortKey="date" state={sort} onSort={k => setSort(s => toggleSort(s, k, 'desc'))} />
-              <SortableTh label="Merchant / Payee" sortKey="merchant" state={sort} onSort={k => setSort(s => toggleSort(s, k))} />
+              <th className="grid-th-resizable">
+                <SortableThLabel label="Merchant / Payee" sortKey="merchant" state={sort} onSort={k => setSort(s => toggleSort(s, k))} />
+                <span
+                  className="grid-col-resizer"
+                  onMouseDown={startMerchantResize}
+                  onDoubleClick={() => setMerchantColWidth(null)}
+                  title="Drag to resize — double-click to reset"
+                />
+              </th>
               <SortableTh label="Amount" sortKey="amount" state={sort} onSort={k => setSort(s => toggleSort(s, k, 'desc'))} />
               <th>
                 {isIncomeView ? 'Type' : (

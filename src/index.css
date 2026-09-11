@@ -1692,6 +1692,19 @@ input, select, textarea { font-family: inherit; }
 .grid-section-title { font-size: 15px; font-weight: 650; margin: 22px 0 10px; }
 .grid-section-title:first-child { margin-top: 0; }
 
+.grid-th-resizable { position: relative; }
+.grid-col-resizer {
+  position: absolute;
+  top: 0;
+  right: -4px;
+  bottom: 0;
+  width: 8px;
+  cursor: col-resize;
+  z-index: 2;
+  user-select: none;
+}
+.grid-col-resizer:hover, .grid-col-resizer:active { background: var(--accent); opacity: 0.4; }
+
 .health-tab-period-row { align-items: center; flex-wrap: wrap; }
 .health-period-controls { display: flex; align-items: center; gap: 8px; }
 .health-period-select {
