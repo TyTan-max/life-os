@@ -1,7 +1,7 @@
 import { Fragment, useMemo, useState } from 'react';
-import { ChevronDown, ChevronLeft, ChevronRight, Wand2 } from 'lucide-react';
+import { ChevronDown, ChevronLeft, ChevronRight, Pencil, Wand2 } from 'lucide-react';
 import { useStore, newRecord } from '../store';
-import { Card, Kpi, formatCurrency, formatDate } from '../components/UI';
+import { Card, Kpi, formatCurrency, formatDate, Modal } from '../components/UI';
 import { SortableTh, toggleSort } from '../components/SortableTh';
 import type { SortState } from '../components/SortableTh';
 import { MonthYearPicker } from '../components/MonthYearPicker';
@@ -11,7 +11,7 @@ import {
   actualSpendByCategory, formatMonthLabel, monthKey, monthlyIncome,
   rolloverAmount, shiftMonth, suggest502030
 } from '../lib/budgetMath';
-import type { Budget, FinanceGoal } from '../types';
+import type { Budget, BudgetGroup, FinanceGoal } from '../types';
 
 function requiredMonthlyContribution(goal: FinanceGoal): number {
   if (!goal.targetDate) return 0;
@@ -188,6 +188,16 @@ export function FinanceBudgets() {
   // placeholder rows collapse into a couple of totals; expand a group to see individual categories.
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
   const [hideZeroActual, setHideZeroActual] = useState(true);
+  const [showBudgetGroups, setShowBudgetGroups] = useState(false);
+  const expenseCategories = useMemo(
+    () => data.financeCategories.filter(c => c.kind === 'expense').slice().sort((a, b) => a.name.localeCompare(b.name)),
+    [data.financeCategories]
+  );
+  const setCategoryBudgetGroup = (categoryId: string, group: BudgetGroup | '') => {
+    const category = data.financeCategories.find(c => c.id === categoryId);
+    if (!category) return;
+    void upsert('financeCategories', { ...category, budgetGroup: group || undefined });
+  };
   const toggleGroup = (key: string) => {
     setExpandedGroups(prev => {
       const next = new Set(prev);
@@ -562,10 +572,15 @@ export function FinanceBudgets() {
         <Card className="worksheet-card">
           <div className="card-title">
             <div><h2>Expenses Summary</h2></div>
-            <label className="expense-summary-toggle">
-              <input type="checkbox" checked={hideZeroActual} onChange={e => setHideZeroActual(e.target.checked)} />
-              Hide $0 categories
-            </label>
+            <div className="grid-row-actions">
+              <label className="expense-summary-toggle">
+                <input type="checkbox" checked={hideZeroActual} onChange={e => setHideZeroActual(e.target.checked)} />
+                Hide $0 categories
+              </label>
+              <button type="button" className="col-edit-btn" onClick={() => setShowBudgetGroups(true)} aria-label="Assign categories to Needs or Wants" title="Assign categories to Needs or Wants">
+                <Pencil size={11} />
+              </button>
+            </div>
           </div>
           {expenseGroups.length ? (
             <div className="mini-table-wrap">
@@ -647,6 +662,32 @@ export function FinanceBudgets() {
       </div>
 
       <FinanceLedger />
+
+      {showBudgetGroups && (
+        <Modal
+          eyebrow="Life OS"
+          title="Assign Needs / Wants"
+          onClose={() => setShowBudgetGroups(false)}
+        >
+          <p className="list-manager-subtitle">
+            Sets which bucket each expense category rolls up into on the Expenses Summary above.
+            A category left on "Uncategorized" shows up in its own Uncategorized group instead of
+            counting toward either 50/30/20 target.
+          </p>
+          <div className="list-manager-items">
+            {expenseCategories.map(c => (
+              <div className="list-manager-row" key={c.id}>
+                <span className="list-manager-row-label">{c.name}</span>
+                <select value={c.budgetGroup ?? ''} onChange={e => setCategoryBudgetGroup(c.id, e.target.value as BudgetGroup | '')}>
+                  <option value="">Uncategorized</option>
+                  <option value="Needs">Needs</option>
+                  <option value="Wants">Wants</option>
+                </select>
+              </div>
+            ))}
+          </div>
+        </Modal>
+      )}
     </>
   );
 }
