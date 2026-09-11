@@ -13,6 +13,7 @@ interface ParsedRow {
   amount: number;
   isIncome: boolean;
   isDuplicate: boolean;
+  matchedTransaction: Transaction | undefined;
   isTransferLike: boolean;
   isLikelyPaymentReceived: boolean;
   csvCategory: string;
@@ -97,13 +98,16 @@ export function ImportTransactionsModal({
 
   const colIndex = (name: string) => headers.indexOf(name);
 
-  const existingKeys = useMemo(() => {
-    const keys = new Set<string>();
+  // Maps a duplicate key to the actual existing transaction it matches, not just whether one
+  // exists — so a flagged row can show what it's colliding with (its category, notes, type) to
+  // help confirm it really is the same transaction rather than a coincidental match.
+  const existingByKey = useMemo(() => {
+    const map = new Map<string, Transaction>();
     for (const t of existingTransactions) {
       if (t.accountId !== accountId) continue;
-      keys.add(duplicateKey(t.accountId, t.date, t.amount, t.merchant));
+      map.set(duplicateKey(t.accountId, t.date, t.amount, t.merchant), t);
     }
-    return keys;
+    return map;
   }, [existingTransactions, accountId]);
 
   // Only depends on the merchant column, so it's available on the mapping step (before amount
@@ -139,7 +143,8 @@ export function ImportTransactionsModal({
         isIncome = credit > 0 && debit === 0;
         amount = isIncome ? credit : debit;
       }
-      const isDuplicate = existingKeys.has(duplicateKey(accountId, date, amount, merchant));
+      const matchedTransaction = existingByKey.get(duplicateKey(accountId, date, amount, merchant));
+      const isDuplicate = matchedTransaction !== undefined;
       // Only the "money out" direction is safe to auto-flip to a Transfer here: a Transfer's
       // accountId is always the source, and the account being imported into is the source only
       // when money is leaving it (paying the card), not when it's the destination (a payment
@@ -151,9 +156,9 @@ export function ImportTransactionsModal({
       // account's side, so importing this one too as Income would double-count it as money earned
       // when it's really just the other half of a transfer already accounted for elsewhere.
       const isLikelyPaymentReceived = isIncome && isCreditCardPaymentMerchant(merchant);
-      return { date, merchant, amount, isIncome, isDuplicate, isTransferLike, isLikelyPaymentReceived, csvCategory };
+      return { date, merchant, amount, isIncome, isDuplicate, matchedTransaction, isTransferLike, isLikelyPaymentReceived, csvCategory };
     }).filter(r => r.date && r.merchant);
-  }, [step, dataRows, dateCol, merchantCol, amountMode, amountCol, debitCol, creditCol, flipSign, existingKeys, accountId, categoryCol]);
+  }, [step, dataRows, dateCol, merchantCol, amountMode, amountCol, debitCol, creditCol, flipSign, existingByKey, accountId, categoryCol]);
 
   const duplicateCount = parsedRows.filter(r => r.isDuplicate).length;
   const likelyPaymentCount = parsedRows.filter(r => r.isLikelyPaymentReceived).length;
@@ -184,6 +189,23 @@ export function ImportTransactionsModal({
       if (match) return match.id;
     }
     return undefined;
+  };
+
+  // What a "Possible duplicate" tag actually matches — by definition the date/amount/merchant are
+  // already identical to what's on screen, so the useful new information is whatever differs
+  // (its type, category, or notes) — shown both inline and as a full-sentence hover tooltip.
+  const matchSummary = (t: Transaction) => {
+    const categoryName = t.categoryId ? categories.find(c => c.id === t.categoryId)?.name : undefined;
+    const bits = [t.type];
+    if (categoryName) bits.push(categoryName);
+    return bits.join(' · ');
+  };
+  const describeMatch = (t: Transaction) => {
+    const parts = [`Matches an existing ${t.type} transaction`];
+    const categoryName = t.categoryId ? categories.find(c => c.id === t.categoryId)?.name : undefined;
+    if (categoryName) parts.push(`categorized as ${categoryName}`);
+    if (t.notes?.trim()) parts.push(`with note "${t.notes.trim()}"`);
+    return parts.join(', ') + '.';
   };
 
   const doImport = () => {
@@ -385,7 +407,12 @@ export function ImportTransactionsModal({
                       <td>{typeLabel}</td>
                       <td>{asTransfer ? <span className="muted">—</span> : (categoryLabel ?? <span className="muted">—</span>)}</td>
                       <td>
-                        {r.isDuplicate && <span className="import-duplicate-tag">Possible duplicate</span>}
+                        {r.isDuplicate && (
+                          <div title={r.matchedTransaction ? describeMatch(r.matchedTransaction) : undefined}>
+                            <span className="import-duplicate-tag">Possible duplicate</span>
+                            {r.matchedTransaction && <div className="import-match-detail">Existing: {matchSummary(r.matchedTransaction)}</div>}
+                          </div>
+                        )}
                         {!r.isDuplicate && r.isTransferLike && !transferToAccountId && <span className="import-duplicate-tag">Looks like a card payment</span>}
                         {!r.isDuplicate && r.isLikelyPaymentReceived && <span className="import-duplicate-tag">Likely already a transfer</span>}
                       </td>
