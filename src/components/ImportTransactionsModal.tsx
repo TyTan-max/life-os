@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Modal } from './UI';
-import { parseCSV, normalizeCsvDate, parseCsvAmount, isCreditCardPaymentMerchant } from '../lib/csv';
+import { parseCSV, normalizeCsvDate, parseCsvAmount, isCreditCardPaymentMerchant, matchCsvCategoryId } from '../lib/csv';
 import { suggestCategory, lookupMerchantCategoryId } from '../lib/autoCategorize';
 import { newRecord } from '../store';
 import type { FinanceAccount, FinanceCategory, Transaction } from '../types';
@@ -14,6 +14,7 @@ interface ParsedRow {
   isIncome: boolean;
   isDuplicate: boolean;
   isTransferLike: boolean;
+  csvCategory: string;
 }
 
 const NONE = '';
@@ -49,6 +50,7 @@ export function ImportTransactionsModal({
   const [creditCol, setCreditCol] = useState(NONE);
   const [skipDuplicates, setSkipDuplicates] = useState(true);
   const [transferToAccountId, setTransferToAccountId] = useState(NONE);
+  const [categoryCol, setCategoryCol] = useState(NONE);
 
   const headers = hasHeader && rows.length ? rows[0] : rows[0]?.map((_, i) => `Column ${i + 1}`) ?? [];
   const dataRows = hasHeader ? rows.slice(1) : rows;
@@ -69,8 +71,10 @@ export function ImportTransactionsModal({
         const amountIdx = findCol(/^amount$|^amt$/i);
         const debitIdx = findCol(/debit/i);
         const creditIdx = findCol(/credit/i);
+        const categoryIdx = findCol(/^category$/i);
         if (dateIdx >= 0) setDateCol(header[dateIdx]);
         if (descIdx >= 0) setMerchantCol(header[descIdx]);
+        if (categoryIdx >= 0) setCategoryCol(header[categoryIdx]);
         if (amountIdx >= 0) {
           setAmountMode('single');
           setAmountCol(header[amountIdx]);
@@ -114,9 +118,11 @@ export function ImportTransactionsModal({
     const ai = colIndex(amountCol);
     const debI = colIndex(debitCol);
     const credI = colIndex(creditCol);
+    const catI = colIndex(categoryCol);
     return dataRows.map(r => {
       const date = di >= 0 ? normalizeCsvDate(r[di] ?? '') : '';
       const merchant = mi >= 0 ? (r[mi] ?? '').trim() : '';
+      const csvCategory = catI >= 0 ? (r[catI] ?? '').trim() : '';
       let amount: number;
       let isIncome: boolean;
       if (amountMode === 'single') {
@@ -137,25 +143,28 @@ export function ImportTransactionsModal({
       // received on the card's own statement) — that reverse case is left as Income for the user
       // to fix by hand, rather than guessing and getting the direction backwards.
       const isTransferLike = !isIncome && isCreditCardPaymentMerchant(merchant);
-      return { date, merchant, amount, isIncome, isDuplicate, isTransferLike };
+      return { date, merchant, amount, isIncome, isDuplicate, isTransferLike, csvCategory };
     }).filter(r => r.date && r.merchant);
-  }, [step, dataRows, dateCol, merchantCol, amountMode, amountCol, debitCol, creditCol, flipSign, existingKeys, accountId]);
+  }, [step, dataRows, dateCol, merchantCol, amountMode, amountCol, debitCol, creditCol, flipSign, existingKeys, accountId, categoryCol]);
 
   const duplicateCount = parsedRows.filter(r => r.isDuplicate).length;
   const rowsToImport = skipDuplicates ? parsedRows.filter(r => !r.isDuplicate) : parsedRows;
 
   const canMap = accountId && dateCol && merchantCol && (amountMode === 'single' ? amountCol : (debitCol || creditCol));
 
-  // Prefers a category the user has already picked for this exact merchant text before, since
-  // that's a stronger signal than the generic keyword rules and is what makes repeat imports from
-  // the same bank (with the same messy merchant strings) get categorized automatically over time.
-  const categoryFor = (merchant: string, isIncome: boolean) => {
+  // Priority: (1) a category the user has already picked for this exact merchant before — the
+  // strongest signal since it's a deliberate choice; (2) the bank/card issuer's own category for
+  // this row, if the file has one and it maps to something here; (3) the generic keyword rules,
+  // for files with no category column or one that doesn't match anything.
+  const categoryFor = (merchant: string, isIncome: boolean, csvCategory: string) => {
     const kind = isIncome ? 'income' : 'expense';
     const mappedId = lookupMerchantCategoryId(merchant, merchantCategoryMap);
     if (mappedId) {
       const mapped = categories.find(c => c.id === mappedId && c.kind === kind);
       if (mapped) return mapped.id;
     }
+    const csvMatch = matchCsvCategoryId(csvCategory, categories, kind);
+    if (csvMatch) return csvMatch;
     const suggestion = suggestCategory(merchant);
     if (suggestion) {
       const match = categories.find(c => c.name.toLowerCase() === suggestion.toLowerCase() && c.kind === kind);
@@ -174,7 +183,7 @@ export function ImportTransactionsModal({
         type: asTransfer ? 'Transfer' : (r.isIncome ? 'Income' : 'Expense'),
         accountId,
         transferAccountId: asTransfer ? transferToAccountId : undefined,
-        categoryId: asTransfer ? undefined : categoryFor(r.merchant, r.isIncome)
+        categoryId: asTransfer ? undefined : categoryFor(r.merchant, r.isIncome, r.csvCategory)
       });
     });
     onImport(records);
@@ -247,6 +256,13 @@ export function ImportTransactionsModal({
             <span>Description / merchant column</span>
             <select value={merchantCol} onChange={e => setMerchantCol(e.target.value)}>
               <option value={NONE}>—</option>
+              {headers.map(h => <option key={h} value={h}>{h}</option>)}
+            </select>
+          </label>
+          <label>
+            <span>Category column (optional)</span>
+            <select value={categoryCol} onChange={e => setCategoryCol(e.target.value)}>
+              <option value={NONE}>— None, categorize automatically</option>
               {headers.map(h => <option key={h} value={h}>{h}</option>)}
             </select>
           </label>
@@ -327,7 +343,7 @@ export function ImportTransactionsModal({
               <tbody>
                 {parsedRows.slice(0, 50).map((r, i) => {
                   const asTransfer = r.isTransferLike && transferToAccountId && transferToAccountId !== accountId;
-                  const categoryId = asTransfer ? undefined : categoryFor(r.merchant, r.isIncome);
+                  const categoryId = asTransfer ? undefined : categoryFor(r.merchant, r.isIncome, r.csvCategory);
                   const categoryLabel = categoryId ? categories.find(c => c.id === categoryId)?.name : undefined;
                   const typeLabel = asTransfer ? 'Transfer' : (r.isIncome ? 'Income' : 'Expense');
                   return (

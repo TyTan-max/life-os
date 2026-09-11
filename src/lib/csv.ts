@@ -59,6 +59,70 @@ export function isCreditCardPaymentMerchant(merchant: string): boolean {
   return /crcardpmt|cr\s*card\s*pmt|credit\s*card\s*(payment|pmt)|cardmember\s*serv|\bcc\s*payment\b/i.test(merchant);
 }
 
+// Bank/card issuers export their own spending category alongside each transaction (Capital One's
+// "Dining", "Merchandise", "Gas/Automotive", etc.) but use their own vocabulary, which rarely
+// matches this app's category names exactly. This maps common issuer category text to the closest
+// canonical name here — used only as a fallback when no exact (case-insensitive) match exists.
+const CSV_CATEGORY_ALIASES: Record<string, string> = {
+  dining: 'Dining Out',
+  restaurants: 'Dining Out',
+  restaurant: 'Dining Out',
+  grocery: 'Groceries',
+  groceries: 'Groceries',
+  supermarkets: 'Groceries',
+  'gas/automotive': 'Transportation',
+  gas: 'Transportation',
+  automotive: 'Transportation',
+  transportation: 'Transportation',
+  'airfare': 'Travel',
+  merchandise: 'Shopping',
+  shopping: 'Shopping',
+  'general merchandise': 'Shopping',
+  entertainment: 'Entertainment',
+  recreation: 'Entertainment',
+  travel: 'Travel',
+  lodging: 'Travel',
+  'rental car': 'Travel',
+  hotels: 'Travel',
+  'health care': 'Health & Fitness',
+  healthcare: 'Health & Fitness',
+  medical: 'Health & Fitness',
+  insurance: 'Insurance',
+  utilities: 'Utilities',
+  'phone/cable': 'Utilities',
+  'internet & cable': 'Utilities',
+  'home improvement': 'Housing',
+  rent: 'Housing',
+  mortgage: 'Housing',
+  personal: 'Personal Care',
+  'professional services': 'Miscellaneous',
+  'other services': 'Miscellaneous',
+  other: 'Miscellaneous',
+  education: 'Education',
+  gifts: 'Gifts & Donations',
+  donations: 'Gifts & Donations',
+  subscriptions: 'Subscriptions',
+  streaming: 'Subscriptions'
+};
+
+// Resolves a bank/card CSV's own category text to a categoryId in this app: an exact
+// (case-insensitive) name match first, then the alias table above, restricted to categories of
+// the given kind (income/expense) so a card's expense categories can't get assigned to an income row.
+export function matchCsvCategoryId(
+  csvCategory: string,
+  categories: { id: string; name: string; kind?: string }[],
+  kind: 'income' | 'expense'
+): string | undefined {
+  const text = csvCategory.trim();
+  if (!text) return undefined;
+  const kindCategories = categories.filter(c => c.kind === kind);
+  const exact = kindCategories.find(c => c.name.toLowerCase() === text.toLowerCase());
+  if (exact) return exact.id;
+  const alias = CSV_CATEGORY_ALIASES[text.toLowerCase()];
+  if (!alias) return undefined;
+  return kindCategories.find(c => c.name.toLowerCase() === alias.toLowerCase())?.id;
+}
+
 // Parses a money string that may include "$", thousands separators, or parenthesized negatives
 // (an accounting-style negative, e.g. "$(45.00)").
 export function parseCsvAmount(raw: string): number {
