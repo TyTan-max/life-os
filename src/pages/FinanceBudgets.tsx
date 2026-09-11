@@ -11,7 +11,7 @@ import {
   actualSpendByCategory, formatMonthLabel, monthKey, monthlyIncome,
   rolloverAmount, shiftMonth, suggest502030
 } from '../lib/budgetMath';
-import type { Budget, BudgetGroup, FinanceGoal } from '../types';
+import type { Bill, Budget, BudgetGroup, FinanceGoal } from '../types';
 
 function requiredMonthlyContribution(goal: FinanceGoal): number {
   if (!goal.targetDate) return 0;
@@ -269,6 +269,15 @@ export function FinanceBudgets() {
   const subscriptionsTotal = upcomingSubscriptionsBase.reduce((s, b) => s + b.amount, 0);
   const billsSummaryTotal = billsOnlyTotal + subscriptionsTotal;
 
+  // A bill/subscription assigned to a category that already has actual Expense transactions this
+  // month (e.g. the Netflix charge itself got imported and categorized as "Subscriptions") is
+  // already counted once via Expenses — counting its forecast amount here too would subtract it
+  // twice from Total Cash Left Over. Only used for the Cash Flow Summary's own math; the Bills and
+  // Subscriptions worksheet cards below still show every tracked item at its full amount.
+  const isCoveredByActualSpend = (b: Bill) => b.categoryId != null && (actual.get(b.categoryId) ?? 0) > 0;
+  const billsExcludedFromCashFlow = [...upcomingBillsBase, ...upcomingSubscriptionsBase].filter(isCoveredByActualSpend);
+  const billsSummaryTotalForCashFlow = billsSummaryTotal - billsExcludedFromCashFlow.reduce((s, b) => s + b.amount, 0);
+
   const sortRecurring = (list: typeof upcomingBillsBase, sort: SortState<'name' | 'due' | 'amount'>) => {
     const next = list.slice();
     next.sort((a, b) => {
@@ -290,7 +299,7 @@ export function FinanceBudgets() {
   // Cash Flow Summary is derived entirely from the worksheet panels below it, so the two always agree:
   // Income Summary → Income, Bills Summary → Bills, Expenses Summary → Expenses,
   // Debt Payments → Debts, Savings → Savings (required monthly contribution across goals).
-  const totalCashLeftOver = income - billsSummaryTotal - totalActual - monthlyDebtMinimums - savingsMonthlyTotal;
+  const totalCashLeftOver = income - billsSummaryTotalForCashFlow - totalActual - monthlyDebtMinimums - savingsMonthlyTotal;
 
   // Waterfall only maps Expenses (never mixed with Income/Bills/Debts/Savings) so its total
   // bar always matches what it visually represents — top categories by spend, rest bucketed.
@@ -392,12 +401,17 @@ export function FinanceBudgets() {
 
           <Card className="budget-cashflow-table-card">
             <div className="card-title"><div><h2>Cash Flow Summary</h2></div></div>
-            <p className="muted mini-table-hint">What's left after income also covers bills, debts, and every savings goal's required monthly contribution.</p>
+            <p className="muted mini-table-hint">
+              What's left after income also covers bills, debts, and every savings goal's required monthly contribution.
+              {billsExcludedFromCashFlow.length > 0 && (
+                <> {billsExcludedFromCashFlow.length} bill{billsExcludedFromCashFlow.length === 1 ? '' : 's'} already showing up in Expenses this month {billsExcludedFromCashFlow.length === 1 ? "isn't" : "aren't"} counted twice here.</>
+              )}
+            </p>
             <div className="mini-table-wrap">
               <table className="mini-table">
                 <tbody>
                   <tr className="mini-table-highlight"><td>Income</td><td>{formatCurrency(income)}</td></tr>
-                  <tr><td>Bills</td><td>{formatCurrency(billsSummaryTotal)}</td></tr>
+                  <tr><td>Bills</td><td>{formatCurrency(billsSummaryTotalForCashFlow)}</td></tr>
                   <tr><td>Expenses</td><td>{formatCurrency(totalActual)}</td></tr>
                   <tr><td>Savings</td><td>{formatCurrency(savingsMonthlyTotal)}</td></tr>
                   <tr><td>Debts</td><td>{formatCurrency(monthlyDebtMinimums)}</td></tr>

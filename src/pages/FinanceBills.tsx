@@ -171,9 +171,8 @@ export function FinanceRecurringGrid({ kind }: { kind: RecurringKind }) {
           trailing={b => formatCurrency(b.amount)}
           fields={[
             { label: 'Account', value: b => accountName(b.accountId) || '—' },
-            kind === 'Bill'
-              ? { label: 'Category', value: b => categoryName(b.categoryId) || '—' }
-              : { label: 'Autopay', value: b => (b.autopay ? 'On' : 'Off') }
+            { label: 'Category', value: b => categoryName(b.categoryId) || '—' },
+            ...(kind === 'Subscription' ? [{ label: 'Autopay', value: (b: Bill) => (b.autopay ? 'On' : 'Off') }] : [])
           ]}
           onOpen={b => setEditingId(b.id)}
           onDelete={b => void remove('bills', b.id)}
@@ -207,15 +206,13 @@ export function FinanceRecurringGrid({ kind }: { kind: RecurringKind }) {
                   {accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
                 </select>
               </label>
-              {kind === 'Bill' && (
-                <label>
-                  <span>Category</span>
-                  <select value={editing.categoryId ?? ''} onChange={e => patch(editing, { categoryId: e.target.value || undefined })}>
-                    <option value="">—</option>
-                    {categoryOptions.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                  </select>
-                </label>
-              )}
+              <label>
+                <span>Category</span>
+                <select value={editing.categoryId ?? ''} onChange={e => patch(editing, { categoryId: e.target.value || undefined })}>
+                  <option value="">—</option>
+                  {categoryOptions.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+              </label>
               <label className="sheet-checkbox-row">
                 <input type="checkbox" checked={Boolean(editing.autopay)} onChange={e => patch(editing, { autopay: e.target.checked })} />
                 <span>Autopay</span>
@@ -266,14 +263,12 @@ export function FinanceRecurringGrid({ kind }: { kind: RecurringKind }) {
                   <Pencil size={11} />
                 </button>
               </th>
-              {kind === 'Bill' && (
-                <th>
-                  <SortableThLabel label="Category" sortKey="category" state={sort} onSort={k => setSort(s => toggleGridSort(s, k))} />
-                  <button type="button" className="col-edit-btn" onClick={() => setManager('category')} aria-label="Manage categories" title="Add or remove categories">
-                    <Pencil size={11} />
-                  </button>
-                </th>
-              )}
+              <th>
+                <SortableThLabel label="Category" sortKey="category" state={sort} onSort={k => setSort(s => toggleGridSort(s, k))} />
+                <button type="button" className="col-edit-btn" onClick={() => setManager('category')} aria-label="Manage categories" title="Add or remove categories">
+                  <Pencil size={11} />
+                </button>
+              </th>
               <SortableTh label="Autopay" sortKey="autopay" state={sort} onSort={k => setSort(s => toggleGridSort(s, k, 'desc'))} />
               {kind === 'Subscription' && (
                 <>
@@ -338,14 +333,12 @@ export function FinanceRecurringGrid({ kind }: { kind: RecurringKind }) {
                     {accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
                   </select>
                 </td>
-                {kind === 'Bill' && (
-                  <td>
-                    <select className="grid-cell-select select-wide" value={b.categoryId ?? ''} onChange={e => patch(b, { categoryId: e.target.value || undefined })}>
-                      <option value="">—</option>
-                      {categoryOptions.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                    </select>
-                  </td>
-                )}
+                <td>
+                  <select className="grid-cell-select select-wide" value={b.categoryId ?? ''} onChange={e => patch(b, { categoryId: e.target.value || undefined })}>
+                    <option value="">—</option>
+                    {categoryOptions.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  </select>
+                </td>
                 <td className="grid-td-center">
                   <input type="checkbox" checked={Boolean(b.autopay)} onChange={e => patch(b, { autopay: e.target.checked })} />
                 </td>
