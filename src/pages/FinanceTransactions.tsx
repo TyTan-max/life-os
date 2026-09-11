@@ -47,19 +47,28 @@ export function FinanceTransactions({ typeFilter }: { typeFilter?: TransactionTy
   const accountName = (id?: string) => accounts.find(a => a.id === id)?.name ?? '';
   const categoryName = (id?: string) => categories.find(c => c.id === id)?.name ?? '';
 
+  // Date range filter (inclusive on both ends) — dates are stored as YYYY-MM-DD strings so plain
+  // string comparison sorts correctly without parsing.
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+  const dateFilteredTransactions = useMemo(() => {
+    if (!dateFrom && !dateTo) return transactions;
+    return transactions.filter(t => (!dateFrom || t.date >= dateFrom) && (!dateTo || t.date <= dateTo));
+  }, [transactions, dateFrom, dateTo]);
+
   // Matches merchant, notes, account, and category text — a history in the thousands (e.g. after
   // a few bank CSV imports) is otherwise unnavigable without scrolling and eyeballing every row.
   const [search, setSearch] = useState('');
   const searchedTransactions = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return transactions;
-    return transactions.filter(t =>
+    if (!q) return dateFilteredTransactions;
+    return dateFilteredTransactions.filter(t =>
       t.merchant.toLowerCase().includes(q) ||
       (t.notes ?? '').toLowerCase().includes(q) ||
       accountName(t.accountId).toLowerCase().includes(q) ||
       categoryName(t.categoryId).toLowerCase().includes(q)
     );
-  }, [transactions, search, accounts, categories]);
+  }, [dateFilteredTransactions, search, accounts, categories]);
 
   const [sort, setSort] = useState<SortState<TxSortKey>>({ key: 'date', dir: 'desc' });
 
@@ -295,7 +304,7 @@ export function FinanceTransactions({ typeFilter }: { typeFilter?: TransactionTy
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: 0 });
     setScrollTop(0);
-  }, [search, sort]);
+  }, [search, sort, dateFrom, dateTo]);
 
   const searchBox = (
     <div className="toolbar-search tx-search">
@@ -314,10 +323,30 @@ export function FinanceTransactions({ typeFilter }: { typeFilter?: TransactionTy
     </div>
   );
 
+  const dateRangeFilter = (
+    <div className="tx-date-range-filter">
+      <DatePicker value={dateFrom} onChange={setDateFrom} placeholder="From" />
+      <span className="tx-date-range-sep">–</span>
+      <DatePicker value={dateTo} onChange={setDateTo} placeholder="To" />
+      {(dateFrom || dateTo) && (
+        <button
+          type="button"
+          className="icon-btn"
+          onClick={() => { setDateFrom(''); setDateTo(''); }}
+          aria-label="Clear date range"
+          title="Clear date range"
+        >
+          <X size={14} />
+        </button>
+      )}
+    </div>
+  );
+
   if (isMobile) {
     return (
       <>
         {searchBox}
+        {dateRangeFilter}
         <MobileRecordList
           items={sortedTransactions}
           primary={t => t.merchant || `(no ${noun === 'income' ? 'source' : 'merchant'})`}
@@ -409,7 +438,10 @@ export function FinanceTransactions({ typeFilter }: { typeFilter?: TransactionTy
 
   return (
     <>
-      {searchBox}
+      <div className="tx-filters-row">
+        {searchBox}
+        {dateRangeFilter}
+      </div>
       {selectedIds.size > 0 && (
         <div className="bulk-action-bar">
           <span>{selectedIds.size} selected</span>

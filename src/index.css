@@ -1870,6 +1870,10 @@ input, select, textarea { font-family: inherit; }
 .grid-th-checkbox { width: 32px; text-align: center; }
 .grid-row-selected { background: var(--surface-hover); }
 .tx-search { margin-bottom: 12px; max-width: 320px; }
+.tx-filters-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.tx-filters-row .tx-search { margin-bottom: 12px; }
+.tx-date-range-filter { display: flex; align-items: center; gap: 6px; margin-bottom: 12px; }
+.tx-date-range-sep { color: var(--text-faint); font-size: 12.5px; }
 .grid-cell-with-action { display: flex; align-items: center; gap: 4px; }
 .grid-cell-with-action .grid-cell-input { flex: 1; min-width: 0; }
 .grid-cell-with-action .icon-btn { flex-shrink: 0; opacity: 0; transition: opacity 0.1s; }
