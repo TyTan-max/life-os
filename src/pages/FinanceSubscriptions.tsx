@@ -1,9 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
-import { EyeOff, Pencil, Plus } from 'lucide-react';
+import { EyeOff, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useStore, newRecord } from '../store';
-import { formatCurrency, formatDate } from '../components/UI';
+import { formatCurrency, formatDate, Modal } from '../components/UI';
 import { FinanceRecurringGrid } from './FinanceBills';
-import { ListManagerModal } from '../components/ListManagerModal';
 import { detectSubscriptions, type DetectedSubscription } from '../lib/subscriptionDetector';
 import type { Bill } from '../types';
 
@@ -12,6 +11,7 @@ const normalizeMerchant = (name: string) => name.trim().toLowerCase();
 export function FinanceSubscriptions() {
   const { data, upsert, updateSettings } = useStore();
   const [showDismissed, setShowDismissed] = useState(false);
+  const [dismissDraft, setDismissDraft] = useState('');
 
   const rawDismissed = data.settings.dismissedSubscriptionSuggestions;
   const dismissed: Record<string, number> = Array.isArray(rawDismissed) ? {} : rawDismissed ?? {};
@@ -136,19 +136,69 @@ export function FinanceSubscriptions() {
       )}
 
       {showDismissed && (
-        <ListManagerModal
+        <Modal
+          eyebrow="Life OS"
           title="Dismissed Suggestions"
-          subtitle="Hidden until charged 2 more times since dismissal. Remove one to let it reappear immediately."
-          items={dismissedKeys.map(key => ({ id: key, label: key }))}
-          onAdd={name => {
-            const key = normalizeMerchant(name);
-            const existing = allDetected.find(s => normalizeMerchant(s.merchant) === key);
-            void updateSettings({ dismissedSubscriptionSuggestions: { ...dismissed, [key]: existing?.occurrenceCount ?? 0 } });
-          }}
-          onDelete={restoreDismissed}
           onClose={() => setShowDismissed(false)}
-          addPlaceholder="Pre-dismiss a merchant name…"
-        />
+        >
+          <p className="list-manager-subtitle">
+            Hidden until charged 2 more times since dismissal.
+          </p>
+          <div className="list-manager-items">
+            {dismissedKeys.length ? dismissedKeys.map(key => (
+              <div className="list-manager-row" key={key}>
+                <span className="list-manager-row-label">{key}</span>
+                <button
+                  type="button"
+                  className="icon-btn"
+                  title="Add back to the Suggested list now"
+                  aria-label={`Add ${key} back to Suggested`}
+                  onClick={() => restoreDismissed(key)}
+                >
+                  <Plus size={14} />
+                </button>
+                <button
+                  type="button"
+                  className="icon-btn danger"
+                  title="Erase from the dismissed list"
+                  aria-label={`Erase ${key} from dismissed list`}
+                  onClick={() => restoreDismissed(key)}
+                >
+                  <Trash2 size={14} />
+                </button>
+              </div>
+            )) : <p className="muted empty-state">Nothing dismissed.</p>}
+          </div>
+          <div className="list-manager-add">
+            <input
+              type="text"
+              value={dismissDraft}
+              placeholder="Pre-dismiss a merchant name…"
+              onChange={e => setDismissDraft(e.target.value)}
+              onKeyDown={e => {
+                if (e.key !== 'Enter') return;
+                const key = normalizeMerchant(dismissDraft);
+                if (!key) return;
+                const existing = allDetected.find(s => normalizeMerchant(s.merchant) === key);
+                void updateSettings({ dismissedSubscriptionSuggestions: { ...dismissed, [key]: existing?.occurrenceCount ?? 0 } });
+                setDismissDraft('');
+              }}
+            />
+            <button
+              type="button"
+              className="btn teal small"
+              onClick={() => {
+                const key = normalizeMerchant(dismissDraft);
+                if (!key) return;
+                const existing = allDetected.find(s => normalizeMerchant(s.merchant) === key);
+                void updateSettings({ dismissedSubscriptionSuggestions: { ...dismissed, [key]: existing?.occurrenceCount ?? 0 } });
+                setDismissDraft('');
+              }}
+            >
+              <Plus size={14} /> Add
+            </button>
+          </div>
+        </Modal>
       )}
     </>
   );
