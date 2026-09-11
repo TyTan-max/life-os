@@ -54,8 +54,12 @@ export function EmptyState({ children }: { children: React.ReactNode }) {
 export function MoneyInput({
   value, onChange, min = 0
 }: { value: number; onChange: (n: number) => void; min?: number }) {
-  const [text, setText] = useState(value.toFixed(2));
-  useEffect(() => { setText(value.toFixed(2)); }, [value]);
+  const [text, setText] = useState(String(value));
+  // Echoes the plain number back, not a formatted one — every keystroke round-trips through the
+  // parent's state and back here via this same effect, so formatting to two decimals on every
+  // change (instead of only on blur) would re-stamp "0.00" after the very first digit and make it
+  // impossible to type past a whole number.
+  useEffect(() => { setText(String(value)); }, [value]);
   return (
     <input
       type="number"
