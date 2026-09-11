@@ -12,15 +12,24 @@ interface ParsedRow {
   merchant: string;
   amount: number;
   isIncome: boolean;
+  isDuplicate: boolean;
 }
 
 const NONE = '';
 
+// A loose but effective match for "this looks like the same transaction already in the ledger":
+// same account, same date, same amount (to the cent), same merchant text (case/space-insensitive).
+// Good enough to catch a re-exported overlapping date range without needing an external transaction id.
+function duplicateKey(accountId: string, date: string, amount: number, merchant: string) {
+  return `${accountId}|${date}|${amount.toFixed(2)}|${merchant.trim().toLowerCase()}`;
+}
+
 export function ImportTransactionsModal({
-  accounts, categories, onImport, onClose
+  accounts, categories, existingTransactions, onImport, onClose
 }: {
   accounts: FinanceAccount[];
   categories: FinanceCategory[];
+  existingTransactions: Transaction[];
   onImport: (transactions: Transaction[]) => void;
   onClose: () => void;
 }) {
@@ -36,6 +45,7 @@ export function ImportTransactionsModal({
   const [flipSign, setFlipSign] = useState(false);
   const [debitCol, setDebitCol] = useState(NONE);
   const [creditCol, setCreditCol] = useState(NONE);
+  const [skipDuplicates, setSkipDuplicates] = useState(true);
 
   const headers = hasHeader && rows.length ? rows[0] : rows[0]?.map((_, i) => `Column ${i + 1}`) ?? [];
   const dataRows = hasHeader ? rows.slice(1) : rows;
@@ -77,6 +87,15 @@ export function ImportTransactionsModal({
 
   const colIndex = (name: string) => headers.indexOf(name);
 
+  const existingKeys = useMemo(() => {
+    const keys = new Set<string>();
+    for (const t of existingTransactions) {
+      if (t.accountId !== accountId) continue;
+      keys.add(duplicateKey(t.accountId, t.date, t.amount, t.merchant));
+    }
+    return keys;
+  }, [existingTransactions, accountId]);
+
   const parsedRows = useMemo<ParsedRow[]>(() => {
     if (step !== 'preview') return [];
     const di = colIndex(dateCol);
@@ -100,14 +119,18 @@ export function ImportTransactionsModal({
         isIncome = credit > 0 && debit === 0;
         amount = isIncome ? credit : debit;
       }
-      return { date, merchant, amount, isIncome };
+      const isDuplicate = existingKeys.has(duplicateKey(accountId, date, amount, merchant));
+      return { date, merchant, amount, isIncome, isDuplicate };
     }).filter(r => r.date && r.merchant);
-  }, [step, dataRows, dateCol, merchantCol, amountMode, amountCol, debitCol, creditCol, flipSign]);
+  }, [step, dataRows, dateCol, merchantCol, amountMode, amountCol, debitCol, creditCol, flipSign, existingKeys, accountId]);
+
+  const duplicateCount = parsedRows.filter(r => r.isDuplicate).length;
+  const rowsToImport = skipDuplicates ? parsedRows.filter(r => !r.isDuplicate) : parsedRows;
 
   const canMap = accountId && dateCol && merchantCol && (amountMode === 'single' ? amountCol : (debitCol || creditCol));
 
   const doImport = () => {
-    const records = parsedRows.map(r => {
+    const records = rowsToImport.map(r => {
       const type = r.isIncome ? 'Income' : 'Expense';
       const suggestion = suggestCategory(r.merchant);
       const category = suggestion ? categories.find(c => c.name.toLowerCase() === suggestion.toLowerCase() && c.kind === (r.isIncome ? 'income' : 'expense')) : undefined;
@@ -138,8 +161,8 @@ export function ImportTransactionsModal({
           {step === 'preview' && (
             <>
               <button type="button" className="btn ghost" onClick={() => setStep('map')}>Back</button>
-              <button type="button" className="btn teal" disabled={!parsedRows.length} onClick={doImport}>
-                Import {parsedRows.length} transaction{parsedRows.length === 1 ? '' : 's'}
+              <button type="button" className="btn teal" disabled={!rowsToImport.length} onClick={doImport}>
+                Import {rowsToImport.length} transaction{rowsToImport.length === 1 ? '' : 's'}
               </button>
             </>
           )}
@@ -245,18 +268,27 @@ export function ImportTransactionsModal({
             Imported rows are added as new transactions. They won't change the account's balance —
             update that yourself once you've reconciled, same as any manually entered transaction.
           </p>
+          {duplicateCount > 0 && (
+            <label className="import-dedupe-toggle">
+              <input type="checkbox" checked={skipDuplicates} onChange={e => setSkipDuplicates(e.target.checked)} />
+              <span>
+                Skip {duplicateCount} row{duplicateCount === 1 ? '' : 's'} that match{duplicateCount === 1 ? 'es' : ''} a transaction already in this account (same date, amount, and merchant)
+              </span>
+            </label>
+          )}
           <div className="grid-table-wrap grid-table-scroll">
             <table className="grid-table">
               <thead>
-                <tr><th>Date</th><th>Merchant</th><th>Amount</th><th>Type</th></tr>
+                <tr><th>Date</th><th>Merchant</th><th>Amount</th><th>Type</th><th>Status</th></tr>
               </thead>
               <tbody>
                 {parsedRows.slice(0, 50).map((r, i) => (
-                  <tr key={i}>
+                  <tr key={i} className={r.isDuplicate && skipDuplicates ? 'import-row-skipped' : ''}>
                     <td>{r.date}</td>
                     <td>{r.merchant}</td>
                     <td>{r.amount.toFixed(2)}</td>
                     <td>{r.isIncome ? 'Income' : 'Expense'}</td>
+                    <td>{r.isDuplicate ? <span className="import-duplicate-tag">Possible duplicate</span> : ''}</td>
                   </tr>
                 ))}
               </tbody>

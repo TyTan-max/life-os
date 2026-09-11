@@ -169,6 +169,7 @@ export function FinanceTransactions({ typeFilter }: { typeFilter?: TransactionTy
           <ImportTransactionsModal
             accounts={accountOptions}
             categories={categories}
+            existingTransactions={data.transactions}
             onImport={importTransactions}
             onClose={() => setShowImport(false)}
           />
@@ -331,6 +332,7 @@ export function FinanceTransactions({ typeFilter }: { typeFilter?: TransactionTy
         <ImportTransactionsModal
           accounts={accountOptions}
           categories={categories}
+          existingTransactions={data.transactions}
           onImport={importTransactions}
           onClose={() => setShowImport(false)}
         />
