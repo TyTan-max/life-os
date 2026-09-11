@@ -393,7 +393,7 @@ export function FinanceTransactions({ typeFilter }: { typeFilter?: TransactionTy
                     )}
                   </div>
                 </td>
-                <td className="grid-td-compact"><NumberCell value={t.amount} onChange={n => patch(t, { amount: n })} min={0} decimals={2} /></td>
+                <td className="grid-td-compact"><NumberCell value={t.amount} onChange={n => patch(t, { amount: n })} min={0} decimals={2} className="tx-amount-input" /></td>
                 <td>
                   {isIncomeView ? (
                     <span className="grid-static-cell">Income</span>

@@ -1679,6 +1679,10 @@ input, select, textarea { font-family: inherit; }
 .grid-cell-select.select-wide { min-width: 128px; }
 .grid-cell-input.input-wide { min-width: 147px; max-width: 147px; overflow: hidden; text-overflow: ellipsis; }
 .grid-cell-input.grid-num { min-width: 56px; }
+/* Sized for the largest realistic transaction amount ("1000000.00") rather than the generic
+   grid-num width, so the Transactions grid's Amount column doesn't hold space it'll never need —
+   that space goes to the Merchant/Payee column instead via the table's auto layout. */
+.grid-cell-input.tx-amount-input { width: 98px; min-width: 98px; max-width: 98px; }
 .grid-cell-input.autosize { min-width: 0; width: auto; flex: none; transition: width 0.08s ease; }
 .grid-table .time-wheel-trigger { width: 118px; }
 .grid-td-compact { padding-left: 3px; padding-right: 3px; }
