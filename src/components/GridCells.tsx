@@ -93,6 +93,7 @@ export function NotesCell({ value, onChange }: { value: string; onChange: (v: st
       rows={expanded ? 3 : 1}
       placeholder="Add a note…"
       value={value}
+      title={value}
       onFocus={() => setExpanded(true)}
       onBlur={() => setExpanded(false)}
       onChange={e => onChange(e.target.value)}
