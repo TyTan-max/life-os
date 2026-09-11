@@ -127,6 +127,9 @@ export function FinanceTransactions({ typeFilter }: { typeFilter?: TransactionTy
     }
     return sort.dir === 'asc' ? cmp : -cmp;
   }), [searchedTransactions, sort, accounts, categories]);
+  // Total of every row currently matching search/date/category filters — not just the rows the
+  // virtualized grid happens to have rendered.
+  const amountSum = useMemo(() => sortedTransactions.reduce((s, t) => s + t.amount, 0), [sortedTransactions]);
   // Income can't land in a liability account (a loan or credit card isn't a deposit destination).
   const accountOptions = isIncomeView ? accounts.filter(a => !isLiabilityAccount(a.type)) : accounts;
   const today = new Date().toISOString().slice(0, 10);
@@ -550,7 +553,15 @@ export function FinanceTransactions({ typeFilter }: { typeFilter?: TransactionTy
                   title="Drag to resize — double-click to reset"
                 />
               </th>
-              <SortableTh label="Amount" sortKey="amount" state={sort} onSort={k => setSort(s => toggleSort(s, k, 'desc'))} />
+              <th className="tx-amount-th">
+                <SortableThLabel label="Amount" sortKey="amount" state={sort} onSort={k => setSort(s => toggleSort(s, k, 'desc'))} />
+                <span
+                  className="tx-amount-sum"
+                  title={`Sum of ${sortedTransactions.length} ${noun === 'income' || sortedTransactions.length === 1 ? noun : `${noun}s`} in the current list`}
+                >
+                  = {formatCurrency(amountSum)}
+                </span>
+              </th>
               <th>
                 {isIncomeView ? 'Type' : (
                   <SortableThLabel label="Type" sortKey="type" state={sort} onSort={k => setSort(s => toggleSort(s, k))} />

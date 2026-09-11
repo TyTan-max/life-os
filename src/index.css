@@ -1879,6 +1879,8 @@ input, select, textarea { font-family: inherit; }
   border: 1px solid var(--border); border-radius: 10px; background: var(--surface); color: var(--text);
   font-size: 13px; padding: 0 8px; height: 32px; min-width: 150px;
 }
+.tx-amount-th { white-space: nowrap; }
+.tx-amount-sum { margin-left: 6px; font-weight: 500; color: var(--text-faint); font-variant-numeric: tabular-nums; cursor: default; }
 .grid-cell-with-action { display: flex; align-items: center; gap: 4px; }
 .grid-cell-with-action .grid-cell-input { flex: 1; min-width: 0; }
 .grid-cell-with-action .icon-btn { flex-shrink: 0; opacity: 0; transition: opacity 0.1s; }
