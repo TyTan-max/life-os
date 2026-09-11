@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { X } from 'lucide-react';
 
 export function Badge({ tone, children }: { tone?: string; children: React.ReactNode }) {
@@ -44,6 +44,47 @@ export function formatDate(dateStr?: string): string {
 
 export function EmptyState({ children }: { children: React.ReactNode }) {
   return <p className="muted empty-state">{children}</p>;
+}
+
+// A plain-looking currency input (inherits whatever the surrounding form styles a normal
+// <input> as, unlike NumberCell which is styled for a compact grid cell) that fills in a
+// trailing decimal on blur — typing "0.4" becomes "0.40" once you leave the field, matching
+// how money is actually written, while editing still starts from the plain number so you're
+// not stuck deleting trailing zeros first.
+export function MoneyInput({
+  value, onChange, min = 0
+}: { value: number; onChange: (n: number) => void; min?: number }) {
+  const [text, setText] = useState(value.toFixed(2));
+  useEffect(() => { setText(value.toFixed(2)); }, [value]);
+  return (
+    <input
+      type="number"
+      inputMode="decimal"
+      step="0.01"
+      min={min}
+      value={text}
+      onFocus={() => {
+        const n = Number(text);
+        if (!Number.isNaN(n)) setText(String(n));
+      }}
+      onChange={e => {
+        const raw = e.target.value;
+        if (raw !== '' && raw !== '-') {
+          if (!/^-?\d*\.?\d{0,2}$/.test(raw)) return;
+        }
+        setText(raw);
+        if (raw === '' || raw === '-' || raw.endsWith('.')) return;
+        const n = Number(raw);
+        if (Number.isNaN(n)) return;
+        if (n < min) { setText(String(min)); onChange(min); return; }
+        onChange(n);
+      }}
+      onBlur={() => {
+        const n = Number(text);
+        setText((Number.isNaN(n) ? min : n).toFixed(2));
+      }}
+    />
+  );
 }
 
 export function Modal({

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { GripVertical, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useStore, newRecord } from '../store';
-import { Kpi, formatCurrency, formatDate } from '../components/UI';
+import { Kpi, formatCurrency, formatDate, MoneyInput } from '../components/UI';
 import { DatePicker } from '../components/DatePicker';
 import { NumberCell, NotesCell } from '../components/GridCells';
 import { ListManagerModal } from '../components/ListManagerModal';
@@ -191,7 +191,7 @@ export function FinanceRecurringGrid({ kind }: { kind: RecurringKind }) {
               </label>
               <label>
                 <span>Amount</span>
-                <input type="number" inputMode="decimal" step="0.01" min={0} value={editing.amount} onChange={e => patch(editing, { amount: Number(e.target.value) })} />
+                <MoneyInput value={editing.amount} onChange={n => patch(editing, { amount: n })} />
               </label>
               <label><span>Next due</span><DatePicker value={editing.nextDue} onChange={v => patch(editing, { nextDue: v })} /></label>
               <label>

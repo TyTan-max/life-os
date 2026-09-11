@@ -957,7 +957,7 @@ function DayEditModal({
       <div className="form-grid">
         <label><span>Total Trades</span><NumberField value={form.totalTrades} onChange={n => setField('totalTrades', n)} min={0} /></label>
         <label><span>Daily P/L</span><NumberField value={form.dailyPL} onChange={n => setField('dailyPL', n)} decimals={2} /></label>
-        <label><span>Daily Fees</span><NumberField value={form.dailyFees} onChange={n => setField('dailyFees', n)} /></label>
+        <label><span>Daily Fees</span><NumberField value={form.dailyFees} onChange={n => setField('dailyFees', n)} decimals={2} /></label>
         <label>
           <span>Primary Emotion</span>
           <select value={form.emotion ?? ''} onChange={e => setField('emotion', e.target.value || undefined)}>
@@ -1365,7 +1365,7 @@ export function TradingJournal() {
   // presentations, defined once.
   const statRows = (
     <>
-      <div className="tj-stat-row"><span>Start Balance</span><input type="number" className="tj-inline-input" value={startBalance} onChange={e => setStartBalance(Number(e.target.value))} /></div>
+      <div className="tj-stat-row"><span>Start Balance</span><NumberField className="tj-inline-input" value={startBalance} onChange={setStartBalance} decimals={2} /></div>
       <div className="tj-stat-row"><span>Current Balance</span><b>{formatCurrency(currentBalance)}</b></div>
       <div className="tj-stat-row"><span>Total Trades</span><b>{totalTradesSum}</b></div>
       <div className="tj-stat-row"><span>Days Logged</span><b>{daysLogged}</b></div>

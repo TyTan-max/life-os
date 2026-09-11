@@ -7,11 +7,11 @@ import {
 } from 'lucide-react';
 import { useStore, newRecord } from '../store';
 import type { CollectionName, CollectionRecord } from '../types';
-import { Card, EmptyState, Modal, PageHeader, formatDate } from './UI';
+import { Card, EmptyState, Modal, MoneyInput, PageHeader, formatDate } from './UI';
 import { DatePicker } from './DatePicker';
 import { RichTextEditor } from './RichTextEditor';
 
-export type FieldType = 'text' | 'textarea' | 'richtext' | 'number' | 'date' | 'select' | 'checkbox' | 'tags' | 'image' | 'multiselect' | 'color';
+export type FieldType = 'text' | 'textarea' | 'richtext' | 'number' | 'money' | 'date' | 'select' | 'checkbox' | 'tags' | 'image' | 'multiselect' | 'color';
 
 export type SelectOption = string | { label: string; value: string };
 
@@ -1390,6 +1390,11 @@ export function CollectionPage<T extends CollectionRecord>({
                     value={form[field.key] === undefined ? '' : (form[field.key] as number)}
                     onChange={e => setField(field.key, e.target.value === '' ? undefined : Number(e.target.value))}
                     placeholder={field.placeholder}
+                  />
+                ) : field.type === 'money' ? (
+                  <MoneyInput
+                    value={(form[field.key] as number | undefined) ?? 0}
+                    onChange={n => setField(field.key, n)}
                   />
                 ) : field.type === 'date' ? (
                   <DatePicker

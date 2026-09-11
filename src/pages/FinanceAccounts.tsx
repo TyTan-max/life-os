@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { GripVertical, Pencil, Plus, Trash2 } from 'lucide-react';
 import { CollectionPage } from '../components/CollectionPage';
 import { useStore, newRecord } from '../store';
-import { Kpi, formatCurrency } from '../components/UI';
+import { Kpi, formatCurrency, MoneyInput } from '../components/UI';
 import { NumberCell, NotesCell } from '../components/GridCells';
 import { ListManagerModal } from '../components/ListManagerModal';
 import { MobileRecordList } from '../components/MobileRecordList';
@@ -162,9 +162,9 @@ export function FinanceDebtGrid() {
                 </select>
               </label>
               <label><span>Institution</span><input type="text" value={editingDebt.institution ?? ''} placeholder="—" onChange={e => patch(editingDebt, { institution: e.target.value })} /></label>
-              <label><span>Balance</span><input type="number" inputMode="decimal" step="0.01" min={0} value={editingDebt.balance} onChange={e => patch(editingDebt, { balance: Number(e.target.value) })} /></label>
+              <label><span>Balance</span><MoneyInput value={editingDebt.balance} onChange={n => patch(editingDebt, { balance: n })} /></label>
               <label><span>Interest rate (%)</span><input type="number" inputMode="decimal" value={editingDebt.interestRate ?? 0} onChange={e => patch(editingDebt, { interestRate: Number(e.target.value) })} /></label>
-              <label><span>Min. payment</span><input type="number" inputMode="decimal" step="0.01" min={0} value={editingDebt.minimumPayment ?? 0} onChange={e => patch(editingDebt, { minimumPayment: Number(e.target.value) })} /></label>
+              <label><span>Min. payment</span><MoneyInput value={editingDebt.minimumPayment ?? 0} onChange={n => patch(editingDebt, { minimumPayment: n })} /></label>
               <label>
                 <span>Status</span>
                 <select value={editingDebt.status} onChange={e => patch(editingDebt, { status: e.target.value as FinanceAccount['status'] })}>
@@ -294,11 +294,11 @@ export function FinanceAccounts() {
           { key: 'name', label: 'Account Name', type: 'text' },
           { key: 'type', label: 'Type', type: 'select', options: typeOptions },
           { key: 'institution', label: 'Institution', type: 'text' },
-          { key: 'balance', label: 'Current Balance', type: 'number' },
-          { key: 'availableBalance', label: 'Available Balance', type: 'number' },
+          { key: 'balance', label: 'Current Balance', type: 'money' },
+          { key: 'availableBalance', label: 'Available Balance', type: 'money' },
           { key: 'interestRate', label: 'Interest Rate / APY (%)', type: 'number' },
-          { key: 'minimumPayment', label: 'Minimum Payment (debt accounts)', type: 'number' },
-          { key: 'costBasis', label: 'Cost Basis (investment accounts)', type: 'number' },
+          { key: 'minimumPayment', label: 'Minimum Payment (debt accounts)', type: 'money' },
+          { key: 'costBasis', label: 'Cost Basis (investment accounts)', type: 'money' },
           { key: 'assetClass', label: 'Asset Class (investment accounts)', type: 'select', options: ASSET_CLASSES },
           { key: 'status', label: 'Status', type: 'select', options: ['Active', 'Closed', 'Frozen'] },
           { key: 'notes', label: 'Notes', type: 'textarea' }

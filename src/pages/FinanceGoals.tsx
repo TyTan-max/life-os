@@ -1,6 +1,6 @@
 import { GripVertical, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useStore, newRecord } from '../store';
-import { Kpi, formatCurrency } from '../components/UI';
+import { Kpi, formatCurrency, MoneyInput } from '../components/UI';
 import { DatePicker } from '../components/DatePicker';
 import { NumberCell, NotesCell } from '../components/GridCells';
 import { ListManagerModal } from '../components/ListManagerModal';
@@ -145,8 +145,8 @@ export function FinanceSavingsGrid() {
                   {allCategories.map(c => <option key={c} value={c}>{c}</option>)}
                 </select>
               </label>
-              <label><span>Target amount</span><input type="number" inputMode="decimal" step="0.01" min={0} value={editingGoal.targetAmount} onChange={e => patch(editingGoal, { targetAmount: Number(e.target.value) })} /></label>
-              <label><span>Saved so far</span><input type="number" inputMode="decimal" step="0.01" min={0} value={editingGoal.currentAmount} onChange={e => patch(editingGoal, { currentAmount: Number(e.target.value) })} /></label>
+              <label><span>Target amount</span><MoneyInput value={editingGoal.targetAmount} onChange={n => patch(editingGoal, { targetAmount: n })} /></label>
+              <label><span>Saved so far</span><MoneyInput value={editingGoal.currentAmount} onChange={n => patch(editingGoal, { currentAmount: n })} /></label>
               <label><span>Target date</span><DatePicker value={editingGoal.targetDate ?? ''} onChange={v => patch(editingGoal, { targetDate: v })} /></label>
               <label>
                 <span>Linked account</span>

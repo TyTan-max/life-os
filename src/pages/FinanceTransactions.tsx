@@ -11,7 +11,7 @@ import { MobileRecordList } from '../components/MobileRecordList';
 import { Sheet } from '../components/Sheet';
 import { useIsMobile } from '../hooks/useIsMobile';
 import { useFabAction } from '../hooks/useFabAction';
-import { formatCurrency, formatDate, Modal } from '../components/UI';
+import { formatCurrency, formatDate, Modal, MoneyInput } from '../components/UI';
 import { suggestCategory, lookupMerchantCategoryId, normalizeMerchantKey } from '../lib/autoCategorize';
 import { reconcileTransferBalances } from '../lib/transferBalance';
 import { isLiabilityAccount } from './FinanceAccounts';
@@ -340,12 +340,7 @@ export function FinanceTransactions({ typeFilter }: { typeFilter?: TransactionTy
               </label>
               <label>
                 <span>Amount</span>
-                {/* inputmode opens the numeric keypad instead of the full QWERTY layout. */}
-                <input
-                  type="number" inputMode="decimal" step="0.01" min={0}
-                  value={editing.amount}
-                  onChange={e => patch(editing, { amount: Number(e.target.value) })}
-                />
+                <MoneyInput value={editing.amount} onChange={n => patch(editing, { amount: n })} />
               </label>
               {!isIncomeView && (
                 <label>
