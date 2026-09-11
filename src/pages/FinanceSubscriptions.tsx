@@ -15,6 +15,10 @@ export function FinanceSubscriptions() {
 
   const rawDismissed = data.settings.dismissedSubscriptionSuggestions;
   const dismissed: Record<string, number> = Array.isArray(rawDismissed) ? {} : rawDismissed ?? {};
+  const hiddenFromManagement = useMemo(
+    () => new Set(data.settings.hiddenDismissedSuggestions ?? []),
+    [data.settings.hiddenDismissedSuggestions]
+  );
 
   const trackedNames = useMemo(
     () => new Set(data.bills.filter(b => (b.kind ?? 'Bill') === 'Subscription').map(b => b.name.trim().toLowerCase())),
@@ -67,12 +71,24 @@ export function FinanceSubscriptions() {
     void updateSettings({ dismissedSubscriptionSuggestions: { ...dismissed, [key]: s.occurrenceCount } });
   };
 
+  // "Add back to Suggested": un-dismiss entirely, so it reappears in Suggested immediately.
   const restoreDismissed = (key: string) => {
     const { [key]: _omit, ...rest } = dismissed;
-    void updateSettings({ dismissedSubscriptionSuggestions: rest });
+    void updateSettings({
+      dismissedSubscriptionSuggestions: rest,
+      ...(hiddenFromManagement.has(key) ? { hiddenDismissedSuggestions: [...hiddenFromManagement].filter(k => k !== key) } : {})
+    });
   };
 
-  const dismissedKeys = Object.keys(dismissed);
+  // "Erase from dismissed list": the opposite of restore — the dismissal (and its 2-more-charges
+  // threshold) stays fully in effect, this just drops the entry from this management view since
+  // there's nothing left to do with it here. It reappears in Suggested on its own once the
+  // threshold is met, same as any other dismissal, with no separate action needed then.
+  const hideFromManagement = (key: string) => {
+    void updateSettings({ hiddenDismissedSuggestions: [...hiddenFromManagement, key] });
+  };
+
+  const dismissedKeys = Object.keys(dismissed).filter(key => !hiddenFromManagement.has(key));
 
   return (
     <>
@@ -160,9 +176,9 @@ export function FinanceSubscriptions() {
                 <button
                   type="button"
                   className="icon-btn danger"
-                  title="Erase from the dismissed list"
+                  title="Remove from this list — stays hidden until it's charged 2 more times"
                   aria-label={`Erase ${key} from dismissed list`}
-                  onClick={() => restoreDismissed(key)}
+                  onClick={() => hideFromManagement(key)}
                 >
                   <Trash2 size={14} />
                 </button>

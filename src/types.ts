@@ -606,6 +606,11 @@ export interface Settings {
   // lets a merchant come back automatically once it's charged 2+ more times after the dismissal —
   // by then it's new evidence, not the same false positive being re-flagged.
   dismissedSubscriptionSuggestions?: Record<string, number>;
+  // Normalized merchant names hidden from the "Dismissed Suggestions" management list itself
+  // (the trash action there) — the underlying dismissal above stays in effect (still suppressed
+  // until 2 more charges), this just removes the entry from view since there's nothing left to
+  // manage for it.
+  hiddenDismissedSuggestions?: string[];
   weightUnit?: WeightUnit;
   weightGoalTarget?: number;
   sleepTargetHours?: number;
