@@ -11,7 +11,7 @@ import { MobileRecordList } from '../components/MobileRecordList';
 import { Sheet } from '../components/Sheet';
 import { useIsMobile } from '../hooks/useIsMobile';
 import { useFabAction } from '../hooks/useFabAction';
-import { formatCurrency, formatDate } from '../components/UI';
+import { formatCurrency, formatDate, Modal } from '../components/UI';
 import { suggestCategory, lookupMerchantCategoryId, normalizeMerchantKey } from '../lib/autoCategorize';
 import { reconcileTransferBalances } from '../lib/transferBalance';
 import { isLiabilityAccount } from './FinanceAccounts';
@@ -83,6 +83,7 @@ export function FinanceTransactions({ typeFilter }: { typeFilter?: TransactionTy
   const [showImport, setShowImport] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkCategoryId, setBulkCategoryId] = useState('');
+  const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
   const [lastCheckedId, setLastCheckedId] = useState<string | null>(null);
   // Tracks whether Shift was held for the mousedown that's about to produce a checkbox's change
   // event — onChange itself doesn't carry modifier keys, and calling preventDefault in onClick to
@@ -176,6 +177,14 @@ export function FinanceTransactions({ typeFilter }: { typeFilter?: TransactionTy
   const deleteTransaction = (t: Transaction) => {
     for (const account of reconcileTransferBalances(t, null, accounts)) void upsert('financeAccounts', account);
     void remove('transactions', t.id);
+  };
+
+  const deleteSelectedTransactions = () => {
+    for (const t of sortedTransactions) {
+      if (selectedIds.has(t.id)) deleteTransaction(t);
+    }
+    setSelectedIds(new Set());
+    setConfirmBulkDelete(false);
   };
 
   const addTransaction = () => {
@@ -376,7 +385,29 @@ export function FinanceTransactions({ typeFilter }: { typeFilter?: TransactionTy
           </select>
           <button type="button" className="btn teal" disabled={!bulkCategoryId} onClick={applyBulkCategory}>Apply</button>
           <button type="button" className="btn ghost" onClick={() => setSelectedIds(new Set())}>Clear selection</button>
+          <button type="button" className="btn danger ghost" onClick={() => setConfirmBulkDelete(true)}>
+            <Trash2 size={14} /> Delete
+          </button>
         </div>
+      )}
+
+      {confirmBulkDelete && (
+        <Modal
+          eyebrow="Life OS"
+          title="Delete selected transactions"
+          onClose={() => setConfirmBulkDelete(false)}
+          footer={
+            <>
+              <button type="button" className="btn ghost" onClick={() => setConfirmBulkDelete(false)}>Cancel</button>
+              <button type="button" className="btn danger" onClick={deleteSelectedTransactions}>Delete {selectedIds.size}</button>
+            </>
+          }
+        >
+          <p>
+            Delete {selectedIds.size} transaction{selectedIds.size === 1 ? '' : 's'}? Any that are Transfers will also
+            reverse their effect on the linked account's balance. This cannot be undone from here — though it can still be undone with Ctrl+Z (Undo) right after.
+          </p>
+        </Modal>
       )}
       <div className="grid-table-wrap grid-table-scroll" ref={scrollRef} onScroll={e => setScrollTop(e.currentTarget.scrollTop)}>
         <table className="grid-table">
