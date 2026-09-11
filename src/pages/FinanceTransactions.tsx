@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { ListChecks, Pencil, Plus, Trash2, Upload } from 'lucide-react';
 import { useStore, newRecord } from '../store';
 import { DatePicker } from '../components/DatePicker';
@@ -32,14 +32,17 @@ export function FinanceTransactions({ typeFilter }: { typeFilter?: TransactionTy
   const allTypes: TransactionType[] = [...CORE_TRANSACTION_TYPES, ...customTypes];
   const isIncomeView = typeFilter === 'Income';
   // The plain Transactions tab now excludes Income entirely — that's what the Income tab is for.
-  const transactions = typeFilter
-    ? data.transactions.filter(t => t.type === typeFilter)
-    : data.transactions.filter(t => t.type !== 'Income');
+  // Memoized because scrolling the (now virtualized) grid updates state on every scroll tick —
+  // without this, that would re-run the filter+sort over the full history on every tick too.
+  const transactions = useMemo(
+    () => (typeFilter ? data.transactions.filter(t => t.type === typeFilter) : data.transactions.filter(t => t.type !== 'Income')),
+    [data.transactions, typeFilter]
+  );
 
   const accountName = (id?: string) => accounts.find(a => a.id === id)?.name ?? '';
   const categoryName = (id?: string) => categories.find(c => c.id === id)?.name ?? '';
   const [sort, setSort] = useState<SortState<TxSortKey>>({ key: 'date', dir: 'desc' });
-  const sortedTransactions = transactions.slice().sort((a, b) => {
+  const sortedTransactions = useMemo(() => transactions.slice().sort((a, b) => {
     let cmp = 0;
     switch (sort.key) {
       case 'date': cmp = a.date.localeCompare(b.date); break;
@@ -50,7 +53,7 @@ export function FinanceTransactions({ typeFilter }: { typeFilter?: TransactionTy
       case 'category': cmp = categoryName(a.categoryId).localeCompare(categoryName(b.categoryId)); break;
     }
     return sort.dir === 'asc' ? cmp : -cmp;
-  });
+  }), [transactions, sort, accounts, categories]);
   // Income can't land in a liability account (a loan or credit card isn't a deposit destination).
   const accountOptions = isIncomeView ? accounts.filter(a => !isLiabilityAccount(a.type)) : accounts;
   const incomeCategories = categories.filter(c => c.kind === 'income');
@@ -211,6 +214,26 @@ export function FinanceTransactions({ typeFilter }: { typeFilter?: TransactionTy
 
   const editing = sortedTransactions.find(t => t.id === editingId) ?? null;
 
+  // Windowed rendering for the desktop grid: with a history that can run into the thousands of
+  // rows (e.g. after a few bank CSV imports), mounting every row's inputs at once measurably slows
+  // typing and re-renders. Only the rows within the scroll viewport (plus overscan) are ever in the
+  // DOM; two spacer rows stand in for the rest so the scrollbar's size/position stays correct.
+  // ROW_HEIGHT is a fixed estimate matching the grid's normal (non-expanded) row height — a note
+  // cell temporarily growing while focused can nudge the scrollbar by a few pixels, which is an
+  // acceptable trade-off for not measuring every row on every render.
+  const ROW_HEIGHT = 49;
+  const OVERSCAN = 8;
+  const VIEWPORT_HEIGHT = 520;
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [scrollTop, setScrollTop] = useState(0);
+  const rowStart = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - OVERSCAN);
+  const rowsInView = Math.ceil(VIEWPORT_HEIGHT / ROW_HEIGHT) + OVERSCAN * 2;
+  const rowEnd = Math.min(sortedTransactions.length, rowStart + rowsInView);
+  const visibleTransactions = sortedTransactions.slice(rowStart, rowEnd);
+  const topSpacerHeight = rowStart * ROW_HEIGHT;
+  const bottomSpacerHeight = (sortedTransactions.length - rowEnd) * ROW_HEIGHT;
+  const columnCount = isIncomeView ? 9 : 10;
+
   if (isMobile) {
     return (
       <>
@@ -321,7 +344,7 @@ export function FinanceTransactions({ typeFilter }: { typeFilter?: TransactionTy
           <button type="button" className="btn ghost" onClick={() => setSelectedIds(new Set())}>Clear selection</button>
         </div>
       )}
-      <div className="grid-table-wrap grid-table-scroll">
+      <div className="grid-table-wrap grid-table-scroll" ref={scrollRef} onScroll={e => setScrollTop(e.currentTarget.scrollTop)}>
         <table className="grid-table">
           <thead>
             <tr>
@@ -364,7 +387,12 @@ export function FinanceTransactions({ typeFilter }: { typeFilter?: TransactionTy
             </tr>
           </thead>
           <tbody>
-            {sortedTransactions.map(t => (
+            {topSpacerHeight > 0 && (
+              <tr aria-hidden style={{ height: topSpacerHeight }}>
+                <td colSpan={columnCount} style={{ padding: 0, border: 'none' }} />
+              </tr>
+            )}
+            {visibleTransactions.map(t => (
               <tr key={t.id} className={selectedIds.has(t.id) ? 'grid-row-selected' : ''}>
                 <td className="grid-th-checkbox">
                   <input
@@ -433,6 +461,11 @@ export function FinanceTransactions({ typeFilter }: { typeFilter?: TransactionTy
                 <td><button type="button" className="icon-btn danger" onClick={() => deleteTransaction(t)} aria-label={`Delete ${t.merchant || noun}`}><Trash2 size={14} /></button></td>
               </tr>
             ))}
+            {bottomSpacerHeight > 0 && (
+              <tr aria-hidden style={{ height: bottomSpacerHeight }}>
+                <td colSpan={columnCount} style={{ padding: 0, border: 'none' }} />
+              </tr>
+            )}
           </tbody>
         </table>
         {!sortedTransactions.length && <p className="muted grid-table-empty">No {noun === 'income' ? 'income logged' : 'transactions'} yet — add your first one below.</p>}
