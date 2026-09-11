@@ -48,9 +48,10 @@ export function FinanceTransactions({ typeFilter }: { typeFilter?: TransactionTy
 
   const accountName = (id?: string) => accounts.find(a => a.id === id)?.name ?? '';
   const categoryName = (id?: string) => categories.find(c => c.id === id)?.name ?? '';
-  const incomeCategories = categories.filter(c => c.kind === 'income');
-  const expenseCategories = categories.filter(c => c.kind === 'expense');
-  const relevantCategories = isIncomeView ? incomeCategories : expenseCategories;
+  const relevantCategories = useMemo(
+    () => categories.filter(c => c.kind === (isIncomeView ? 'income' : 'expense')),
+    [categories, isIncomeView]
+  );
 
   // Date range filter (inclusive on both ends) — dates are stored as YYYY-MM-DD strings so plain
   // string comparison sorts correctly without parsing.
@@ -67,6 +68,14 @@ export function FinanceTransactions({ typeFilter }: { typeFilter?: TransactionTy
       return true;
     });
   }, [transactions, dateFrom, dateTo, categoryFilter]);
+
+  // Keeps the filter in sync with the live category list: if the category currently selected in
+  // the filter gets deleted (via Manage Categories), fall back to "All categories" instead of
+  // silently filtering on an id that no longer exists in the dropdown.
+  useEffect(() => {
+    if (!categoryFilter || categoryFilter === UNCATEGORIZED_FILTER) return;
+    if (!relevantCategories.some(c => c.id === categoryFilter)) setCategoryFilter('');
+  }, [categoryFilter, relevantCategories]);
 
   // Matches merchant, notes, account, and category text — a history in the thousands (e.g. after
   // a few bank CSV imports) is otherwise unnavigable without scrolling and eyeballing every row.
