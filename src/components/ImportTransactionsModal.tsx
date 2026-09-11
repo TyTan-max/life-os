@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Modal } from './UI';
-import { parseCSV, normalizeCsvDate, parseCsvAmount } from '../lib/csv';
+import { parseCSV, normalizeCsvDate, parseCsvAmount, isCreditCardPaymentMerchant } from '../lib/csv';
 import { suggestCategory, lookupMerchantCategoryId } from '../lib/autoCategorize';
 import { newRecord } from '../store';
 import type { FinanceAccount, FinanceCategory, Transaction } from '../types';
@@ -13,6 +13,7 @@ interface ParsedRow {
   amount: number;
   isIncome: boolean;
   isDuplicate: boolean;
+  isTransferLike: boolean;
 }
 
 const NONE = '';
@@ -47,6 +48,7 @@ export function ImportTransactionsModal({
   const [debitCol, setDebitCol] = useState(NONE);
   const [creditCol, setCreditCol] = useState(NONE);
   const [skipDuplicates, setSkipDuplicates] = useState(true);
+  const [transferToAccountId, setTransferToAccountId] = useState(NONE);
 
   const headers = hasHeader && rows.length ? rows[0] : rows[0]?.map((_, i) => `Column ${i + 1}`) ?? [];
   const dataRows = hasHeader ? rows.slice(1) : rows;
@@ -97,6 +99,14 @@ export function ImportTransactionsModal({
     return keys;
   }, [existingTransactions, accountId]);
 
+  // Only depends on the merchant column, so it's available on the mapping step (before amount
+  // columns are necessarily set) to decide whether to surface the "log these as a transfer" option.
+  const hasTransferLikeRows = useMemo(() => {
+    const mi = colIndex(merchantCol);
+    if (mi < 0) return false;
+    return dataRows.some(r => isCreditCardPaymentMerchant((r[mi] ?? '').trim()));
+  }, [dataRows, merchantCol]);
+
   const parsedRows = useMemo<ParsedRow[]>(() => {
     if (step !== 'preview') return [];
     const di = colIndex(dateCol);
@@ -121,7 +131,13 @@ export function ImportTransactionsModal({
         amount = isIncome ? credit : debit;
       }
       const isDuplicate = existingKeys.has(duplicateKey(accountId, date, amount, merchant));
-      return { date, merchant, amount, isIncome, isDuplicate };
+      // Only the "money out" direction is safe to auto-flip to a Transfer here: a Transfer's
+      // accountId is always the source, and the account being imported into is the source only
+      // when money is leaving it (paying the card), not when it's the destination (a payment
+      // received on the card's own statement) — that reverse case is left as Income for the user
+      // to fix by hand, rather than guessing and getting the direction backwards.
+      const isTransferLike = !isIncome && isCreditCardPaymentMerchant(merchant);
+      return { date, merchant, amount, isIncome, isDuplicate, isTransferLike };
     }).filter(r => r.date && r.merchant);
   }, [step, dataRows, dateCol, merchantCol, amountMode, amountCol, debitCol, creditCol, flipSign, existingKeys, accountId]);
 
@@ -149,14 +165,18 @@ export function ImportTransactionsModal({
   };
 
   const doImport = () => {
-    const records = rowsToImport.map(r => newRecord<Transaction>({
-      date: r.date,
-      merchant: r.merchant,
-      amount: r.amount,
-      type: r.isIncome ? 'Income' : 'Expense',
-      accountId,
-      categoryId: categoryFor(r.merchant, r.isIncome)
-    }));
+    const records = rowsToImport.map(r => {
+      const asTransfer = r.isTransferLike && transferToAccountId && transferToAccountId !== accountId;
+      return newRecord<Transaction>({
+        date: r.date,
+        merchant: r.merchant,
+        amount: r.amount,
+        type: asTransfer ? 'Transfer' : (r.isIncome ? 'Income' : 'Expense'),
+        accountId,
+        transferAccountId: asTransfer ? transferToAccountId : undefined,
+        categoryId: asTransfer ? undefined : categoryFor(r.merchant, r.isIncome)
+      });
+    });
     onImport(records);
   };
 
@@ -272,6 +292,15 @@ export function ImportTransactionsModal({
               </label>
             </>
           )}
+          {hasTransferLikeRows && (
+            <label className="field-full">
+              <span>This file looks like it includes credit card payments — log them as a transfer to</span>
+              <select value={transferToAccountId} onChange={e => setTransferToAccountId(e.target.value)}>
+                <option value={NONE}>Don't do this — import them as expenses/income</option>
+                {accounts.filter(a => a.id !== accountId).map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+              </select>
+            </label>
+          )}
           {error && <p className="form-error field-full">{error}</p>}
         </div>
       )}
@@ -297,16 +326,21 @@ export function ImportTransactionsModal({
               </thead>
               <tbody>
                 {parsedRows.slice(0, 50).map((r, i) => {
-                  const categoryId = categoryFor(r.merchant, r.isIncome);
+                  const asTransfer = r.isTransferLike && transferToAccountId && transferToAccountId !== accountId;
+                  const categoryId = asTransfer ? undefined : categoryFor(r.merchant, r.isIncome);
                   const categoryLabel = categoryId ? categories.find(c => c.id === categoryId)?.name : undefined;
+                  const typeLabel = asTransfer ? 'Transfer' : (r.isIncome ? 'Income' : 'Expense');
                   return (
                     <tr key={i} className={r.isDuplicate && skipDuplicates ? 'import-row-skipped' : ''}>
                       <td>{r.date}</td>
                       <td>{r.merchant}</td>
                       <td>{r.amount.toFixed(2)}</td>
-                      <td>{r.isIncome ? 'Income' : 'Expense'}</td>
-                      <td>{categoryLabel ?? <span className="muted">—</span>}</td>
-                      <td>{r.isDuplicate ? <span className="import-duplicate-tag">Possible duplicate</span> : ''}</td>
+                      <td>{typeLabel}</td>
+                      <td>{asTransfer ? <span className="muted">—</span> : (categoryLabel ?? <span className="muted">—</span>)}</td>
+                      <td>
+                        {r.isDuplicate && <span className="import-duplicate-tag">Possible duplicate</span>}
+                        {!r.isDuplicate && r.isTransferLike && !transferToAccountId && <span className="import-duplicate-tag">Looks like a card payment</span>}
+                      </td>
                     </tr>
                   );
                 })}

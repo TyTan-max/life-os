@@ -52,6 +52,13 @@ export function normalizeCsvDate(raw: string): string {
   return value;
 }
 
+// Matches bank CSV descriptions for "you paid your credit card bill" (CRCARDPMT, CARDMEMBER SERV,
+// etc.) — deliberately narrow so it doesn't also catch an ordinary purchase whose description
+// happens to contain the word "payment" (e.g. a Microsoft Xbox "payment").
+export function isCreditCardPaymentMerchant(merchant: string): boolean {
+  return /crcardpmt|cr\s*card\s*pmt|credit\s*card\s*(payment|pmt)|cardmember\s*serv|\bcc\s*payment\b/i.test(merchant);
+}
+
 // Parses a money string that may include "$", thousands separators, or parenthesized negatives
 // (an accounting-style negative, e.g. "$(45.00)").
 export function parseCsvAmount(raw: string): number {
