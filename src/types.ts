@@ -598,6 +598,11 @@ export interface Settings {
   // Learned from manual categorization: normalized merchant text -> categoryId, so future
   // transactions (typed or CSV-imported) from the same merchant auto-fill the same category.
   merchantCategoryMap?: Record<string, string>;
+  // Normalized merchant names dismissed from the "Suggested from your transactions" subscription
+  // list — the detector re-derives suggestions from transaction history on every render with no
+  // memory of its own, so without this a dismissed false positive (e.g. a recurring restaurant
+  // charge) would reappear every time the page is viewed.
+  dismissedSubscriptionSuggestions?: string[];
   weightUnit?: WeightUnit;
   weightGoalTarget?: number;
   sleepTargetHours?: number;
