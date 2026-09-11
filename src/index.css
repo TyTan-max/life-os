@@ -1880,7 +1880,12 @@ input, select, textarea { font-family: inherit; }
   font-size: 13px; padding: 0 8px; height: 32px; min-width: 150px;
 }
 .tx-amount-th { white-space: nowrap; }
-.tx-amount-sum { margin-left: 6px; font-weight: 500; color: var(--text-faint); font-variant-numeric: tabular-nums; cursor: default; }
+.tx-amount-sum-btn {
+  margin-left: 6px; border: 1px solid var(--border); border-radius: 5px; background: var(--surface);
+  color: var(--text-muted); font-size: 11px; font-weight: 650; line-height: 1; padding: 3px 6px; cursor: pointer;
+}
+.tx-amount-sum-btn:hover { background: var(--surface-hover); color: var(--text); }
+.tx-amount-sum { margin-left: 6px; font-weight: 500; color: var(--text-faint); font-variant-numeric: tabular-nums; }
 .grid-cell-with-action { display: flex; align-items: center; gap: 4px; }
 .grid-cell-with-action .grid-cell-input { flex: 1; min-width: 0; }
 .grid-cell-with-action .icon-btn { flex-shrink: 0; opacity: 0; transition: opacity 0.1s; }

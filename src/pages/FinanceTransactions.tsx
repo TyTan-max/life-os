@@ -130,6 +130,7 @@ export function FinanceTransactions({ typeFilter }: { typeFilter?: TransactionTy
   // Total of every row currently matching search/date/category filters — not just the rows the
   // virtualized grid happens to have rendered.
   const amountSum = useMemo(() => sortedTransactions.reduce((s, t) => s + t.amount, 0), [sortedTransactions]);
+  const [showAmountSum, setShowAmountSum] = useState(false);
   // Income can't land in a liability account (a loan or credit card isn't a deposit destination).
   const accountOptions = isIncomeView ? accounts.filter(a => !isLiabilityAccount(a.type)) : accounts;
   const today = new Date().toISOString().slice(0, 10);
@@ -555,12 +556,16 @@ export function FinanceTransactions({ typeFilter }: { typeFilter?: TransactionTy
               </th>
               <th className="tx-amount-th">
                 <SortableThLabel label="Amount" sortKey="amount" state={sort} onSort={k => setSort(s => toggleSort(s, k, 'desc'))} />
-                <span
-                  className="tx-amount-sum"
-                  title={`Sum of ${sortedTransactions.length} ${noun === 'income' || sortedTransactions.length === 1 ? noun : `${noun}s`} in the current list`}
+                <button
+                  type="button"
+                  className="tx-amount-sum-btn"
+                  onClick={() => setShowAmountSum(v => !v)}
+                  aria-label={showAmountSum ? 'Hide sum' : 'Show sum of the current list'}
+                  title={showAmountSum ? 'Hide sum' : `Show sum of ${sortedTransactions.length} ${noun === 'income' || sortedTransactions.length === 1 ? noun : `${noun}s`} in the current list`}
                 >
-                  = {formatCurrency(amountSum)}
-                </span>
+                  =
+                </button>
+                {showAmountSum && <span className="tx-amount-sum">{formatCurrency(amountSum)}</span>}
               </th>
               <th>
                 {isIncomeView ? 'Type' : (
