@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from 'react';
-import { ListChecks, Pencil, Plus, Trash2, Upload } from 'lucide-react';
+import { ListChecks, Pencil, Plus, Search, Trash2, Upload, X } from 'lucide-react';
 import { useStore, newRecord } from '../store';
 import { DatePicker } from '../components/DatePicker';
 import { NumberCell, NotesCell } from '../components/GridCells';
@@ -41,8 +41,23 @@ export function FinanceTransactions({ typeFilter }: { typeFilter?: TransactionTy
 
   const accountName = (id?: string) => accounts.find(a => a.id === id)?.name ?? '';
   const categoryName = (id?: string) => categories.find(c => c.id === id)?.name ?? '';
+
+  // Matches merchant, notes, account, and category text — a history in the thousands (e.g. after
+  // a few bank CSV imports) is otherwise unnavigable without scrolling and eyeballing every row.
+  const [search, setSearch] = useState('');
+  const searchedTransactions = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return transactions;
+    return transactions.filter(t =>
+      t.merchant.toLowerCase().includes(q) ||
+      (t.notes ?? '').toLowerCase().includes(q) ||
+      accountName(t.accountId).toLowerCase().includes(q) ||
+      categoryName(t.categoryId).toLowerCase().includes(q)
+    );
+  }, [transactions, search, accounts, categories]);
+
   const [sort, setSort] = useState<SortState<TxSortKey>>({ key: 'date', dir: 'desc' });
-  const sortedTransactions = useMemo(() => transactions.slice().sort((a, b) => {
+  const sortedTransactions = useMemo(() => searchedTransactions.slice().sort((a, b) => {
     let cmp = 0;
     switch (sort.key) {
       case 'date': cmp = a.date.localeCompare(b.date); break;
@@ -53,7 +68,7 @@ export function FinanceTransactions({ typeFilter }: { typeFilter?: TransactionTy
       case 'category': cmp = categoryName(a.categoryId).localeCompare(categoryName(b.categoryId)); break;
     }
     return sort.dir === 'asc' ? cmp : -cmp;
-  }), [transactions, sort, accounts, categories]);
+  }), [searchedTransactions, sort, accounts, categories]);
   // Income can't land in a liability account (a loan or credit card isn't a deposit destination).
   const accountOptions = isIncomeView ? accounts.filter(a => !isLiabilityAccount(a.type)) : accounts;
   const incomeCategories = categories.filter(c => c.kind === 'income');
@@ -234,9 +249,27 @@ export function FinanceTransactions({ typeFilter }: { typeFilter?: TransactionTy
   const bottomSpacerHeight = (sortedTransactions.length - rowEnd) * ROW_HEIGHT;
   const columnCount = isIncomeView ? 9 : 10;
 
+  const searchBox = (
+    <div className="toolbar-search tx-search">
+      <Search size={14} />
+      <input
+        type="text"
+        value={search}
+        onChange={e => setSearch(e.target.value)}
+        placeholder={`Search ${noun === 'income' ? 'income' : 'transactions'}…`}
+      />
+      {search && (
+        <button type="button" className="icon-btn" onClick={() => setSearch('')} aria-label="Clear search">
+          <X size={14} />
+        </button>
+      )}
+    </div>
+  );
+
   if (isMobile) {
     return (
       <>
+        {searchBox}
         <MobileRecordList
           items={sortedTransactions}
           primary={t => t.merchant || `(no ${noun === 'income' ? 'source' : 'merchant'})`}
@@ -250,7 +283,7 @@ export function FinanceTransactions({ typeFilter }: { typeFilter?: TransactionTy
           onOpen={t => setEditingId(t.id)}
           onDelete={deleteTransaction}
           deleteLabel={t => `Delete ${t.merchant || noun}`}
-          empty={`No ${noun === 'income' ? 'income logged' : 'transactions'} yet — add your first one below.`}
+          empty={search ? 'No matches for your search.' : `No ${noun === 'income' ? 'income logged' : 'transactions'} yet — add your first one below.`}
         />
         <button type="button" className="btn teal grid-add-row" onClick={addTransaction}>
           <Plus size={16} /> Add {noun}
@@ -333,6 +366,7 @@ export function FinanceTransactions({ typeFilter }: { typeFilter?: TransactionTy
 
   return (
     <>
+      {searchBox}
       {selectedIds.size > 0 && (
         <div className="bulk-action-bar">
           <span>{selectedIds.size} selected</span>
@@ -468,7 +502,11 @@ export function FinanceTransactions({ typeFilter }: { typeFilter?: TransactionTy
             )}
           </tbody>
         </table>
-        {!sortedTransactions.length && <p className="muted grid-table-empty">No {noun === 'income' ? 'income logged' : 'transactions'} yet — add your first one below.</p>}
+        {!sortedTransactions.length && (
+          <p className="muted grid-table-empty">
+            {search ? 'No matches for your search.' : `No ${noun === 'income' ? 'income logged' : 'transactions'} yet — add your first one below.`}
+          </p>
+        )}
       </div>
       <div className="grid-add-row-group">
         <button type="button" className="btn teal grid-add-row" onClick={addTransaction}><Plus size={16} /> Add {noun}</button>

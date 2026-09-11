@@ -1855,6 +1855,7 @@ input, select, textarea { font-family: inherit; }
 .bulk-action-bar select { max-width: 220px; }
 .grid-th-checkbox { width: 32px; text-align: center; }
 .grid-row-selected { background: var(--surface-hover); }
+.tx-search { margin-bottom: 12px; max-width: 320px; }
 .grid-cell-with-action { display: flex; align-items: center; gap: 4px; }
 .grid-cell-with-action .grid-cell-input { flex: 1; min-width: 0; }
 .grid-cell-with-action .icon-btn { flex-shrink: 0; opacity: 0; transition: opacity 0.1s; }
