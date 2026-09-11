@@ -1,10 +1,10 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { EyeOff, Pencil, Plus } from 'lucide-react';
 import { useStore, newRecord } from '../store';
 import { formatCurrency, formatDate } from '../components/UI';
 import { FinanceRecurringGrid } from './FinanceBills';
 import { ListManagerModal } from '../components/ListManagerModal';
-import { detectSubscriptions } from '../lib/subscriptionDetector';
+import { detectSubscriptions, type DetectedSubscription } from '../lib/subscriptionDetector';
 import type { Bill } from '../types';
 
 const normalizeMerchant = (name: string) => name.trim().toLowerCase();
@@ -12,24 +12,46 @@ const normalizeMerchant = (name: string) => name.trim().toLowerCase();
 export function FinanceSubscriptions() {
   const { data, upsert, updateSettings } = useStore();
   const [showDismissed, setShowDismissed] = useState(false);
-  const dismissed = data.settings.dismissedSubscriptionSuggestions ?? [];
+
+  const rawDismissed = data.settings.dismissedSubscriptionSuggestions;
+  const dismissed: Record<string, number> = Array.isArray(rawDismissed) ? {} : rawDismissed ?? {};
 
   const trackedNames = useMemo(
     () => new Set(data.bills.filter(b => (b.kind ?? 'Bill') === 'Subscription').map(b => b.name.trim().toLowerCase())),
     [data.bills]
   );
 
-  const dismissedSet = useMemo(() => new Set(dismissed), [dismissed]);
+  const allDetected = useMemo(() => detectSubscriptions(data.transactions), [data.transactions]);
 
+  // One-time migration from the old string[] shape (dismissed merchant names with no occurrence
+  // count) to the current shape. Freezes each merchant's baseline at its occurrence count *right
+  // now* — the original dismissal-time count is gone, but this is the only value that won't
+  // immediately flip the merchant back to visible (an ever-recomputed "current count" baseline
+  // would trail the live count by zero forever and could never reappear either).
+  useEffect(() => {
+    if (!Array.isArray(rawDismissed)) return;
+    const migrated = Object.fromEntries(rawDismissed.map(key => {
+      const existing = allDetected.find(s => normalizeMerchant(s.merchant) === key);
+      return [key, existing?.occurrenceCount ?? 0];
+    }));
+    void updateSettings({ dismissedSubscriptionSuggestions: migrated });
+  }, [rawDismissed, allDetected, updateSettings]);
+
+  // A dismissed merchant stays hidden until it's charged at least 2 more times than it had at the
+  // moment it was dismissed — that's fresh evidence it's a real recurring charge, not the same
+  // false positive (a repeat restaurant order, a one-off card payment) being re-flagged forever.
   const suggestions = useMemo(
-    () => detectSubscriptions(data.transactions).filter(s => {
+    () => allDetected.filter(s => {
       const key = normalizeMerchant(s.merchant);
-      return !trackedNames.has(key) && !dismissedSet.has(key);
+      if (trackedNames.has(key)) return false;
+      const dismissedAtCount = dismissed[key];
+      if (dismissedAtCount !== undefined && s.occurrenceCount < dismissedAtCount + 2) return false;
+      return true;
     }),
-    [data.transactions, trackedNames, dismissedSet]
+    [allDetected, trackedNames, dismissed]
   );
 
-  const addSuggestion = (s: (typeof suggestions)[number]) => {
+  const addSuggestion = (s: DetectedSubscription) => {
     void upsert('bills', newRecord<Bill>({
       name: s.merchant,
       amount: s.lastAmount,
@@ -40,25 +62,27 @@ export function FinanceSubscriptions() {
     }));
   };
 
-  const dismissSuggestion = (merchant: string) => {
-    const key = normalizeMerchant(merchant);
-    if (dismissedSet.has(key)) return;
-    void updateSettings({ dismissedSubscriptionSuggestions: [...dismissed, key] });
+  const dismissSuggestion = (s: DetectedSubscription) => {
+    const key = normalizeMerchant(s.merchant);
+    void updateSettings({ dismissedSubscriptionSuggestions: { ...dismissed, [key]: s.occurrenceCount } });
   };
 
   const restoreDismissed = (key: string) => {
-    void updateSettings({ dismissedSubscriptionSuggestions: dismissed.filter(d => d !== key) });
+    const { [key]: _omit, ...rest } = dismissed;
+    void updateSettings({ dismissedSubscriptionSuggestions: rest });
   };
+
+  const dismissedKeys = Object.keys(dismissed);
 
   return (
     <>
       <FinanceRecurringGrid kind="Subscription" />
 
-      {(suggestions.length > 0 || dismissed.length > 0) && (
+      {(suggestions.length > 0 || dismissedKeys.length > 0) && (
         <div className="recur-suggestions">
           <div className="card-title">
             <div><h2>Suggested from your transactions</h2></div>
-            {dismissed.length > 0 && (
+            {dismissedKeys.length > 0 && (
               <button type="button" className="col-edit-btn" onClick={() => setShowDismissed(true)} title="Manage dismissed suggestions">
                 <Pencil size={11} />
               </button>
@@ -66,7 +90,8 @@ export function FinanceSubscriptions() {
           </div>
           <p className="muted recur-suggestions-hint">
             Detected from repeat charges — add the ones that are real subscriptions, or dismiss the ones that aren't
-            (a recurring restaurant order, a credit card payment, etc.) so they stop reappearing.
+            (a recurring restaurant order, a credit card payment, etc.). A dismissed merchant reappears automatically
+            if it's charged 2 more times later.
           </p>
           {suggestions.length > 0 && (
             <div className="grid-table-wrap">
@@ -94,9 +119,9 @@ export function FinanceSubscriptions() {
                         <button
                           type="button"
                           className="icon-btn"
-                          title="Not a subscription — stop suggesting this"
+                          title="Not a subscription — hide until it's charged 2 more times"
                           aria-label={`Dismiss ${s.merchant}`}
-                          onClick={() => dismissSuggestion(s.merchant)}
+                          onClick={() => dismissSuggestion(s)}
                         >
                           <EyeOff size={14} />
                         </button>
@@ -113,11 +138,12 @@ export function FinanceSubscriptions() {
       {showDismissed && (
         <ListManagerModal
           title="Dismissed Suggestions"
-          subtitle="Merchants hidden from the suggestion list above. Remove one to let it be suggested again."
-          items={dismissed.map(d => ({ id: d, label: d }))}
+          subtitle="Hidden until charged 2 more times since dismissal. Remove one to let it reappear immediately."
+          items={dismissedKeys.map(key => ({ id: key, label: key }))}
           onAdd={name => {
             const key = normalizeMerchant(name);
-            if (!dismissed.includes(key)) void updateSettings({ dismissedSubscriptionSuggestions: [...dismissed, key] });
+            const existing = allDetected.find(s => normalizeMerchant(s.merchant) === key);
+            void updateSettings({ dismissedSubscriptionSuggestions: { ...dismissed, [key]: existing?.occurrenceCount ?? 0 } });
           }}
           onDelete={restoreDismissed}
           onClose={() => setShowDismissed(false)}
