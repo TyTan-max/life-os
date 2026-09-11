@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ListChecks, Pencil, Plus, Search, Trash2, Upload, X } from 'lucide-react';
 import { useStore, newRecord } from '../store';
 import { DatePicker } from '../components/DatePicker';
@@ -26,8 +26,13 @@ export function FinanceTransactions({ typeFilter }: { typeFilter?: TransactionTy
   const isMobile = useIsMobile();
   const [editingId, setEditingId] = useState<string | null>(null);
   const byOrder = (a: { order?: number }, b: { order?: number }) => (a.order ?? 9999) - (b.order ?? 9999);
-  const accounts = data.financeAccounts.slice().sort(byOrder);
-  const categories = data.financeCategories.slice().sort(byOrder);
+  // Memoized so these keep a stable reference across renders that don't actually change the
+  // underlying data — otherwise every useMemo below that depends on them (searchedTransactions,
+  // sortedTransactions) would see a "new" array on every render and recompute regardless, which
+  // defeats the point of memoizing them in the first place (scrolling the virtualized grid alone
+  // triggers a re-render on every tick).
+  const accounts = useMemo(() => data.financeAccounts.slice().sort(byOrder), [data.financeAccounts]);
+  const categories = useMemo(() => data.financeCategories.slice().sort(byOrder), [data.financeCategories]);
   const customTypes = data.settings.customTransactionTypes ?? [];
   const allTypes: TransactionType[] = [...CORE_TRANSACTION_TYPES, ...customTypes];
   const isIncomeView = typeFilter === 'Income';
@@ -250,13 +255,24 @@ export function FinanceTransactions({ typeFilter }: { typeFilter?: TransactionTy
   const VIEWPORT_HEIGHT = 520;
   const scrollRef = useRef<HTMLDivElement>(null);
   const [scrollTop, setScrollTop] = useState(0);
-  const rowStart = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - OVERSCAN);
   const rowsInView = Math.ceil(VIEWPORT_HEIGHT / ROW_HEIGHT) + OVERSCAN * 2;
+  // Clamped against the current (possibly just-shrunk-by-search) list length — without this, a
+  // scrollTop left over from a longer, unfiltered list could put rowStart past the end of a newly
+  // filtered one, rendering zero rows until the user manually scrolled back up.
+  const maxRowStart = Math.max(0, sortedTransactions.length - rowsInView);
+  const rowStart = Math.min(maxRowStart, Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - OVERSCAN));
   const rowEnd = Math.min(sortedTransactions.length, rowStart + rowsInView);
   const visibleTransactions = sortedTransactions.slice(rowStart, rowEnd);
   const topSpacerHeight = rowStart * ROW_HEIGHT;
   const bottomSpacerHeight = (sortedTransactions.length - rowEnd) * ROW_HEIGHT;
   const columnCount = isIncomeView ? 9 : 10;
+
+  // A new search (or re-sort) should show results from the top rather than leaving the view
+  // wherever it happened to be scrolled to in the previous (differently filtered/ordered) list.
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ top: 0 });
+    setScrollTop(0);
+  }, [search, sort]);
 
   const searchBox = (
     <div className="toolbar-search tx-search">
