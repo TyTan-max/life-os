@@ -1,9 +1,10 @@
 import { useState } from 'react';
-import { Pencil, Plus, Trash2 } from 'lucide-react';
+import { Pencil, Plus, Trash2, Upload } from 'lucide-react';
 import { useStore, newRecord } from '../store';
 import { DatePicker } from '../components/DatePicker';
 import { NumberCell, NotesCell } from '../components/GridCells';
 import { ListManagerModal } from '../components/ListManagerModal';
+import { ImportTransactionsModal } from '../components/ImportTransactionsModal';
 import { SortableTh, SortableThLabel, toggleSort } from '../components/SortableTh';
 import type { SortState } from '../components/SortableTh';
 import { MobileRecordList } from '../components/MobileRecordList';
@@ -61,6 +62,12 @@ export function FinanceTransactions({ typeFilter }: { typeFilter?: TransactionTy
   // this view, so it isn't offered here. Use the Transactions tab for Expense/Transfer entries.
   const typeOptions = allTypes.filter(ty => ty !== 'Income');
   const [manager, setManager] = useState<ManagerTarget>(null);
+  const [showImport, setShowImport] = useState(false);
+
+  const importTransactions = (records: Transaction[]) => {
+    for (const record of records) void upsert('transactions', record);
+    setShowImport(false);
+  };
 
   const patch = (t: Transaction, p: Partial<Transaction>) => {
     const next = { ...t, ...p };
@@ -152,6 +159,20 @@ export function FinanceTransactions({ typeFilter }: { typeFilter?: TransactionTy
         <button type="button" className="btn teal grid-add-row" onClick={addTransaction}>
           <Plus size={16} /> Add {noun}
         </button>
+        {accounts.length > 0 && (
+          <button type="button" className="btn ghost grid-add-row" onClick={() => setShowImport(true)}>
+            <Upload size={16} /> Import CSV
+          </button>
+        )}
+
+        {showImport && (
+          <ImportTransactionsModal
+            accounts={accountOptions}
+            categories={categories}
+            onImport={importTransactions}
+            onClose={() => setShowImport(false)}
+          />
+        )}
 
         {editing && (
           <Sheet title={editing.merchant || `Edit ${noun}`} onClose={() => setEditingId(null)}>
@@ -297,7 +318,23 @@ export function FinanceTransactions({ typeFilter }: { typeFilter?: TransactionTy
         </table>
         {!sortedTransactions.length && <p className="muted grid-table-empty">No {noun === 'income' ? 'income logged' : 'transactions'} yet — add your first one below.</p>}
       </div>
-      <button type="button" className="btn teal grid-add-row" onClick={addTransaction}><Plus size={16} /> Add {noun}</button>
+      <div className="grid-add-row-group">
+        <button type="button" className="btn teal grid-add-row" onClick={addTransaction}><Plus size={16} /> Add {noun}</button>
+        {accounts.length > 0 && (
+          <button type="button" className="btn ghost grid-add-row" onClick={() => setShowImport(true)}>
+            <Upload size={16} /> Import CSV
+          </button>
+        )}
+      </div>
+
+      {showImport && (
+        <ImportTransactionsModal
+          accounts={accountOptions}
+          categories={categories}
+          onImport={importTransactions}
+          onClose={() => setShowImport(false)}
+        />
+      )}
 
       {manager === 'account' && (
         <ListManagerModal

@@ -1834,6 +1834,9 @@ input, select, textarea { font-family: inherit; }
 }
 .grid-table-empty { padding: 20px 0; text-align: center; }
 .grid-add-row { margin-top: 12px; }
+.grid-add-row-group { display: flex; gap: 10px; margin-top: 12px; flex-wrap: wrap; }
+.grid-add-row-group .grid-add-row { margin-top: 0; }
+.import-preview { display: flex; flex-direction: column; gap: 12px; }
 .grid-table-scroll { max-height: 520px; overflow-y: auto; }
 .grid-table-scroll thead th { position: sticky; top: 0; z-index: 1; }
 .grid-static-cell { padding: 6px 8px; color: var(--text-muted); }
