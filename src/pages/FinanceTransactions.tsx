@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Pencil, Plus, Trash2, Upload } from 'lucide-react';
+import { useRef, useState } from 'react';
+import { ListChecks, Pencil, Plus, Trash2, Upload } from 'lucide-react';
 import { useStore, newRecord } from '../store';
 import { DatePicker } from '../components/DatePicker';
 import { NumberCell, NotesCell } from '../components/GridCells';
@@ -65,17 +65,50 @@ export function FinanceTransactions({ typeFilter }: { typeFilter?: TransactionTy
   const [showImport, setShowImport] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkCategoryId, setBulkCategoryId] = useState('');
+  const [lastCheckedId, setLastCheckedId] = useState<string | null>(null);
+  // Tracks whether Shift was held for the mousedown that's about to produce a checkbox's change
+  // event — onChange itself doesn't carry modifier keys, and calling preventDefault in onClick to
+  // read e.shiftKey there instead fights React's controlled-checkbox reconciliation (the checkbox
+  // under the cursor can end up visually out of sync with its own just-computed selection state).
+  const shiftHeldRef = useRef(false);
 
-  const toggleSelected = (id: string) => {
+  // Shift-click extends the selection from the last row you clicked through this one — standard
+  // spreadsheet range-select — instead of forcing one click per row for a long run of transactions.
+  const toggleSelected = (id: string, shiftKey: boolean) => {
     setSelectedIds(prev => {
       const next = new Set(prev);
-      if (next.has(id)) next.delete(id); else next.add(id);
+      const index = sortedTransactions.findIndex(t => t.id === id);
+      const lastIndex = lastCheckedId ? sortedTransactions.findIndex(t => t.id === lastCheckedId) : -1;
+      if (shiftKey && lastIndex >= 0 && index >= 0) {
+        const [start, end] = lastIndex < index ? [lastIndex, index] : [index, lastIndex];
+        for (let i = start; i <= end; i++) next.add(sortedTransactions[i].id);
+      } else if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
       return next;
     });
+    setLastCheckedId(id);
   };
 
   const toggleSelectAll = () => {
     setSelectedIds(prev => prev.size === sortedTransactions.length ? new Set() : new Set(sortedTransactions.map(t => t.id)));
+  };
+
+  // One click to grab every transaction sharing this exact merchant text — the common case when
+  // cleaning up a backlog (e.g. a dozen CSV-imported rows from the same recurring merchant) rather
+  // than a one-off range.
+  const selectAllWithMerchant = (merchant: string) => {
+    const key = merchant.trim().toLowerCase();
+    if (!key) return;
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      for (const t of sortedTransactions) {
+        if (t.merchant.trim().toLowerCase() === key) next.add(t.id);
+      }
+      return next;
+    });
   };
 
   const applyBulkCategory = () => {
@@ -334,10 +367,32 @@ export function FinanceTransactions({ typeFilter }: { typeFilter?: TransactionTy
             {sortedTransactions.map(t => (
               <tr key={t.id} className={selectedIds.has(t.id) ? 'grid-row-selected' : ''}>
                 <td className="grid-th-checkbox">
-                  <input type="checkbox" checked={selectedIds.has(t.id)} onChange={() => toggleSelected(t.id)} aria-label={`Select ${t.merchant || noun}`} />
+                  <input
+                    type="checkbox"
+                    checked={selectedIds.has(t.id)}
+                    onMouseDown={e => { shiftHeldRef.current = e.shiftKey; }}
+                    onChange={() => toggleSelected(t.id, shiftHeldRef.current)}
+                    aria-label={`Select ${t.merchant || noun}`}
+                    title="Click to select — Shift-click to select a range"
+                  />
                 </td>
                 <td><DatePicker value={t.date} onChange={v => patch(t, { date: v })} /></td>
-                <td><input type="text" className="grid-cell-input" value={t.merchant} placeholder="e.g. Walmart, Paycheck…" onChange={e => patch(t, { merchant: e.target.value })} /></td>
+                <td>
+                  <div className="grid-cell-with-action">
+                    <input type="text" className="grid-cell-input" value={t.merchant} placeholder="e.g. Walmart, Paycheck…" onChange={e => patch(t, { merchant: e.target.value })} />
+                    {t.merchant && (
+                      <button
+                        type="button"
+                        className="icon-btn"
+                        title="Select every transaction with this exact merchant"
+                        aria-label={`Select all transactions from ${t.merchant}`}
+                        onClick={() => selectAllWithMerchant(t.merchant)}
+                      >
+                        <ListChecks size={13} />
+                      </button>
+                    )}
+                  </div>
+                </td>
                 <td className="grid-td-compact"><NumberCell value={t.amount} onChange={n => patch(t, { amount: n })} min={0} decimals={2} /></td>
                 <td>
                   {isIncomeView ? (

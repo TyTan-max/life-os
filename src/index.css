@@ -1851,6 +1851,10 @@ input, select, textarea { font-family: inherit; }
 .bulk-action-bar select { max-width: 220px; }
 .grid-th-checkbox { width: 32px; text-align: center; }
 .grid-row-selected { background: var(--surface-hover); }
+.grid-cell-with-action { display: flex; align-items: center; gap: 4px; }
+.grid-cell-with-action .grid-cell-input { flex: 1; min-width: 0; }
+.grid-cell-with-action .icon-btn { flex-shrink: 0; opacity: 0; transition: opacity 0.1s; }
+.grid-cell-with-action:hover .icon-btn { opacity: 1; }
 .grid-table-scroll { max-height: 520px; overflow-y: auto; }
 .grid-table-scroll thead th { position: sticky; top: 0; z-index: 1; }
 .grid-static-cell { padding: 6px 8px; color: var(--text-muted); }
