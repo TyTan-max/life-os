@@ -269,12 +269,31 @@ export function FinanceBudgets() {
   const subscriptionsTotal = upcomingSubscriptionsBase.reduce((s, b) => s + b.amount, 0);
   const billsSummaryTotal = billsOnlyTotal + subscriptionsTotal;
 
-  // A bill/subscription assigned to a category that already has actual Expense transactions this
-  // month (e.g. the Netflix charge itself got imported and categorized as "Subscriptions") is
-  // already counted once via Expenses — counting its forecast amount here too would subtract it
-  // twice from Total Cash Left Over. Only used for the Cash Flow Summary's own math; the Bills and
+  const monthExpenseTransactions = useMemo(
+    () => transactions.filter(t => t.type === 'Expense' && t.date.startsWith(month)),
+    [transactions, month]
+  );
+  const normalizeBillName = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
+
+  // A bill/subscription whose name and amount already match an actual Expense transaction this
+  // month (e.g. the Netflix charge itself got imported as "NETFLIX.COM" for $15.99) is already
+  // counted once via Expenses — counting its forecast amount here too would subtract it twice from
+  // Total Cash Left Over. Matched by name + amount (not just shared category) so two bills sharing a
+  // category — e.g. Netflix and Hulu both under "Subscriptions" — aren't both excluded just because
+  // one of them actually posted. Only used for the Cash Flow Summary's own math; the Bills and
   // Subscriptions worksheet cards below still show every tracked item at its full amount.
-  const isCoveredByActualSpend = (b: Bill) => b.categoryId != null && (actual.get(b.categoryId) ?? 0) > 0;
+  const isCoveredByActualSpend = (b: Bill) => {
+    const billName = normalizeBillName(b.name);
+    if (!billName) return false;
+    return monthExpenseTransactions.some(t => {
+      const merchantName = normalizeBillName(t.merchant);
+      if (!merchantName) return false;
+      const namesMatch = merchantName.includes(billName) || billName.includes(merchantName);
+      if (!namesMatch) return false;
+      const tolerance = Math.max(3, b.amount * 0.15);
+      return Math.abs(t.amount - b.amount) <= tolerance;
+    });
+  };
   const billsExcludedFromCashFlow = [...upcomingBillsBase, ...upcomingSubscriptionsBase].filter(isCoveredByActualSpend);
   const billsSummaryTotalForCashFlow = billsSummaryTotal - billsExcludedFromCashFlow.reduce((s, b) => s + b.amount, 0);
 
