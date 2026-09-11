@@ -379,7 +379,7 @@ export function FinanceTransactions({ typeFilter }: { typeFilter?: TransactionTy
                 <td><DatePicker value={t.date} onChange={v => patch(t, { date: v })} /></td>
                 <td>
                   <div className="grid-cell-with-action">
-                    <input type="text" className="grid-cell-input" value={t.merchant} placeholder="e.g. Walmart, Paycheck…" onChange={e => patch(t, { merchant: e.target.value })} />
+                    <input type="text" className="grid-cell-input" value={t.merchant} placeholder="e.g. Walmart, Paycheck…" title={t.merchant} onChange={e => patch(t, { merchant: e.target.value })} />
                     {t.merchant && (
                       <button
                         type="button"
