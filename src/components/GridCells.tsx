@@ -3,9 +3,14 @@ import { useEffect, useRef, useState } from 'react';
 export function NumberCell({
   value, onChange, className, autoFocus, min, decimals
 }: { value: number; onChange: (n: number) => void; className?: string; autoFocus?: boolean; min?: number; decimals?: number }) {
-  const [text, setText] = useState(String(value));
+  const format = (n: number) => (decimals != null ? n.toFixed(decimals) : String(n));
+  const [text, setText] = useState(() => format(value));
+  const focusedRef = useRef(false);
   const ref = useRef<HTMLInputElement>(null);
-  useEffect(() => { setText(String(value)); }, [value]);
+  // Only resync from the prop while the field isn't being actively typed into — otherwise this
+  // would refire (and reformat mid-keystroke, fighting the cursor) on every keystroke's round
+  // trip through parent state, since onChange below commits on every keystroke, not just on blur.
+  useEffect(() => { if (!focusedRef.current) setText(format(value)); }, [value, decimals]);
   // Fires once on this row's own mount (not on every re-render, since React reconciles by
   // key) — lets a freshly-added row that copied forward a placeholder value get overwritten
   // by the very next keystroke instead of silently keeping the old number if never touched.
@@ -18,6 +23,7 @@ export function NumberCell({
       value={text}
       min={min}
       onFocus={() => {
+        focusedRef.current = true;
         // The .00 formatting from the last blur is a display-only nicety — editing should
         // start from the plain number, not force the user to delete trailing zeros first.
         if (decimals != null && text !== '' && text !== '-') {
@@ -46,6 +52,7 @@ export function NumberCell({
         onChange(n);
       }}
       onBlur={() => {
+        focusedRef.current = false;
         if (decimals != null && text !== '' && text !== '-') {
           const n = Number(text);
           if (!Number.isNaN(n)) setText(n.toFixed(decimals));
