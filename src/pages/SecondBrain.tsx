@@ -456,6 +456,7 @@ function BookNotesLog({ rows, onChange, verseHeaders }: { rows: BookNoteRow[]; o
                       className="grid-cell-input"
                       value={row.chapter}
                       placeholder={cols.chapterPh}
+                      title={row.chapter}
                       onChange={e => updateRow(row.id, { chapter: e.target.value })}
                       onBlur={() => lookupRowDetails(row)}
                     />
@@ -465,6 +466,7 @@ function BookNotesLog({ rows, onChange, verseHeaders }: { rows: BookNoteRow[]; o
                       className="grid-cell-input sb-book-log-textarea"
                       value={row.page ?? ''}
                       placeholder={lookingUpId === row.id ? 'Looking up the passage…' : cols.pagePh}
+                      title={row.page}
                       onChange={e => updateRow(row.id, { page: e.target.value })}
                     />
                   </td>
@@ -473,10 +475,11 @@ function BookNotesLog({ rows, onChange, verseHeaders }: { rows: BookNoteRow[]; o
                       className="grid-cell-input sb-book-log-textarea"
                       value={row.takeaway}
                       placeholder={lookingUpObservationId === row.id ? 'Looking up study notes…' : cols.takeawayPh}
+                      title={row.takeaway}
                       onChange={e => updateRow(row.id, { takeaway: e.target.value })}
                     />
                   </td>
-                  <td><textarea className="grid-cell-input sb-book-log-textarea" value={row.application} placeholder={cols.applicationPh} onChange={e => updateRow(row.id, { application: e.target.value })} /></td>
+                  <td><textarea className="grid-cell-input sb-book-log-textarea" value={row.application} placeholder={cols.applicationPh} title={row.application} onChange={e => updateRow(row.id, { application: e.target.value })} /></td>
                   <td className="collection-table-actions">
                     <button type="button" className="icon-btn" onClick={() => setExpandedId(row.id)} aria-label="Expand row"><Maximize2 size={13} /></button>
                     <button type="button" className="icon-btn danger" onClick={() => setConfirmRemoveId(row.id)} aria-label="Remove row"><Trash2 size={13} /></button>
