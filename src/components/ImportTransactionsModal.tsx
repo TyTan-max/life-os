@@ -51,6 +51,7 @@ export function ImportTransactionsModal({
   const [creditCol, setCreditCol] = useState(NONE);
   const [skipDuplicates, setSkipDuplicates] = useState(true);
   const [skipLikelyPayments, setSkipLikelyPayments] = useState(true);
+  const [showFlaggedOnly, setShowFlaggedOnly] = useState(false);
   const [transferToAccountId, setTransferToAccountId] = useState(NONE);
   const [categoryCol, setCategoryCol] = useState(NONE);
 
@@ -159,6 +160,8 @@ export function ImportTransactionsModal({
   const rowsToImport = parsedRows.filter(r =>
     !(skipDuplicates && r.isDuplicate) && !(skipLikelyPayments && r.isLikelyPaymentReceived)
   );
+  const flaggedRows = parsedRows.filter(r => r.isDuplicate || r.isLikelyPaymentReceived);
+  const previewRows = showFlaggedOnly ? flaggedRows : parsedRows;
 
   const canMap = accountId && dateCol && merchantCol && (amountMode === 'single' ? amountCol : (debitCol || creditCol));
 
@@ -354,13 +357,21 @@ export function ImportTransactionsModal({
               </span>
             </label>
           )}
+          {flaggedRows.length > 0 && (
+            <label className="import-dedupe-toggle">
+              <input type="checkbox" checked={showFlaggedOnly} onChange={e => setShowFlaggedOnly(e.target.checked)} />
+              <span>
+                Show only the {flaggedRows.length} flagged row{flaggedRows.length === 1 ? '' : 's'} above, so you can check them without scrolling through everything else
+              </span>
+            </label>
+          )}
           <div className="grid-table-wrap grid-table-scroll">
             <table className="grid-table">
               <thead>
                 <tr><th>Date</th><th>Merchant</th><th>Amount</th><th>Type</th><th>Category</th><th>Status</th></tr>
               </thead>
               <tbody>
-                {parsedRows.slice(0, 50).map((r, i) => {
+                {previewRows.slice(0, 50).map((r, i) => {
                   const asTransfer = r.isTransferLike && transferToAccountId && transferToAccountId !== accountId;
                   const categoryId = asTransfer ? undefined : categoryFor(r.merchant, r.isIncome, r.csvCategory);
                   const categoryLabel = categoryId ? categories.find(c => c.id === categoryId)?.name : undefined;
@@ -384,8 +395,9 @@ export function ImportTransactionsModal({
               </tbody>
             </table>
           </div>
-          {parsedRows.length > 50 && <p className="muted">…and {parsedRows.length - 50} more.</p>}
+          {previewRows.length > 50 && <p className="muted">…and {previewRows.length - 50} more.</p>}
           {!parsedRows.length && <p className="muted">No valid rows found — check your column mapping.</p>}
+          {parsedRows.length > 0 && !previewRows.length && <p className="muted">No flagged rows.</p>}
         </div>
       )}
     </Modal>
