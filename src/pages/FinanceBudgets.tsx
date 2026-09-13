@@ -163,11 +163,12 @@ export function FinanceBudgets() {
   // zero-planned row for any category with real Expense spend this month that never got a
   // budget set up — otherwise that spend was invisible on Expenses Summary (and silently
   // excluded from "Actual Spent"/Cash Flow's "Expenses") just because no budget existed for it.
-  // Year view: Budget records don't have a "yearly" shape (one row exists per month per
-  // category), so roll every month's limit for that category up into a single annual row, with
-  // the same zero-planned fallback for years that never got a budget at all. Rollover is a
-  // month-to-month carryover concept that doesn't sum meaningfully across a whole year, so it's
-  // left at 0 there rather than compounding it incorrectly.
+  // Year view: most categories only ever get one Budget record entered and expect it to
+  // represent an ongoing monthly rate, so each category's Budget figure is that rate ×12 (the
+  // record for the currently selected month if one exists there, else its most recent record
+  // from any month) rather than a literal sum of whichever months happen to have a record —
+  // matching how Bills/Subscriptions already annualize in Year view. Rollover is a month-to-month
+  // carryover concept that doesn't apply to an annualized rate, so it's left at 0 here.
   const rows = useMemo(() => {
     if (viewMode === 'month') {
       const budgetRows = budgets
@@ -188,21 +189,18 @@ export function FinanceBudgets() {
       return [...budgetRows, ...unbudgetedRows]
         .sort((a, b) => (a.category?.name ?? '').localeCompare(b.category?.name ?? ''));
     }
-    const byCategory = new Map<string, { limit: number; sample: Budget | null }>();
-    for (const b of budgets) {
-      if (!b.month.startsWith(year)) continue;
-      const cur = byCategory.get(b.categoryId) ?? { limit: 0, sample: b };
-      cur.limit += b.limit;
-      byCategory.set(b.categoryId, cur);
-    }
-    for (const categoryId of actual.keys()) {
-      if (!byCategory.has(categoryId)) byCategory.set(categoryId, { limit: 0, sample: null });
-    }
-    return Array.from(byCategory.entries())
-      .map(([categoryId, { limit, sample }]) => {
+    const categoryIds = new Set<string>();
+    for (const b of budgets) categoryIds.add(b.categoryId);
+    for (const categoryId of actual.keys()) categoryIds.add(categoryId);
+    return Array.from(categoryIds)
+      .map(categoryId => {
+        const categoryBudgets = budgets.filter(b => b.categoryId === categoryId);
+        const base = categoryBudgets.find(b => b.month === month)
+          ?? categoryBudgets.slice().sort((a, b) => b.month.localeCompare(a.month))[0]
+          ?? null;
         const category = categories.find(c => c.id === categoryId);
         const spent = actual.get(categoryId) ?? 0;
-        return { budget: sample, categoryId, category, rollover: 0, effectiveLimit: limit, spent };
+        return { budget: base, categoryId, category, rollover: 0, effectiveLimit: base ? base.limit * 12 : 0, spent };
       })
       .sort((a, b) => (a.category?.name ?? '').localeCompare(b.category?.name ?? ''));
   }, [budgets, month, year, viewMode, categories, transactions, actual]);
