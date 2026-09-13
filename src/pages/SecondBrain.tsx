@@ -2,7 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, ReactNode } from 'react';
 import {
   Archive, ArchiveRestore, BookMarked, Check, ChevronDown, ChevronLeft, Clock, Code2, Command,
-  Layers, Lightbulb, Link2, ListChecks, Lock, LockOpen, Maximize2, Pencil, Pin, PinOff, Plus, Quote, Search, StickyNote, Trash2, TrendingUp, X
+  Layers, Lightbulb, Link2, ListChecks, Lock, LockOpen, Maximize2, Pencil, Pin, PinOff, Plus, Quote, Search, StickyNote, Trash2, TrendingUp,
+  Vault as VaultIcon, X
 } from 'lucide-react';
 import { useStore, newRecord } from '../store';
 import type { BookActionItem, BookNoteRow, BookNoteStatus, BookQuoteRow, Frequency, Goal, GoalHorizon, GoalProgressMode, GoalStatus, Note, NoteImage, ParaProjectStatus, ParaType, Priority, ProjectBoardColumn, ProjectSubtask, ResourceKind, ReviewCadence, Task, TaskStatus } from '../types';
@@ -33,7 +34,7 @@ function projectColumns(note: Note): ProjectBoardColumn[] {
   return note.boardColumns && note.boardColumns.length ? note.boardColumns : DEFAULT_BOARD_COLUMNS;
 }
 const REVIEW_CADENCES: ReviewCadence[] = ['Weekly', 'Monthly', 'Quarterly'];
-const RESOURCE_KINDS: ResourceKind[] = ['Idea', 'Snippet', 'Reference'];
+const RESOURCE_KINDS: ResourceKind[] = ['Idea', 'Snippet', 'Reference', 'Vault'];
 const BOOK_STATUSES: BookNoteStatus[] = ['Reading', 'Completed', 'Wishlist'];
 // A distinct icon per Kind so the Resources hub reads at a glance instead of three identical
 // bookmark icons — Idea gets the obvious lightbulb, Snippet a sticky-note (it's a plain quick
@@ -43,6 +44,7 @@ const RESOURCE_KIND_ICONS: Record<ResourceKind, typeof Lightbulb> = {
   Idea: Lightbulb,
   Snippet: StickyNote,
   Reference: BookMarked,
+  Vault: VaultIcon,
   Repo: Code2,
   'Book Note': BookMarked,
   Article: BookMarked

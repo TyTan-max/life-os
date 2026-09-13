@@ -208,7 +208,7 @@ export interface FinanceGoal extends BaseRecord {
 // undefined) are treated as "Inbox" — captured but not yet triaged.
 export type ParaType = 'Project' | 'Area' | 'Resource';
 export type ParaProjectStatus = 'Not Started' | 'In Progress' | 'Blocked' | 'Completed';
-export type ResourceKind = 'Article' | 'Snippet' | 'Reference' | 'Idea' | 'Book Note' | 'Repo';
+export type ResourceKind = 'Article' | 'Snippet' | 'Reference' | 'Idea' | 'Book Note' | 'Repo' | 'Vault';
 export type ReviewCadence = 'Weekly' | 'Monthly' | 'Quarterly';
 export type BookNoteStatus = 'Reading' | 'Completed' | 'Wishlist';
 
