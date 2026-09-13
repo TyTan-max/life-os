@@ -1,5 +1,5 @@
 import { Fragment, useMemo, useState } from 'react';
-import { ChevronDown, ChevronLeft, ChevronRight, DollarSign, Pencil, Wand2, X } from 'lucide-react';
+import { ChevronDown, ChevronLeft, ChevronRight, DollarSign, GripVertical, Pencil, Wand2, X } from 'lucide-react';
 import { useStore, newRecord } from '../store';
 import { Card, Kpi, formatCurrency, formatDate, Modal } from '../components/UI';
 import { NumberCell } from '../components/GridCells';
@@ -294,7 +294,7 @@ export function FinanceBudgets() {
     return order
       .filter(g => byGroup.has(g.key))
       .map(g => {
-        const groupRows = byGroup.get(g.key)!.slice().sort((a, b) => (a.category?.name ?? '').localeCompare(b.category?.name ?? ''));
+        const groupRows = byGroup.get(g.key)!.slice().sort((a, b) => (a.category?.order ?? 9999) - (b.category?.order ?? 9999));
         return {
           key: g.key,
           label: g.label,
@@ -488,6 +488,34 @@ export function FinanceBudgets() {
   // of "N categories budgeted" too, not just its dollar contribution.
   const clearCategoryLimit = async (budgetId: string) => {
     await remove('budgets', budgetId);
+  };
+
+  // Drag-to-reorder inside "Edit Category Budgets", scoped to one Needs/Wants/Uncategorized
+  // group at a time. Categories share one global `order` field with income categories too (so
+  // dropdowns everywhere stay consistent), so a drop reassembles ALL expense categories across
+  // every group — substituting just the dragged group's new sequence — before renumbering,
+  // rather than resetting only the touched group back to 0 and colliding with the others.
+  const [dragBudgetCategoryId, setDragBudgetCategoryId] = useState<string | null>(null);
+  const reorderBudgetGroup = (groupKey: string, orderedIdsInGroup: string[]) => {
+    const fullOrder: string[] = [];
+    for (const g of expenseGroups) {
+      fullOrder.push(...(g.key === groupKey ? orderedIdsInGroup : g.rows.filter(r => r.category).map(r => r.categoryId)));
+    }
+    fullOrder.forEach((id, index) => {
+      const category = categories.find(c => c.id === id);
+      if (category && category.order !== index) void upsert('financeCategories', { ...category, order: index });
+    });
+  };
+  const handleBudgetRowDrop = (groupKey: string, groupCategoryIds: string[], targetCategoryId: string) => {
+    if (!dragBudgetCategoryId || dragBudgetCategoryId === targetCategoryId) { setDragBudgetCategoryId(null); return; }
+    const fromIndex = groupCategoryIds.indexOf(dragBudgetCategoryId);
+    const toIndex = groupCategoryIds.indexOf(targetCategoryId);
+    if (fromIndex === -1 || toIndex === -1) { setDragBudgetCategoryId(null); return; }
+    const next = [...groupCategoryIds];
+    next.splice(fromIndex, 1);
+    next.splice(toIndex, 0, dragBudgetCategoryId);
+    reorderBudgetGroup(groupKey, next);
+    setDragBudgetCategoryId(null);
   };
 
   return (
@@ -872,35 +900,54 @@ export function FinanceBudgets() {
             actual spend on Expenses Summary if any comes in.
           </p>
           <div className="list-manager-items">
-            {expenseGroups.map(group => (
-              <div className="list-manager-section" key={group.key}>
-                <div className="list-manager-section-label">{group.label}</div>
-                {group.rows.filter(r => r.category).map(r => (
-                  <div className="list-manager-row" key={r.categoryId}>
-                    <span className="list-manager-row-label">{r.category!.name}</span>
-                    <div className="list-manager-row-controls">
-                      <NumberCell
-                        value={r.budget?.limit ?? 0}
-                        onChange={n => void setCategoryLimit(r.categoryId, n)}
-                        min={0}
-                        decimals={2}
-                      />
-                      {r.budget && (
-                        <button
-                          type="button"
-                          className="icon-btn"
-                          onClick={() => void clearCategoryLimit(r.budget!.id)}
-                          aria-label={`Clear ${r.category!.name} budget`}
-                          title="Clear this category's budget"
-                        >
-                          <X size={13} />
-                        </button>
-                      )}
+            {expenseGroups.map(group => {
+              const groupRows = group.rows.filter(r => r.category);
+              const groupCategoryIds = groupRows.map(r => r.categoryId);
+              return (
+                <div className="list-manager-section" key={group.key}>
+                  <div className="list-manager-section-label">{group.label}</div>
+                  {groupRows.map(r => (
+                    <div
+                      className={`list-manager-row ${dragBudgetCategoryId === r.categoryId ? 'dragging' : ''}`}
+                      key={r.categoryId}
+                      onDragOver={e => e.preventDefault()}
+                      onDrop={() => handleBudgetRowDrop(group.key, groupCategoryIds, r.categoryId)}
+                    >
+                      <span
+                        className="drag-handle"
+                        draggable
+                        title="Drag to reorder"
+                        aria-label={`Drag to reorder ${r.category!.name}`}
+                        onDragStart={e => { setDragBudgetCategoryId(r.categoryId); e.dataTransfer.effectAllowed = 'move'; }}
+                        onDragEnd={() => setDragBudgetCategoryId(null)}
+                      >
+                        <GripVertical size={13} />
+                      </span>
+                      <span className="list-manager-row-label">{r.category!.name}</span>
+                      <div className="list-manager-row-controls">
+                        <NumberCell
+                          value={r.budget?.limit ?? 0}
+                          onChange={n => void setCategoryLimit(r.categoryId, n)}
+                          min={0}
+                          decimals={2}
+                        />
+                        {r.budget && (
+                          <button
+                            type="button"
+                            className="icon-btn"
+                            onClick={() => void clearCategoryLimit(r.budget!.id)}
+                            aria-label={`Clear ${r.category!.name} budget`}
+                            title="Clear this category's budget"
+                          >
+                            <X size={13} />
+                          </button>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                ))}
-              </div>
-            ))}
+                  ))}
+                </div>
+              );
+            })}
           </div>
         </Modal>
       )}
