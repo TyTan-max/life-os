@@ -790,6 +790,7 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
   const [dragOverStatus, setDragOverStatus] = useState<string | null>(null);
   const [subtaskDraft, setSubtaskDraft] = useState('');
   const [editingSubtaskId, setEditingSubtaskId] = useState<string | null>(null);
+  const [linkedMentionsOpen, setLinkedMentionsOpen] = useState(true);
 
   // Frictionless capture — always lands untyped (Inbox) regardless of which PARA
   // tab you're currently viewing. Deliberately no title prompt: organize later.
@@ -2473,8 +2474,11 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
               )}
               {backlinks.length > 0 && (
                 <div className="sb-backlinks">
-                  <h3>Linked mentions ({backlinks.length})</h3>
-                  {backlinks.map(b => (
+                  <button type="button" className="sb-backlinks-head" onClick={() => setLinkedMentionsOpen(o => !o)}>
+                    <h3>Linked mentions ({backlinks.length})</h3>
+                    <ChevronDown size={14} className={`sb-backlinks-chevron ${linkedMentionsOpen ? 'open' : ''}`} />
+                  </button>
+                  {linkedMentionsOpen && backlinks.map(b => (
                     <button type="button" key={b.id} className="sb-backlink-row" onClick={() => openNote(b)}>
                       <b>{b.title || 'Untitled'}</b>
                       <small>{snippet(b.body, 70)}</small>
