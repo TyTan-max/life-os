@@ -1,7 +1,8 @@
 import { Fragment, useMemo, useState } from 'react';
-import { ChevronDown, ChevronLeft, ChevronRight, Pencil, Wand2 } from 'lucide-react';
+import { ChevronDown, ChevronLeft, ChevronRight, Pencil, Wand2, X } from 'lucide-react';
 import { useStore, newRecord } from '../store';
 import { Card, Kpi, formatCurrency, formatDate, Modal } from '../components/UI';
+import { NumberCell } from '../components/GridCells';
 import { SortableTh, toggleSort } from '../components/SortableTh';
 import type { SortState } from '../components/SortableTh';
 import { MonthYearPicker } from '../components/MonthYearPicker';
@@ -11,9 +12,18 @@ import {
   actualSpendByCategory, billMonthlyEquivalent, formatMonthLabel, monthKey, monthlyIncome,
   rolloverAmount, shiftMonth, suggest502030
 } from '../lib/budgetMath';
-import type { Bill, Budget, BudgetGroup, FinanceGoal } from '../types';
+import type { Bill, Budget, BudgetGroup, FinanceCategory, FinanceGoal } from '../types';
 
 type BudgetViewMode = 'month' | 'year';
+
+interface ExpenseRow {
+  budget: Budget | null;
+  categoryId: string;
+  category: FinanceCategory | undefined;
+  rollover: number;
+  effectiveLimit: number;
+  spent: number;
+}
 
 function requiredMonthlyContribution(goal: FinanceGoal): number {
   if (!goal.targetDate) return 0;
@@ -144,7 +154,7 @@ function HorizontalWaterfallChart({ items, total, totalLabel }: { items: Waterfa
 }
 
 export function FinanceBudgets() {
-  const { data, upsert } = useStore();
+  const { data, upsert, remove } = useStore();
   const [month, setMonth] = useState(monthKey());
   const [viewMode, setViewMode] = useState<BudgetViewMode>('month');
   const { budgets, financeCategories: categories, transactions } = data;
@@ -169,26 +179,30 @@ export function FinanceBudgets() {
   // from any month) rather than a literal sum of whichever months happen to have a record —
   // matching how Bills/Subscriptions already annualize in Year view. Rollover is a month-to-month
   // carryover concept that doesn't apply to an annualized rate, so it's left at 0 here.
-  const rows = useMemo(() => {
+  const rows = useMemo((): ExpenseRow[] => {
     if (viewMode === 'month') {
-      // Same guard as Year view: skip a Budget record whose category has since been deleted,
-      // so it doesn't keep resurfacing forever as a $0-actual "Uncategorized" ghost row.
-      const budgetRows = budgets
-        .filter(b => b.month === month && categories.some(c => c.id === b.categoryId))
-        .map(b => {
-          const category = categories.find(c => c.id === b.categoryId);
-          const rollover = rolloverAmount(b.categoryId, month, budgets, transactions);
-          const effectiveLimit = b.limit + rollover;
-          const spent = actual.get(b.categoryId) ?? 0;
-          return { budget: b as Budget | null, categoryId: b.categoryId, category, rollover, effectiveLimit, spent };
+      // Starts from every expense category (not just ones with a Budget record or spend) so a
+      // budget can be manually set for any of them — a brand new, untouched category included.
+      // "Hide $0 categories" (spend-based, on by default) keeps this from cluttering the view.
+      const monthBudgets = budgets.filter(b => b.month === month);
+      const budgetRows = categories
+        .filter(c => c.kind === 'expense')
+        .map(category => {
+          const b = monthBudgets.find(x => x.categoryId === category.id) ?? null;
+          const rollover = b ? rolloverAmount(category.id, month, budgets, transactions) : 0;
+          const effectiveLimit = b ? b.limit + rollover : 0;
+          const spent = actual.get(category.id) ?? 0;
+          return { budget: b as Budget | null, categoryId: category.id, category, rollover, effectiveLimit, spent };
         });
-      const budgetedIds = new Set(budgetRows.map(r => r.categoryId));
-      const unbudgetedRows = Array.from(actual.entries())
-        .filter(([categoryId]) => !budgetedIds.has(categoryId))
+      // A category deleted since a transaction was recorded under it still needs its real spend
+      // to show up somewhere — surfaced as "Uncategorized" the same way unbudgeted spend is.
+      const coveredIds = new Set(budgetRows.map(r => r.categoryId));
+      const staleSpendRows = Array.from(actual.entries())
+        .filter(([categoryId]) => !coveredIds.has(categoryId))
         .map(([categoryId, spent]) => ({
-          budget: null, categoryId, category: categories.find(c => c.id === categoryId), rollover: 0, effectiveLimit: 0, spent
+          budget: null, categoryId, category: undefined, rollover: 0, effectiveLimit: 0, spent
         }));
-      return [...budgetRows, ...unbudgetedRows]
+      return [...budgetRows, ...staleSpendRows]
         .sort((a, b) => (a.category?.name ?? '').localeCompare(b.category?.name ?? ''));
     }
     // Only budgets belonging to a category that still exists — otherwise a category deleted
@@ -457,6 +471,22 @@ export function FinanceBudgets() {
         await upsert('budgets', newRecord<Budget>({ categoryId, month, limit, rolloverEnabled: false }));
       }
     }
+  };
+
+  // Manually sets one category's budget for the currently selected month — only meaningful in
+  // Month view, since Year view's Budget figure is a derived ×12 annualization, not a real record.
+  const setCategoryLimit = async (categoryId: string, limit: number) => {
+    const existing = budgets.find(b => b.categoryId === categoryId && b.month === month);
+    if (existing) {
+      await upsert('budgets', { ...existing, limit });
+    } else {
+      await upsert('budgets', newRecord<Budget>({ categoryId, month, limit, rolloverEnabled: false }));
+    }
+  };
+  // Removes the Budget record entirely (rather than just zeroing it) so the category drops out
+  // of "N categories budgeted" too, not just its dollar contribution.
+  const clearCategoryLimit = async (budgetId: string) => {
+    await remove('budgets', budgetId);
   };
 
   return (
@@ -759,7 +789,35 @@ export function FinanceBudgets() {
                           return (
                             <tr className="expense-subrow" key={r.categoryId}>
                               <td>{r.category?.name ?? 'Uncategorized'}</td>
-                              <td>{formatCurrency(r.effectiveLimit)}</td>
+                              <td className="expense-budget-cell">
+                                {r.category && viewMode === 'month' ? (
+                                  <div className="expense-budget-edit">
+                                    <NumberCell
+                                      value={r.budget?.limit ?? 0}
+                                      onChange={n => void setCategoryLimit(r.categoryId, n)}
+                                      min={0}
+                                      decimals={2}
+                                      className="expense-budget-input"
+                                    />
+                                    {r.budget && (
+                                      <button
+                                        type="button"
+                                        className="icon-btn"
+                                        onClick={() => void clearCategoryLimit(r.budget!.id)}
+                                        aria-label={`Clear ${r.category.name} budget`}
+                                        title="Clear this category's budget"
+                                      >
+                                        <X size={12} />
+                                      </button>
+                                    )}
+                                  </div>
+                                ) : formatCurrency(r.effectiveLimit)}
+                                {r.rollover > 0 && (
+                                  <small className="expense-budget-rollover" title="Unspent amount rolled over from last month">
+                                    + {formatCurrency(r.rollover)} rollover
+                                  </small>
+                                )}
+                              </td>
                               <td>{formatCurrency(r.spent)}</td>
                               <td><span className={rowRemaining >= 0 ? 'positive' : 'negative'}>{formatCurrency(rowRemaining)}</span></td>
                             </tr>
