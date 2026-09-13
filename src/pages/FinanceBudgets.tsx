@@ -1,5 +1,5 @@
 import { Fragment, useMemo, useState } from 'react';
-import { ChevronDown, ChevronLeft, ChevronRight, DollarSign, GripVertical, Pencil, Wand2, X } from 'lucide-react';
+import { ChevronDown, ChevronLeft, ChevronRight, DollarSign, GripVertical, Lock, LockOpen, Pencil, Wand2, X } from 'lucide-react';
 import { useStore, newRecord } from '../store';
 import { Card, Kpi, formatCurrency, formatDate, Modal } from '../components/UI';
 import { NumberCell } from '../components/GridCells';
@@ -466,11 +466,23 @@ export function FinanceBudgets() {
     const suggestions = suggest502030(income, categories);
     for (const [categoryId, limit] of suggestions) {
       const existing = budgets.find(b => b.categoryId === categoryId && b.month === month);
+      // A locked category keeps whatever the user set — 50/30/20 skips it entirely rather
+      // than recalculating and overwriting it.
+      if (existing?.locked) continue;
       if (existing) {
         await upsert('budgets', { ...existing, limit });
       } else {
         await upsert('budgets', newRecord<Budget>({ categoryId, month, limit, rolloverEnabled: false }));
       }
+    }
+  };
+
+  const toggleCategoryLock = async (categoryId: string) => {
+    const existing = budgets.find(b => b.categoryId === categoryId && b.month === month);
+    if (existing) {
+      await upsert('budgets', { ...existing, locked: !existing.locked });
+    } else {
+      await upsert('budgets', newRecord<Budget>({ categoryId, month, limit: 0, rolloverEnabled: false, locked: true }));
     }
   };
 
@@ -822,7 +834,14 @@ export function FinanceBudgets() {
                           const rowRemaining = r.effectiveLimit - r.spent;
                           return (
                             <tr className="expense-subrow" key={r.categoryId}>
-                              <td>{r.category?.name ?? 'Uncategorized'}</td>
+                              <td>
+                                {r.category?.name ?? 'Uncategorized'}
+                                {r.budget?.locked && (
+                                  <span className="expense-budget-lock-icon" title="Locked — Apply 50/30/20 won't touch this">
+                                    <Lock size={10} />
+                                  </span>
+                                )}
+                              </td>
                               <td>
                                 {formatCurrency(r.effectiveLimit)}
                                 {r.rollover > 0 && (
@@ -931,6 +950,15 @@ export function FinanceBudgets() {
                           min={0}
                           decimals={2}
                         />
+                        <button
+                          type="button"
+                          className={`icon-btn ${r.budget?.locked ? 'active' : ''}`}
+                          onClick={() => void toggleCategoryLock(r.categoryId)}
+                          aria-label={r.budget?.locked ? `Unlock ${r.category!.name} budget` : `Lock ${r.category!.name} budget`}
+                          title={r.budget?.locked ? "Locked — Apply 50/30/20 won't touch this" : "Lock so Apply 50/30/20 can't override this"}
+                        >
+                          {r.budget?.locked ? <Lock size={13} /> : <LockOpen size={13} />}
+                        </button>
                         {r.budget && (
                           <button
                             type="button"

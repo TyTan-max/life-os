@@ -734,6 +734,8 @@ input, select, textarea { font-family: inherit; }
 }
 .icon-btn:hover { background: var(--surface-hover); }
 .icon-btn.danger:hover { color: var(--red); background: var(--red-soft); }
+.icon-btn.active { color: var(--amber); }
+.icon-btn.active:hover { background: color-mix(in srgb, var(--amber) 15%, transparent); }
 
 .history-controls {
   position: fixed;
@@ -1621,6 +1623,7 @@ input, select, textarea { font-family: inherit; }
 .expense-summary-table .expense-subrow td:first-child { padding-left: 22px; color: var(--text-muted); font-weight: 400; }
 .expense-summary-table .expense-subrow-note td { color: var(--text-faint); font-style: italic; font-size: 11.5px; text-align: left; }
 .expense-budget-rollover { display: block; color: var(--text-faint); font-size: 10.5px; margin-top: 1px; white-space: nowrap; }
+.expense-budget-lock-icon { display: inline-flex; margin-left: 5px; color: var(--amber); vertical-align: -1px; }
 
 .budget-overview-card, .budget-cashflow-table-card { margin-bottom: 0; }
 

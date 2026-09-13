@@ -93,6 +93,9 @@ export interface Budget extends BaseRecord {
   month: string;
   limit: number;
   rolloverEnabled?: boolean;
+  // When true, "Apply 50/30/20" skips this category entirely instead of recalculating and
+  // overwriting its limit.
+  locked?: boolean;
 }
 
 export type FinanceAccountType = string;
