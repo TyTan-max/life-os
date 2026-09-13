@@ -221,8 +221,11 @@ export function FinanceBudgets() {
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
   const [hideZeroActual, setHideZeroActual] = useState(true);
   const [showBudgetGroups, setShowBudgetGroups] = useState(false);
+  // Same order as the Category menu (e.g. "Manage categories" on Transactions/Bills) — the
+  // user's own drag-reorder via `order`, not alphabetical — so this list lines up with where
+  // each category actually sits everywhere else, instead of jumping around to A-Z.
   const expenseCategories = useMemo(
-    () => data.financeCategories.filter(c => c.kind === 'expense').slice().sort((a, b) => a.name.localeCompare(b.name)),
+    () => data.financeCategories.filter(c => c.kind === 'expense').slice().sort((a, b) => (a.order ?? 9999) - (b.order ?? 9999)),
     [data.financeCategories]
   );
   const setCategoryBudgetGroup = (categoryId: string, group: BudgetGroup | '') => {
