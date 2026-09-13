@@ -171,8 +171,10 @@ export function FinanceBudgets() {
   // carryover concept that doesn't apply to an annualized rate, so it's left at 0 here.
   const rows = useMemo(() => {
     if (viewMode === 'month') {
+      // Same guard as Year view: skip a Budget record whose category has since been deleted,
+      // so it doesn't keep resurfacing forever as a $0-actual "Uncategorized" ghost row.
       const budgetRows = budgets
-        .filter(b => b.month === month)
+        .filter(b => b.month === month && categories.some(c => c.id === b.categoryId))
         .map(b => {
           const category = categories.find(c => c.id === b.categoryId);
           const rollover = rolloverAmount(b.categoryId, month, budgets, transactions);
