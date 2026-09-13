@@ -159,41 +159,58 @@ export function FinanceBudgets() {
   const actual = useMemo(() => actualSpendByCategory(transactions, period), [transactions, period]);
   const income = useMemo(() => monthlyIncome(transactions, period), [transactions, period]);
 
-  // Month view: one row per Budget record for the selected month, rollover included.
+  // Month view: one row per Budget record for the selected month, rollover included, PLUS a
+  // zero-planned row for any category with real Expense spend this month that never got a
+  // budget set up — otherwise that spend was invisible on Expenses Summary (and silently
+  // excluded from "Actual Spent"/Cash Flow's "Expenses") just because no budget existed for it.
   // Year view: Budget records don't have a "yearly" shape (one row exists per month per
-  // category), so roll every month's limit for that category up into a single annual row.
-  // Rollover is a month-to-month carryover concept that doesn't sum meaningfully across a whole
-  // year, so it's left at 0 there rather than compounding it incorrectly.
+  // category), so roll every month's limit for that category up into a single annual row, with
+  // the same zero-planned fallback for years that never got a budget at all. Rollover is a
+  // month-to-month carryover concept that doesn't sum meaningfully across a whole year, so it's
+  // left at 0 there rather than compounding it incorrectly.
   const rows = useMemo(() => {
     if (viewMode === 'month') {
-      return budgets
+      const budgetRows = budgets
         .filter(b => b.month === month)
         .map(b => {
           const category = categories.find(c => c.id === b.categoryId);
           const rollover = rolloverAmount(b.categoryId, month, budgets, transactions);
           const effectiveLimit = b.limit + rollover;
           const spent = actual.get(b.categoryId) ?? 0;
-          return { budget: b, category, rollover, effectiveLimit, spent };
-        })
+          return { budget: b as Budget | null, categoryId: b.categoryId, category, rollover, effectiveLimit, spent };
+        });
+      const budgetedIds = new Set(budgetRows.map(r => r.categoryId));
+      const unbudgetedRows = Array.from(actual.entries())
+        .filter(([categoryId]) => !budgetedIds.has(categoryId))
+        .map(([categoryId, spent]) => ({
+          budget: null, categoryId, category: categories.find(c => c.id === categoryId), rollover: 0, effectiveLimit: 0, spent
+        }));
+      return [...budgetRows, ...unbudgetedRows]
         .sort((a, b) => (a.category?.name ?? '').localeCompare(b.category?.name ?? ''));
     }
-    const byCategory = new Map<string, { limit: number; sample: Budget }>();
+    const byCategory = new Map<string, { limit: number; sample: Budget | null }>();
     for (const b of budgets) {
       if (!b.month.startsWith(year)) continue;
       const cur = byCategory.get(b.categoryId) ?? { limit: 0, sample: b };
       cur.limit += b.limit;
       byCategory.set(b.categoryId, cur);
     }
+    for (const categoryId of actual.keys()) {
+      if (!byCategory.has(categoryId)) byCategory.set(categoryId, { limit: 0, sample: null });
+    }
     return Array.from(byCategory.entries())
       .map(([categoryId, { limit, sample }]) => {
         const category = categories.find(c => c.id === categoryId);
         const spent = actual.get(categoryId) ?? 0;
-        return { budget: sample, category, rollover: 0, effectiveLimit: limit, spent };
+        return { budget: sample, categoryId, category, rollover: 0, effectiveLimit: limit, spent };
       })
       .sort((a, b) => (a.category?.name ?? '').localeCompare(b.category?.name ?? ''));
   }, [budgets, month, year, viewMode, categories, transactions, actual]);
 
   const totalPlanned = rows.reduce((s, r) => s + r.effectiveLimit, 0);
+  // Excludes the zero-planned rows added for categories that have real spend but were never
+  // actually budgeted — those shouldn't count toward "N categories budgeted".
+  const budgetedRowCount = rows.filter(r => r.budget != null).length;
   const totalActual = rows.reduce((s, r) => s + r.spent, 0);
   const remaining = totalPlanned - totalActual;
   const savings = income - totalActual;
@@ -484,7 +501,7 @@ export function FinanceBudgets() {
           caption={income > 0 ? (viewMode === 'year' ? 'this year' : 'this month') : 'no income logged yet'}
           tone="blue"
         />
-        <Kpi label="Planned" value={formatCurrency(totalPlanned)} caption={`${rows.length} categor${rows.length === 1 ? 'y' : 'ies'} budgeted`} tone="default" />
+        <Kpi label="Planned" value={formatCurrency(totalPlanned)} caption={`${budgetedRowCount} categor${budgetedRowCount === 1 ? 'y' : 'ies'} budgeted`} tone="default" />
         <Kpi label="Actual Spent" value={formatCurrency(totalActual)} caption={income > 0 ? `${Math.round((totalActual / income) * 100)}% of income` : undefined} tone={totalActual > totalPlanned ? 'red' : 'green'} />
         <Kpi label="Remaining" value={formatCurrency(remaining)} caption={`savings rate ${savingsRate}%`} tone={remaining < 0 ? 'red' : 'green'} />
       </div>
@@ -733,7 +750,7 @@ export function FinanceBudgets() {
                         {expanded && visibleRows.map(r => {
                           const rowRemaining = r.effectiveLimit - r.spent;
                           return (
-                            <tr className="expense-subrow" key={r.budget.id}>
+                            <tr className="expense-subrow" key={r.categoryId}>
                               <td>{r.category?.name ?? 'Uncategorized'}</td>
                               <td>{formatCurrency(r.effectiveLimit)}</td>
                               <td>{formatCurrency(r.spent)}</td>
