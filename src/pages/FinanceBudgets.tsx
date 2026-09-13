@@ -867,37 +867,40 @@ export function FinanceBudgets() {
           onClose={() => setShowEditBudgets(false)}
         >
           <p className="list-manager-subtitle">
-            Sets each category's budget for {formatMonthLabel(month)}. Leave a category at $0 to
-            not budget it — it'll still show its actual spend on Expenses Summary if any comes in.
+            Sets each category's budget for {formatMonthLabel(month)}. Grouped the same way as
+            Expenses Summary above. Leave a category at $0 to not budget it — it'll still show its
+            actual spend on Expenses Summary if any comes in.
           </p>
           <div className="list-manager-items">
-            {expenseCategories.map(c => {
-              const b = budgets.find(x => x.categoryId === c.id && x.month === month);
-              return (
-                <div className="list-manager-row" key={c.id}>
-                  <span className="list-manager-row-label">{c.name}</span>
-                  <div className="list-manager-row-controls">
-                    <NumberCell
-                      value={b?.limit ?? 0}
-                      onChange={n => void setCategoryLimit(c.id, n)}
-                      min={0}
-                      decimals={2}
-                    />
-                    {b && (
-                      <button
-                        type="button"
-                        className="icon-btn"
-                        onClick={() => void clearCategoryLimit(b.id)}
-                        aria-label={`Clear ${c.name} budget`}
-                        title="Clear this category's budget"
-                      >
-                        <X size={13} />
-                      </button>
-                    )}
+            {expenseGroups.map(group => (
+              <div className="list-manager-section" key={group.key}>
+                <div className="list-manager-section-label">{group.label}</div>
+                {group.rows.filter(r => r.category).map(r => (
+                  <div className="list-manager-row" key={r.categoryId}>
+                    <span className="list-manager-row-label">{r.category!.name}</span>
+                    <div className="list-manager-row-controls">
+                      <NumberCell
+                        value={r.budget?.limit ?? 0}
+                        onChange={n => void setCategoryLimit(r.categoryId, n)}
+                        min={0}
+                        decimals={2}
+                      />
+                      {r.budget && (
+                        <button
+                          type="button"
+                          className="icon-btn"
+                          onClick={() => void clearCategoryLimit(r.budget!.id)}
+                          aria-label={`Clear ${r.category!.name} budget`}
+                          title="Clear this category's budget"
+                        >
+                          <X size={13} />
+                        </button>
+                      )}
+                    </div>
                   </div>
-                </div>
-              );
-            })}
+                ))}
+              </div>
+            ))}
           </div>
         </Modal>
       )}
