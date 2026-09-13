@@ -8,10 +8,12 @@ import { MonthYearPicker } from '../components/MonthYearPicker';
 import { isLiabilityAccount } from './FinanceAccounts';
 import { FinanceLedger } from './FinanceLedger';
 import {
-  actualSpendByCategory, formatMonthLabel, monthKey, monthlyIncome,
+  actualSpendByCategory, billMonthlyEquivalent, formatMonthLabel, monthKey, monthlyIncome,
   rolloverAmount, shiftMonth, suggest502030
 } from '../lib/budgetMath';
 import type { Bill, Budget, BudgetGroup, FinanceGoal } from '../types';
+
+type BudgetViewMode = 'month' | 'year';
 
 function requiredMonthlyContribution(goal: FinanceGoal): number {
   if (!goal.targetDate) return 0;
@@ -144,22 +146,52 @@ function HorizontalWaterfallChart({ items, total, totalLabel }: { items: Waterfa
 export function FinanceBudgets() {
   const { data, upsert } = useStore();
   const [month, setMonth] = useState(monthKey());
+  const [viewMode, setViewMode] = useState<BudgetViewMode>('month');
   const { budgets, financeCategories: categories, transactions } = data;
 
-  const actual = useMemo(() => actualSpendByCategory(transactions, month), [transactions, month]);
-  const income = useMemo(() => monthlyIncome(transactions, month), [transactions, month]);
+  // Every date is stored "YYYY-MM-DD", so a 7-char period ("YYYY-MM") matches one month via
+  // `.startsWith` exactly like today, and a bare 4-char period ("YYYY") matches every date in
+  // that year the same way — letting almost all the existing month-scoped math work unchanged
+  // for the year view just by swapping which period string gets passed in.
+  const year = month.slice(0, 4);
+  const period = viewMode === 'year' ? year : month;
 
-  const rows = useMemo(() => budgets
-    .filter(b => b.month === month)
-    .map(b => {
-      const category = categories.find(c => c.id === b.categoryId);
-      const rollover = rolloverAmount(b.categoryId, month, budgets, transactions);
-      const effectiveLimit = b.limit + rollover;
-      const spent = actual.get(b.categoryId) ?? 0;
-      return { budget: b, category, rollover, effectiveLimit, spent };
-    })
-    .sort((a, b) => (a.category?.name ?? '').localeCompare(b.category?.name ?? '')),
-  [budgets, month, categories, transactions, actual]);
+  const actual = useMemo(() => actualSpendByCategory(transactions, period), [transactions, period]);
+  const income = useMemo(() => monthlyIncome(transactions, period), [transactions, period]);
+
+  // Month view: one row per Budget record for the selected month, rollover included.
+  // Year view: Budget records don't have a "yearly" shape (one row exists per month per
+  // category), so roll every month's limit for that category up into a single annual row.
+  // Rollover is a month-to-month carryover concept that doesn't sum meaningfully across a whole
+  // year, so it's left at 0 there rather than compounding it incorrectly.
+  const rows = useMemo(() => {
+    if (viewMode === 'month') {
+      return budgets
+        .filter(b => b.month === month)
+        .map(b => {
+          const category = categories.find(c => c.id === b.categoryId);
+          const rollover = rolloverAmount(b.categoryId, month, budgets, transactions);
+          const effectiveLimit = b.limit + rollover;
+          const spent = actual.get(b.categoryId) ?? 0;
+          return { budget: b, category, rollover, effectiveLimit, spent };
+        })
+        .sort((a, b) => (a.category?.name ?? '').localeCompare(b.category?.name ?? ''));
+    }
+    const byCategory = new Map<string, { limit: number; sample: Budget }>();
+    for (const b of budgets) {
+      if (!b.month.startsWith(year)) continue;
+      const cur = byCategory.get(b.categoryId) ?? { limit: 0, sample: b };
+      cur.limit += b.limit;
+      byCategory.set(b.categoryId, cur);
+    }
+    return Array.from(byCategory.entries())
+      .map(([categoryId, { limit, sample }]) => {
+        const category = categories.find(c => c.id === categoryId);
+        const spent = actual.get(categoryId) ?? 0;
+        return { budget: sample, category, rollover: 0, effectiveLimit: limit, spent };
+      })
+      .sort((a, b) => (a.category?.name ?? '').localeCompare(b.category?.name ?? ''));
+  }, [budgets, month, year, viewMode, categories, transactions, actual]);
 
   const totalPlanned = rows.reduce((s, r) => s + r.effectiveLimit, 0);
   const totalActual = rows.reduce((s, r) => s + r.spent, 0);
@@ -253,9 +285,9 @@ export function FinanceBudgets() {
   }, [debtAccountsBase, debtSort]);
 
   const incomeSaved = useMemo(() => transactions
-    .filter(t => t.type === 'Transfer' && t.date.startsWith(month))
+    .filter(t => t.type === 'Transfer' && t.date.startsWith(period))
     .reduce((s, t) => s + t.amount, 0),
-  [transactions, month]);
+  [transactions, period]);
 
   const upcomingBillsBase = useMemo(
     () => data.bills.filter(b => (b.kind ?? 'Bill') === 'Bill').sort((a, b) => a.nextDue.localeCompare(b.nextDue)).slice(0, 8),
@@ -297,6 +329,17 @@ export function FinanceBudgets() {
   const billsExcludedFromCashFlow = [...upcomingBillsBase, ...upcomingSubscriptionsBase].filter(isCoveredByActualSpend);
   const billsSummaryTotalForCashFlow = billsSummaryTotal - billsExcludedFromCashFlow.reduce((s, b) => s + b.amount, 0);
 
+  // Year view's Cash Flow Summary can't reuse the month math above as-is: "next 8 upcoming" and
+  // the already-posted-as-a-transaction exclusion are both month-scoped ideas that don't translate
+  // cleanly across 12 months. Instead every tracked bill/subscription's frequency-adjusted monthly
+  // equivalent is annualized (×12) — a forecast, not a literal sum of the year's transactions, and
+  // without the double-count guard the month view has.
+  const annualBillsTotal = useMemo(
+    () => data.bills.reduce((s, b) => s + billMonthlyEquivalent(b) * 12, 0),
+    [data.bills]
+  );
+  const cashFlowBillsTotal = viewMode === 'year' ? annualBillsTotal : billsSummaryTotalForCashFlow;
+
   const sortRecurring = (list: typeof upcomingBillsBase, sort: SortState<'name' | 'due' | 'amount'>) => {
     const next = list.slice();
     next.sort((a, b) => {
@@ -314,11 +357,14 @@ export function FinanceBudgets() {
   const upcomingSubscriptions = useMemo(() => sortRecurring(upcomingSubscriptionsBase, subsSort), [upcomingSubscriptionsBase, subsSort]);
 
   const savingsMonthlyTotal = data.financeGoals.reduce((s, g) => s + requiredMonthlyContribution(g), 0);
+  const cashFlowDebtsTotal = viewMode === 'year' ? monthlyDebtMinimums * 12 : monthlyDebtMinimums;
+  const cashFlowSavingsTotal = viewMode === 'year' ? savingsMonthlyTotal * 12 : savingsMonthlyTotal;
 
   // Cash Flow Summary is derived entirely from the worksheet panels below it, so the two always agree:
   // Income Summary → Income, Bills Summary → Bills, Expenses Summary → Expenses,
-  // Debt Payments → Debts, Savings → Savings (required monthly contribution across goals).
-  const totalCashLeftOver = income - billsSummaryTotalForCashFlow - totalActual - monthlyDebtMinimums - savingsMonthlyTotal;
+  // Debt Payments → Debts, Savings → Savings (required monthly contribution across goals). In year
+  // view Bills/Debts/Savings are all ×12 annualized forecasts rather than literal period sums.
+  const totalCashLeftOver = income - cashFlowBillsTotal - totalActual - cashFlowDebtsTotal - cashFlowSavingsTotal;
 
   // Waterfall only maps Expenses (never mixed with Income/Bills/Debts/Savings) so its total
   // bar always matches what it visually represents — top categories by spend, rest bucketed.
@@ -331,8 +377,8 @@ export function FinanceBudgets() {
   ];
 
   const incomeRowsBase = useMemo(() => transactions
-    .filter(t => t.type === 'Income' && t.date.startsWith(month)),
-  [transactions, month]);
+    .filter(t => t.type === 'Income' && t.date.startsWith(period)),
+  [transactions, period]);
   const [incomeSort, setIncomeSort] = useState<SortState<'merchant' | 'date' | 'amount'>>({ key: 'date', dir: 'desc' });
   const incomeRows = useMemo(() => {
     const list = incomeRowsBase.slice();
@@ -379,23 +425,52 @@ export function FinanceBudgets() {
   return (
     <>
       <div className="month-nav">
-        <button type="button" className="icon-btn" onClick={() => setMonth(shiftMonth(month, -1))} aria-label="Previous month"><ChevronLeft size={16} /></button>
-        <MonthYearPicker
-          month={Number(month.slice(5, 7)) - 1}
-          year={Number(month.slice(0, 4))}
-          onChange={(m, y) => setMonth(`${y}-${String(m + 1).padStart(2, '0')}`)}
-          triggerClassName="month-nav-title"
-          triggerLabel={formatMonthLabel(month)}
-        />
-        <button type="button" className="icon-btn" onClick={() => setMonth(shiftMonth(month, 1))} aria-label="Next month"><ChevronRight size={16} /></button>
-        {month !== monthKey() && <button type="button" className="btn ghost small" onClick={() => setMonth(monthKey())}>Today</button>}
-        <button type="button" className="btn ghost small" onClick={() => void apply502030()} disabled={income <= 0} title={income <= 0 ? 'No income recorded this month yet' : 'Distribute 50% of income across Needs, 30% across Wants'}>
-          <Wand2 size={14} /> Apply 50/30/20
+        <button
+          type="button"
+          className="icon-btn"
+          onClick={() => setMonth(viewMode === 'year' ? `${Number(year) - 1}-${month.slice(5, 7)}` : shiftMonth(month, -1))}
+          aria-label={viewMode === 'year' ? 'Previous year' : 'Previous month'}
+        >
+          <ChevronLeft size={16} />
         </button>
+        {viewMode === 'month' ? (
+          <MonthYearPicker
+            month={Number(month.slice(5, 7)) - 1}
+            year={Number(month.slice(0, 4))}
+            onChange={(m, y) => setMonth(`${y}-${String(m + 1).padStart(2, '0')}`)}
+            triggerClassName="month-nav-title"
+            triggerLabel={formatMonthLabel(month)}
+          />
+        ) : (
+          <span className="month-nav-year">{year}</span>
+        )}
+        <button
+          type="button"
+          className="icon-btn"
+          onClick={() => setMonth(viewMode === 'year' ? `${Number(year) + 1}-${month.slice(5, 7)}` : shiftMonth(month, 1))}
+          aria-label={viewMode === 'year' ? 'Next year' : 'Next month'}
+        >
+          <ChevronRight size={16} />
+        </button>
+        {month !== monthKey() && <button type="button" className="btn ghost small" onClick={() => setMonth(monthKey())}>Today</button>}
+        <div className="trend-range-toggle">
+          <button type="button" className={viewMode === 'month' ? 'on' : ''} onClick={() => setViewMode('month')}>Month</button>
+          <button type="button" className={viewMode === 'year' ? 'on' : ''} onClick={() => setViewMode('year')}>Year</button>
+        </div>
+        {viewMode === 'month' && (
+          <button type="button" className="btn ghost small" onClick={() => void apply502030()} disabled={income <= 0} title={income <= 0 ? 'No income recorded this month yet' : 'Distribute 50% of income across Needs, 30% across Wants'}>
+            <Wand2 size={14} /> Apply 50/30/20
+          </button>
+        )}
       </div>
 
       <div className="kpi-grid four">
-        <Kpi label="Monthly Income" value={formatCurrency(income)} caption={`${income > 0 ? 'this month' : 'no income logged yet'}`} tone="blue" />
+        <Kpi
+          label={viewMode === 'year' ? 'Yearly Income' : 'Monthly Income'}
+          value={formatCurrency(income)}
+          caption={income > 0 ? (viewMode === 'year' ? 'this year' : 'this month') : 'no income logged yet'}
+          tone="blue"
+        />
         <Kpi label="Planned" value={formatCurrency(totalPlanned)} caption={`${rows.length} categor${rows.length === 1 ? 'y' : 'ies'} budgeted`} tone="default" />
         <Kpi label="Actual Spent" value={formatCurrency(totalActual)} caption={income > 0 ? `${Math.round((totalActual / income) * 100)}% of income` : undefined} tone={totalActual > totalPlanned ? 'red' : 'green'} />
         <Kpi label="Remaining" value={formatCurrency(remaining)} caption={`savings rate ${savingsRate}%`} tone={remaining < 0 ? 'red' : 'green'} />
@@ -421,19 +496,22 @@ export function FinanceBudgets() {
           <Card className="budget-cashflow-table-card">
             <div className="card-title"><div><h2>Cash Flow Summary</h2></div></div>
             <p className="muted mini-table-hint">
-              What's left after income also covers bills, debts, and every savings goal's required monthly contribution.
-              {billsExcludedFromCashFlow.length > 0 && (
+              {viewMode === 'year'
+                ? "What's left after income also covers bills, debts, and every savings goal's required contribution across the whole year."
+                : "What's left after income also covers bills, debts, and every savings goal's required monthly contribution."}
+              {viewMode === 'month' && billsExcludedFromCashFlow.length > 0 && (
                 <> {billsExcludedFromCashFlow.length} bill{billsExcludedFromCashFlow.length === 1 ? '' : 's'} already showing up in Expenses this month {billsExcludedFromCashFlow.length === 1 ? "isn't" : "aren't"} counted twice here.</>
               )}
+              {viewMode === 'year' && ' Bills, Debts, and Savings are annualized forecasts (each monthly figure ×12), not a literal sum of the year\'s transactions.'}
             </p>
             <div className="mini-table-wrap">
               <table className="mini-table">
                 <tbody>
                   <tr className="mini-table-highlight"><td>Income</td><td>{formatCurrency(income)}</td></tr>
-                  <tr><td>Bills</td><td>{formatCurrency(billsSummaryTotalForCashFlow)}</td></tr>
+                  <tr><td>Bills</td><td>{formatCurrency(cashFlowBillsTotal)}</td></tr>
                   <tr><td>Expenses</td><td>{formatCurrency(totalActual)}</td></tr>
-                  <tr><td>Savings</td><td>{formatCurrency(savingsMonthlyTotal)}</td></tr>
-                  <tr><td>Debts</td><td>{formatCurrency(monthlyDebtMinimums)}</td></tr>
+                  <tr><td>Savings</td><td>{formatCurrency(cashFlowSavingsTotal)}</td></tr>
+                  <tr><td>Debts</td><td>{formatCurrency(cashFlowDebtsTotal)}</td></tr>
                 </tbody>
                 <tfoot>
                   <tr>
@@ -469,7 +547,7 @@ export function FinanceBudgets() {
             <div className="card-title"><div><h2>Expenses Breakdown</h2></div></div>
             {expenseBreakdownSlices.length ? (
               <HorizontalWaterfallChart items={expenseBreakdownSlices} total={totalActual} totalLabel="Total Spent" />
-            ) : <p className="muted empty-state">No expenses logged this month.</p>}
+            ) : <p className="muted empty-state">No expenses logged {viewMode === 'year' ? 'this year' : 'this month'}.</p>}
           </Card>
         </div>
       </div>
@@ -495,7 +573,7 @@ export function FinanceBudgets() {
                   <tfoot><tr><td colSpan={2}>Total</td><td>{formatCurrency(income)}</td></tr></tfoot>
                 </table>
               </div>
-            ) : <p className="muted empty-state">No income logged this month.</p>}
+            ) : <p className="muted empty-state">No income logged {viewMode === 'year' ? 'this year' : 'this month'}.</p>}
           </Card>
 
           <Card className="worksheet-card">
