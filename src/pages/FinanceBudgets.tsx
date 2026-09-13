@@ -337,10 +337,15 @@ export function FinanceBudgets() {
   // cleanly across 12 months. Instead every tracked bill/subscription's frequency-adjusted monthly
   // equivalent is annualized (×12) — a forecast, not a literal sum of the year's transactions, and
   // without the double-count guard the month view has.
-  const annualBillsTotal = useMemo(
-    () => data.bills.reduce((s, b) => s + billMonthlyEquivalent(b) * 12, 0),
+  const annualBillsOnlyTotal = useMemo(
+    () => data.bills.filter(b => (b.kind ?? 'Bill') === 'Bill').reduce((s, b) => s + billMonthlyEquivalent(b) * 12, 0),
     [data.bills]
   );
+  const annualSubscriptionsTotal = useMemo(
+    () => data.bills.filter(b => b.kind === 'Subscription').reduce((s, b) => s + billMonthlyEquivalent(b) * 12, 0),
+    [data.bills]
+  );
+  const annualBillsTotal = annualBillsOnlyTotal + annualSubscriptionsTotal;
   const cashFlowBillsTotal = viewMode === 'year' ? annualBillsTotal : billsSummaryTotalForCashFlow;
 
   const sortRecurring = (list: typeof upcomingBillsBase, sort: SortState<'name' | 'due' | 'amount'>) => {
@@ -676,7 +681,10 @@ export function FinanceBudgets() {
                     ))}
                   </tbody>
                   <tfoot>
-                    <tr><td colSpan={2}>Total</td><td>{formatCurrency(billsOnlyTotal)}</td></tr>
+                    <tr>
+                      <td colSpan={2}>{viewMode === 'year' ? 'Annual total (all bills)' : 'Total'}</td>
+                      <td>{formatCurrency(viewMode === 'year' ? annualBillsOnlyTotal : billsOnlyTotal)}</td>
+                    </tr>
                   </tfoot>
                 </table>
               </div>
@@ -767,7 +775,10 @@ export function FinanceBudgets() {
                   ))}
                 </tbody>
                 <tfoot>
-                  <tr><td colSpan={2}>Total</td><td>{formatCurrency(subscriptionsTotal)}</td></tr>
+                  <tr>
+                    <td colSpan={2}>{viewMode === 'year' ? 'Annual total (all subscriptions)' : 'Total'}</td>
+                    <td>{formatCurrency(viewMode === 'year' ? annualSubscriptionsTotal : subscriptionsTotal)}</td>
+                  </tr>
                 </tfoot>
               </table>
             </div>
