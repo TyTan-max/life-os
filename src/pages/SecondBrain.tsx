@@ -1055,6 +1055,17 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
     return notes.filter(n => n.id !== note.id && extractLinkedTitles(n.body).includes(target));
   }, [notes, note]);
 
+  // Code Vault's body is a plain textarea (no rich-text token rendering), so a [[Title]] typed
+  // in there has no clickable, in-place highlight the way it does in the rich text editor.
+  // Resolving it into an actual list here gives it a click-through path anyway, just below the
+  // code area instead of inline within it.
+  const outgoingLinks = useMemo(() => {
+    if (!note || note.resourceKind !== 'Repo') return [];
+    const titles = new Set(extractLinkedTitles(note.body));
+    if (!titles.size) return [];
+    return notes.filter(n => n.id !== note.id && titles.has(n.title.trim().toLowerCase()));
+  }, [notes, note]);
+
   const relatedByTag = useMemo(() => {
     if (!note || !(note.tags ?? []).length) return [];
     const tags = new Set(note.tags);
@@ -2337,12 +2348,25 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
               )}
 
               {note.resourceKind === 'Repo' ? (
-                <textarea
-                  className="sb-body-input sb-body-code"
-                  placeholder='Paste the snippet — a fenced ```lang block is a handy convention, even without a renderer.'
-                  value={note.body}
-                  onChange={e => patchNote({ body: e.target.value })}
-                />
+                <>
+                  <textarea
+                    className="sb-body-input sb-body-code"
+                    placeholder='Paste the snippet — a fenced ```lang block is a handy convention, even without a renderer. Use [[Note Title]] to link to another note.'
+                    value={note.body}
+                    onChange={e => patchNote({ body: e.target.value })}
+                  />
+                  {outgoingLinks.length > 0 && (
+                    <div className="sb-backlinks">
+                      <h3>Links to ({outgoingLinks.length})</h3>
+                      {outgoingLinks.map(n => (
+                        <button type="button" key={n.id} className="sb-backlink-row" onClick={() => openNote(n)}>
+                          <b>{n.title || 'Untitled'}</b>
+                          <small>{snippet(n.body, 70)}</small>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </>
               ) : note.resourceKind === 'Book Note' ? (
                 <div className="sb-book-sections">
                   {!note.bookDetailsHidden && (
