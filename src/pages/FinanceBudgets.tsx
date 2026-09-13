@@ -348,21 +348,26 @@ export function FinanceBudgets() {
   const annualBillsTotal = annualBillsOnlyTotal + annualSubscriptionsTotal;
   const cashFlowBillsTotal = viewMode === 'year' ? annualBillsTotal : billsSummaryTotalForCashFlow;
 
+  // In Year view each row shows what that bill/subscription actually costs across the year
+  // (frequency-adjusted monthly equivalent × 12) instead of its single per-occurrence amount —
+  // the Month view's Bills/Subscriptions tabs already show the per-occurrence amount, so the
+  // year view showing yearly figures per item (not just an aggregate total) is what's new here.
+  const recurringDisplayAmount = (b: Bill) => (viewMode === 'year' ? billMonthlyEquivalent(b) * 12 : b.amount);
   const sortRecurring = (list: typeof upcomingBillsBase, sort: SortState<'name' | 'due' | 'amount'>) => {
     const next = list.slice();
     next.sort((a, b) => {
       let cmp = 0;
       if (sort.key === 'name') cmp = a.name.localeCompare(b.name);
       else if (sort.key === 'due') cmp = a.nextDue.localeCompare(b.nextDue);
-      else cmp = a.amount - b.amount;
+      else cmp = recurringDisplayAmount(a) - recurringDisplayAmount(b);
       return sort.dir === 'asc' ? cmp : -cmp;
     });
     return next;
   };
   const [billsSort, setBillsSort] = useState<SortState<'name' | 'due' | 'amount'>>({ key: 'due', dir: 'asc' });
-  const upcomingBills = useMemo(() => sortRecurring(upcomingBillsBase, billsSort), [upcomingBillsBase, billsSort]);
+  const upcomingBills = useMemo(() => sortRecurring(upcomingBillsBase, billsSort), [upcomingBillsBase, billsSort, viewMode]);
   const [subsSort, setSubsSort] = useState<SortState<'name' | 'due' | 'amount'>>({ key: 'due', dir: 'asc' });
-  const upcomingSubscriptions = useMemo(() => sortRecurring(upcomingSubscriptionsBase, subsSort), [upcomingSubscriptionsBase, subsSort]);
+  const upcomingSubscriptions = useMemo(() => sortRecurring(upcomingSubscriptionsBase, subsSort), [upcomingSubscriptionsBase, subsSort, viewMode]);
 
   const savingsMonthlyTotal = data.financeGoals.reduce((s, g) => s + requiredMonthlyContribution(g), 0);
   const cashFlowDebtsTotal = viewMode === 'year' ? monthlyDebtMinimums * 12 : monthlyDebtMinimums;
@@ -668,7 +673,7 @@ export function FinanceBudgets() {
                     <tr>
                       <SortableTh label="Bill" sortKey="name" state={billsSort} onSort={k => setBillsSort(s => toggleSort(s, k))} />
                       <SortableTh label="Due" sortKey="due" state={billsSort} onSort={k => setBillsSort(s => toggleSort(s, k))} />
-                      <SortableTh label="Amount" sortKey="amount" state={billsSort} onSort={k => setBillsSort(s => toggleSort(s, k, 'desc'))} />
+                      <SortableTh label={viewMode === 'year' ? 'Annual' : 'Amount'} sortKey="amount" state={billsSort} onSort={k => setBillsSort(s => toggleSort(s, k, 'desc'))} />
                     </tr>
                   </thead>
                   <tbody>
@@ -676,7 +681,7 @@ export function FinanceBudgets() {
                       <tr key={b.id}>
                         <td>{b.name}</td>
                         <td>{formatDate(b.nextDue)}</td>
-                        <td>{formatCurrency(b.amount)}</td>
+                        <td>{formatCurrency(recurringDisplayAmount(b))}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -762,7 +767,7 @@ export function FinanceBudgets() {
                   <tr>
                     <SortableTh label="Subscription" sortKey="name" state={subsSort} onSort={k => setSubsSort(s => toggleSort(s, k))} />
                     <SortableTh label="Due" sortKey="due" state={subsSort} onSort={k => setSubsSort(s => toggleSort(s, k))} />
-                    <SortableTh label="Amount" sortKey="amount" state={subsSort} onSort={k => setSubsSort(s => toggleSort(s, k, 'desc'))} />
+                    <SortableTh label={viewMode === 'year' ? 'Annual' : 'Amount'} sortKey="amount" state={subsSort} onSort={k => setSubsSort(s => toggleSort(s, k, 'desc'))} />
                   </tr>
                 </thead>
                 <tbody>
@@ -770,7 +775,7 @@ export function FinanceBudgets() {
                     <tr key={b.id}>
                       <td>{b.name}</td>
                       <td>{formatDate(b.nextDue)}</td>
-                      <td>{formatCurrency(b.amount)}</td>
+                      <td>{formatCurrency(recurringDisplayAmount(b))}</td>
                     </tr>
                   ))}
                 </tbody>
