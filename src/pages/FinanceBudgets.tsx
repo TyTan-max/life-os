@@ -1,5 +1,5 @@
 import { Fragment, useMemo, useState } from 'react';
-import { ChevronDown, ChevronLeft, ChevronRight, Pencil, Wand2, X } from 'lucide-react';
+import { ChevronDown, ChevronLeft, ChevronRight, DollarSign, Pencil, Wand2, X } from 'lucide-react';
 import { useStore, newRecord } from '../store';
 import { Card, Kpi, formatCurrency, formatDate, Modal } from '../components/UI';
 import { NumberCell } from '../components/GridCells';
@@ -259,6 +259,7 @@ export function FinanceBudgets() {
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
   const [hideZeroActual, setHideZeroActual] = useState(true);
   const [showBudgetGroups, setShowBudgetGroups] = useState(false);
+  const [showEditBudgets, setShowEditBudgets] = useState(false);
   // Same order as the Category menu (e.g. "Manage categories" on Transactions/Bills) — the
   // user's own drag-reorder via `order`, not alphabetical — so this list lines up with where
   // each category actually sits everywhere else, instead of jumping around to A-Z.
@@ -758,6 +759,11 @@ export function FinanceBudgets() {
                 <input type="checkbox" checked={hideZeroActual} onChange={e => setHideZeroActual(e.target.checked)} />
                 Hide $0 categories
               </label>
+              {viewMode === 'month' && (
+                <button type="button" className="col-edit-btn" onClick={() => setShowEditBudgets(true)} aria-label="Edit category budgets" title="Edit category budgets">
+                  <DollarSign size={11} />
+                </button>
+              )}
               <button type="button" className="col-edit-btn" onClick={() => setShowBudgetGroups(true)} aria-label="Assign categories to Needs or Wants" title="Assign categories to Needs or Wants">
                 <Pencil size={11} />
               </button>
@@ -789,29 +795,8 @@ export function FinanceBudgets() {
                           return (
                             <tr className="expense-subrow" key={r.categoryId}>
                               <td>{r.category?.name ?? 'Uncategorized'}</td>
-                              <td className="expense-budget-cell">
-                                {r.category && viewMode === 'month' ? (
-                                  <div className="expense-budget-edit">
-                                    <NumberCell
-                                      value={r.budget?.limit ?? 0}
-                                      onChange={n => void setCategoryLimit(r.categoryId, n)}
-                                      min={0}
-                                      decimals={2}
-                                      className="expense-budget-input"
-                                    />
-                                    {r.budget && (
-                                      <button
-                                        type="button"
-                                        className="icon-btn"
-                                        onClick={() => void clearCategoryLimit(r.budget!.id)}
-                                        aria-label={`Clear ${r.category.name} budget`}
-                                        title="Clear this category's budget"
-                                      >
-                                        <X size={12} />
-                                      </button>
-                                    )}
-                                  </div>
-                                ) : formatCurrency(r.effectiveLimit)}
+                              <td>
+                                {formatCurrency(r.effectiveLimit)}
                                 {r.rollover > 0 && (
                                   <small className="expense-budget-rollover" title="Unspent amount rolled over from last month">
                                     + {formatCurrency(r.rollover)} rollover
@@ -874,6 +859,48 @@ export function FinanceBudgets() {
       </div>
 
       <FinanceLedger />
+
+      {showEditBudgets && (
+        <Modal
+          eyebrow="Life OS"
+          title="Edit Category Budgets"
+          onClose={() => setShowEditBudgets(false)}
+        >
+          <p className="list-manager-subtitle">
+            Sets each category's budget for {formatMonthLabel(month)}. Leave a category at $0 to
+            not budget it — it'll still show its actual spend on Expenses Summary if any comes in.
+          </p>
+          <div className="list-manager-items">
+            {expenseCategories.map(c => {
+              const b = budgets.find(x => x.categoryId === c.id && x.month === month);
+              return (
+                <div className="list-manager-row" key={c.id}>
+                  <span className="list-manager-row-label">{c.name}</span>
+                  <div className="list-manager-row-controls">
+                    <NumberCell
+                      value={b?.limit ?? 0}
+                      onChange={n => void setCategoryLimit(c.id, n)}
+                      min={0}
+                      decimals={2}
+                    />
+                    {b && (
+                      <button
+                        type="button"
+                        className="icon-btn"
+                        onClick={() => void clearCategoryLimit(b.id)}
+                        aria-label={`Clear ${c.name} budget`}
+                        title="Clear this category's budget"
+                      >
+                        <X size={13} />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </Modal>
+      )}
 
       {showBudgetGroups && (
         <Modal

@@ -1620,11 +1620,6 @@ input, select, textarea { font-family: inherit; }
 .expense-group-chevron.open { transform: rotate(180deg); }
 .expense-summary-table .expense-subrow td:first-child { padding-left: 22px; color: var(--text-muted); font-weight: 400; }
 .expense-summary-table .expense-subrow-note td { color: var(--text-faint); font-style: italic; font-size: 11.5px; text-align: left; }
-.expense-budget-cell { padding: 4px 8px !important; }
-.expense-budget-edit { display: flex; align-items: center; gap: 2px; }
-.expense-budget-edit .icon-btn { padding: 3px; flex-shrink: 0; opacity: 0.5; }
-.expense-budget-edit .icon-btn:hover { opacity: 1; }
-.expense-budget-input { width: 84px; min-width: 84px; }
 .expense-budget-rollover { display: block; color: var(--text-faint); font-size: 10.5px; margin-top: 1px; white-space: nowrap; }
 
 .budget-overview-card, .budget-cashflow-table-card { margin-bottom: 0; }
@@ -2343,6 +2338,8 @@ input, select, textarea { font-family: inherit; }
 .list-manager-row.dragging { opacity: 0.4; }
 .list-manager-row .drag-handle { margin: -4px -2px -4px -6px; }
 .list-manager-row-label { flex: 1; min-width: 0; }
+.list-manager-row-controls { display: flex; align-items: center; gap: 4px; }
+.list-manager-row-controls .grid-cell-input { width: 90px; }
 .list-manager-row-label small { display: block; color: var(--text-faint); font-size: 11px; margin-top: 2px; }
 .list-manager-row-input {
   flex: 1;
