@@ -189,8 +189,15 @@ export function FinanceBudgets() {
       return [...budgetRows, ...unbudgetedRows]
         .sort((a, b) => (a.category?.name ?? '').localeCompare(b.category?.name ?? ''));
     }
+    // Only budgets belonging to a category that still exists — otherwise a category deleted
+    // long ago keeps resurfacing here forever as a $0-actual "Uncategorized" ghost row, since its
+    // old Budget records never get cleaned up. A deleted category's real spend (if any
+    // transaction still references it) is preserved via the actual.keys() below, same as the
+    // Month view's unbudgeted-but-spent fallback.
     const categoryIds = new Set<string>();
-    for (const b of budgets) categoryIds.add(b.categoryId);
+    for (const b of budgets) {
+      if (categories.some(c => c.id === b.categoryId)) categoryIds.add(b.categoryId);
+    }
     for (const categoryId of actual.keys()) categoryIds.add(categoryId);
     return Array.from(categoryIds)
       .map(categoryId => {
