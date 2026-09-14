@@ -123,14 +123,9 @@ export default defineConfig(({ mode }) => {
   return {
     base: repoName ? `/${repoName}/` : '/',
     plugins: [react(), igdbProxyPlugin(env.IGDB_CLIENT_ID, env.IGDB_CLIENT_SECRET)],
-    // Tauri-recommended tweaks: don't let the Rust build clear Vite's terminal output,
-    // and don't rebuild the frontend when the Rust side (src-tauri/) changes.
-    clearScreen: false,
-    envPrefix: ['VITE_', 'TAURI_ENV_*'],
     server: {
       port: 5173,
       strictPort: true,
-      watch: { ignored: ['**/src-tauri/**'] },
       proxy: {
         // Ollama refuses cross-origin browser requests, and localhost:5173 →
         // localhost:11434 counts as cross-origin. Proxying through the dev

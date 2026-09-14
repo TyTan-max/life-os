@@ -12,11 +12,6 @@
 //      your deployed https:// origin for prod). No redirect URI is needed — this uses
 //      Google Identity Services' token flow, not a redirect-based one.
 //   5. Put the client ID in .env.local as VITE_GOOGLE_CLIENT_ID=xxxxx.apps.googleusercontent.com
-//
-// Not wired up for the Tauri desktop build: Google's origin allowlist only accepts
-// http/https origins, not Tauri's custom webview scheme, so as written this only works in
-// the browser/PWA build. Tauri has its own OAuth plugin for this that would need a
-// separate integration.
 
 const CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined;
 const SCOPE = 'https://www.googleapis.com/auth/drive.appdata';

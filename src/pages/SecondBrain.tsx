@@ -18,7 +18,6 @@ import { useIsMobile, useIsMobileLandscape } from '../hooks/useIsMobile';
 import { useFabAction } from '../hooks/useFabAction';
 import { SwipeRow } from '../components/SwipeRow';
 import { MobileRecordList } from '../components/MobileRecordList';
-import { VaultOnboarding } from '../components/VaultOnboarding';
 import { TitleAutofillField } from '../components/CollectionPage';
 import { searchBooks } from '../lib/openLibrary';
 import { fetchVerseText, fetchVerseObservation } from '../lib/bibleVerse';
@@ -1552,8 +1551,6 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
           </div>
         }
       />
-
-      <VaultOnboarding />
 
       <div className="sb-toolbar">
         <div className="sb-para-tabs">
