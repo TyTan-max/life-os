@@ -8,10 +8,12 @@ import { isMilestone, loggingStreak, medicationAdherenceStreak, nextMilestone } 
 import { inRange } from '../lib/healthPeriod';
 import type { HealthPeriodProps, HealthTab } from './HealthWellness';
 
+// Local date, not `.toISOString()` — that converts to UTC, which reads as "tomorrow" late
+// enough in the day for anyone west of UTC.
 function iso(offsetDays = 0): string {
   const d = new Date();
   d.setDate(d.getDate() + offsetDays);
-  return d.toISOString().slice(0, 10);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
 // Reorders the same four quadrants by time of day instead of changing what's on screen —

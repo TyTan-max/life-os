@@ -24,8 +24,11 @@ export function advanceDueDate(dueDate: string, frequency: BillFrequency = 'Mont
   return d.toISOString().slice(0, 10);
 }
 
+// Local month, not `.toISOString()` — that converts to UTC, which reads as next month late
+// enough on the last day of the month for anyone west of UTC (Finance Budgets defaulting to the
+// wrong month).
 export function monthKey(date: Date = new Date()): string {
-  return date.toISOString().slice(0, 7);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
 }
 
 export function shiftMonth(month: string, delta: number): string {

@@ -72,7 +72,7 @@ const TASK_FREQUENCIES: Frequency[] = ['Daily', 'Weekly', 'Monthly', 'Yearly'];
 type TaskFilter = 'Open' | 'Completed' | 'All';
 
 function blankTask(): Partial<Task> {
-  return { title: '', status: 'Not Started', priority: 'Medium', dueDate: new Date().toISOString().slice(0, 10) };
+  return { title: '', status: 'Not Started', priority: 'Medium', dueDate: localIso() };
 }
 
 const GOAL_HORIZONS: GoalHorizon[] = ['Weekly', 'Monthly', 'Quarterly', 'Annual'];
@@ -1014,7 +1014,11 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
   // in-flight Projects — into one chronological view, capped to the near future so it reads
   // as "what's next" rather than a dump of every date that's ever been set.
   const upcomingItems = useMemo(() => {
-    const cutoff = new Date(Date.now() + 8 * 86400000).toISOString().slice(0, 10);
+    // Local date, not `.toISOString()` — that converts to UTC, which reads a day ahead late
+    // enough in the day for anyone west of UTC.
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() + 8);
+    const cutoff = `${cutoffDate.getFullYear()}-${String(cutoffDate.getMonth() + 1).padStart(2, '0')}-${String(cutoffDate.getDate()).padStart(2, '0')}`;
     const today = localIso();
     type Upcoming = { id: string; kind: 'Task' | 'Project'; title: string; dueDate: string; overdue: boolean };
     const items: Upcoming[] = [];
@@ -1030,7 +1034,11 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
   }, [data.tasks, notes]);
 
   const tasksDueSoonCount = useMemo(() => {
-    const cutoff = new Date(Date.now() + 8 * 86400000).toISOString().slice(0, 10);
+    // Local date, not `.toISOString()` — that converts to UTC, which reads a day ahead late
+    // enough in the day for anyone west of UTC.
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() + 8);
+    const cutoff = `${cutoffDate.getFullYear()}-${String(cutoffDate.getMonth() + 1).padStart(2, '0')}-${String(cutoffDate.getDate()).padStart(2, '0')}`;
     return data.tasks.filter(t => t.status !== 'Completed' && t.dueDate && t.dueDate <= cutoff).length;
   }, [data.tasks]);
 
@@ -1169,7 +1177,7 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
       title: item.text.trim(),
       status: 'Not Started',
       priority: 'Medium',
-      dueDate: new Date().toISOString().slice(0, 10),
+      dueDate: localIso(),
       notes: `From book note: ${note.title || 'Untitled'}`
     });
     await upsert('tasks', task);

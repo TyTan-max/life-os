@@ -4,10 +4,12 @@ import { generateId } from '../utils/id';
 // Any real "logging for" date will be >= this, so the starter's one version always resolves.
 export const ROUTINE_EPOCH = '1970-01-01';
 
+// Local date, not `.toISOString()` — that converts to UTC, which reads as "tomorrow" late
+// enough in the day for anyone west of UTC.
 function iso(offsetDays = 0): string {
   const d = new Date();
   d.setDate(d.getDate() + offsetDays);
-  return d.toISOString().slice(0, 10);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
 // A per-set ramp for the most recent session (e.g. [40, 50, 60, 70] for a 4-set ramp),

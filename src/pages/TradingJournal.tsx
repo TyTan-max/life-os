@@ -31,7 +31,7 @@ function statusOf(net: number): 'GREEN' | 'RED' | 'FLAT' {
 }
 
 function blankLog(): Pick<DailyLog, 'date' | 'totalTrades' | 'dailyPL' | 'dailyFees'> {
-  return { date: new Date().toISOString().slice(0, 10), totalTrades: 0, dailyPL: 0, dailyFees: 0 };
+  return { date: toIsoDate(new Date()), totalTrades: 0, dailyPL: 0, dailyFees: 0 };
 }
 
 function pad2(n: number): string {

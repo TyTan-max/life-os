@@ -133,7 +133,10 @@ export function FinanceTransactions({ typeFilter }: { typeFilter?: TransactionTy
   const [showAmountSum, setShowAmountSum] = useState(false);
   // Income can't land in a liability account (a loan or credit card isn't a deposit destination).
   const accountOptions = isIncomeView ? accounts.filter(a => !isLiabilityAccount(a.type)) : accounts;
-  const today = new Date().toISOString().slice(0, 10);
+  // Local date, not `.toISOString()` — that converts to UTC, which reads as "tomorrow" late
+  // enough in the day for anyone west of UTC (e.g. a new transaction defaulting to the wrong day).
+  const todayDate = new Date();
+  const today = `${todayDate.getFullYear()}-${String(todayDate.getMonth() + 1).padStart(2, '0')}-${String(todayDate.getDate()).padStart(2, '0')}`;
   const noun = isIncomeView ? 'income' : 'transaction';
   // The Income tab is locked to Income — reclassifying away would just make the row vanish from
   // this view, so it isn't offered here. Use the Transactions tab for Expense/Transfer entries.

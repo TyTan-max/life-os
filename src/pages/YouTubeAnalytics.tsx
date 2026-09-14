@@ -17,8 +17,15 @@ interface VideoSnapshot {
   notes?: string;
 }
 
+// Local date, not `.toISOString()` — that converts to UTC, which reads as "tomorrow" late
+// enough in the day for anyone west of UTC.
+function localIso(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
 function blankSnapshot(): Omit<VideoSnapshot, 'id'> {
-  return { date: new Date().toISOString().slice(0, 10), title: '', views: 0, subscribersDelta: 0 };
+  return { date: localIso(), title: '', views: 0, subscribersDelta: 0 };
 }
 
 export function YouTubeAnalytics() {

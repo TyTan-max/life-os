@@ -31,7 +31,7 @@ function addDays(d: Date, n: number): Date {
 }
 
 function blankEvent(date?: string): Partial<CalendarEvent> {
-  return { title: '', date: date ?? new Date().toISOString().slice(0, 10) };
+  return { title: '', date: date ?? toIsoDate(new Date()) };
 }
 
 function formatFullDate(dateStr: string): string {
@@ -257,7 +257,7 @@ export function Calendar({ navigate }: { navigate: (page: string, tab?: string) 
               <input
                 type="checkbox"
                 checked={Boolean(form.reminderAt)}
-                onChange={e => setField('reminderAt', e.target.checked ? `${form.date ?? new Date().toISOString().slice(0, 10)}T${form.startTime ?? '09:00'}` : undefined)}
+                onChange={e => setField('reminderAt', e.target.checked ? `${form.date ?? toIsoDate(new Date())}T${form.startTime ?? '09:00'}` : undefined)}
               />
               <span>Remind me</span>
             </label>
