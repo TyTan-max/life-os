@@ -56,7 +56,7 @@ export function Movies() {
           ] },
           { key: 'runtimeMin', label: 'Runtime (min)', type: 'number', placeholder: 'Movies only' },
           { key: 'seasonsEpisodes', label: 'Seasons / Episodes', type: 'text', placeholder: 'e.g. 3 / 24 — TV only' },
-          { key: 'episodeProgress', label: 'Episode Progress', type: 'text', placeholder: 'Episode watched — TV only', sanitize: sanitizeEpisodeProgress },
+          { key: 'episodeProgress', label: 'Episode Progress', type: 'text', placeholder: 'Episodes watched — TV only', sanitize: sanitizeEpisodeProgress },
           { key: 'status', label: 'Status', type: 'select', options: ['To Watch', 'Watching', 'Watched'] },
           { key: 'rating', label: 'Rating (1-5)', type: 'number' },
           { key: 'whereToWatch', label: 'Where to Watch', type: 'tags', placeholder: 'Netflix, Theater…' },
