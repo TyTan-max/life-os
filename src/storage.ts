@@ -347,25 +347,33 @@ async function migrateSleepQualityScaleV1(db: IDBPDatabase): Promise<void> {
   await tx.done;
 }
 
-// Episode Progress moved from one flat "episodes watched" count to a Season/Episode pair —
-// carries the old count over as currentEpisode (season left unset, since the old field never
-// tracked which season it was in) rather than dropping it.
-async function migrateMovieEpisodeProgressV1(db: IDBPDatabase): Promise<void> {
-  const done = await db.get(META_STORE, 'movieEpisodeProgressMigratedV1');
+// Episode Progress has gone through two shapes now: originally a flat "episodes watched" count
+// (number), briefly a currentSeason/currentEpisode number pair, now a single free-text "2 / 8"
+// field. This folds either older shape into the new string rather than dropping the data.
+async function migrateMovieEpisodeProgressV2(db: IDBPDatabase): Promise<void> {
+  const done = await db.get(META_STORE, 'movieEpisodeProgressMigratedV2');
   if (done) return;
 
-  const movies = await db.getAll('movies') as (Movie & { episodeProgress?: number })[];
-  const toUpdate = movies
-    .filter(m => m.episodeProgress != null && m.currentEpisode == null)
-    .map(m => {
-      const { episodeProgress, ...rest } = m;
-      return { ...rest, currentEpisode: episodeProgress };
-    });
+  const movies = await db.getAll('movies') as (Movie & {
+    episodeProgress?: string | number; currentSeason?: number; currentEpisode?: number;
+  })[];
+  const toUpdate: Movie[] = [];
+  for (const m of movies) {
+    const { currentSeason, currentEpisode, episodeProgress, ...rest } = m;
+    if (currentSeason != null || currentEpisode != null) {
+      const combined = currentSeason != null && currentEpisode != null
+        ? `${currentSeason} / ${currentEpisode}`
+        : String(currentSeason ?? currentEpisode);
+      toUpdate.push({ ...rest, episodeProgress: combined });
+    } else if (typeof episodeProgress === 'number') {
+      toUpdate.push({ ...rest, episodeProgress: String(episodeProgress) });
+    }
+  }
 
   const tx = db.transaction(['movies', META_STORE], 'readwrite');
   await Promise.all([
     ...toUpdate.map(m => tx.objectStore('movies').put(m)),
-    tx.objectStore(META_STORE).put(true, 'movieEpisodeProgressMigratedV1')
+    tx.objectStore(META_STORE).put(true, 'movieEpisodeProgressMigratedV2')
   ]);
   await tx.done;
 }
@@ -641,7 +649,7 @@ async function loadAllInternal(): Promise<AppData> {
     await db.put(META_STORE, true, 'videogameStatusMigratedV1');
     await db.put(META_STORE, true, 'workoutRoutineVersionsMigratedV1');
     await db.put(META_STORE, true, 'sleepQualityScaleMigratedV1');
-    await db.put(META_STORE, true, 'movieEpisodeProgressMigratedV1');
+    await db.put(META_STORE, true, 'movieEpisodeProgressMigratedV2');
     await db.put(META_STORE, true, 'tradingJournalMigratedV1');
     // A brand-new install seeds directly from the now-deterministic-id buildSeedData() — there's
     // nothing to have duplicated yet, so there's nothing for either cleanup pass to do.
@@ -656,7 +664,7 @@ async function loadAllInternal(): Promise<AppData> {
   await migrateVideogameStatusV1(db);
   await migrateWorkoutRoutineVersionsV1(db);
   await migrateSleepQualityScaleV1(db);
-  await migrateMovieEpisodeProgressV1(db);
+  await migrateMovieEpisodeProgressV2(db);
   await migrateTradingJournalV1(db);
   await dedupeLegacySeedDuplicatesV1(db);
   await dedupeLegacySeedDuplicatesV2(db);
