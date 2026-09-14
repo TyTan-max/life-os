@@ -24,6 +24,8 @@ export interface FieldConfig<T> {
   type: FieldType;
   options?: SelectOption[];
   placeholder?: string;
+  // Text fields only — filters/reshapes each keystroke's value (e.g. digits-and-one-slash only).
+  sanitize?: (raw: string) => string;
 }
 
 export interface GalleryConfig<T> {
@@ -1429,7 +1431,7 @@ export function CollectionPage<T extends CollectionRecord>({
                   <input
                     type={field.type}
                     value={(form[field.key] as string) ?? ''}
-                    onChange={e => setField(field.key, e.target.value)}
+                    onChange={e => setField(field.key, field.sanitize ? field.sanitize(e.target.value) : e.target.value)}
                     placeholder={field.placeholder}
                   />
                 )}

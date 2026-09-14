@@ -10,6 +10,15 @@ import {
 } from '../lib/movieDeck';
 import type { Movie } from '../types';
 
+// Keeps only digits and the first "/" typed — any later "/" (or any other character) is dropped
+// as it's typed, so the field can't drift from the "season / episode" shape it's meant to hold.
+function sanitizeEpisodeProgress(raw: string): string {
+  const digitsAndSlashes = raw.replace(/[^0-9/]/g, '');
+  const firstSlash = digitsAndSlashes.indexOf('/');
+  if (firstSlash === -1) return digitsAndSlashes;
+  return digitsAndSlashes.slice(0, firstSlash + 1) + digitsAndSlashes.slice(firstSlash + 1).replace(/\//g, '');
+}
+
 export function Movies() {
   const { data, upsert } = useStore();
   const [deckOpen, setDeckOpen] = useState(false);
@@ -47,7 +56,7 @@ export function Movies() {
           ] },
           { key: 'runtimeMin', label: 'Runtime (min)', type: 'number', placeholder: 'Movies only' },
           { key: 'seasonsEpisodes', label: 'Seasons / Episodes', type: 'text', placeholder: 'e.g. 3 / 24 — TV only' },
-          { key: 'episodeProgress', label: 'Episode Progress', type: 'text', placeholder: 'Episode watched — TV only' },
+          { key: 'episodeProgress', label: 'Episode Progress', type: 'text', placeholder: 'Episode watched — TV only', sanitize: sanitizeEpisodeProgress },
           { key: 'status', label: 'Status', type: 'select', options: ['To Watch', 'Watching', 'Watched'] },
           { key: 'rating', label: 'Rating (1-5)', type: 'number' },
           { key: 'whereToWatch', label: 'Where to Watch', type: 'tags', placeholder: 'Netflix, Theater…' },
