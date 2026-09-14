@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import {
   ArrowRight, Bell, BookOpen, Brain, Check, CheckCircle2, ChevronDown, Clapperboard,
-  Flame, Gamepad2, HeartPulse, ListTodo, NotebookPen, Plane, Quote as QuoteIcon, Sparkles, TrendingUp, Users, Wallet
+  Flame, Gamepad2, HeartPulse, LayoutGrid, ListTodo, NotebookPen, Plane, Quote as QuoteIcon, Sparkles, TrendingUp, Users, Wallet
 } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { useStore, newRecord } from '../store';
@@ -254,6 +254,16 @@ export function Dashboard({navigate}:{navigate:(page:string, tab?: string)=>void
         <div className="metric-pair"><span>Net P/L</span><b className={tradingPnl >= 0 ? 'positive' : 'negative'}>{tradingPnl >= 0 ? '+' : ''}{tradingPnl.toFixed(2)}</b></div>
       </DashCard>
       <DashCard
+        icon={<Plane size={19}/>} title="Travel & Bucket List" isMobile={isMobile}
+        quiet expanded={expandedCards.has('travel')} onToggle={()=>toggleCard('travel')}
+        summary={`${achievedThisYear} achieved this year`}
+        action={<button className="text-btn" onClick={()=>navigate('Travel & Bucket List')}>Open <ArrowRight size={15}/></button>}
+        orderStyle={slot(8)}
+      >
+        <div className="metric-pair"><span>Achieved this year</span><b>{achievedThisYear}</b></div>
+        {nextTrip ? <div className="metric-pair"><span>Next up</span><b>{nextTrip.title}</b></div> : <p className="muted">No trips planned yet.</p>}
+      </DashCard>
+      <DashCard
         className="span-2" icon={<Wallet size={19}/>} title="Finance overview" isMobile={isMobile}
         quiet={overBudgetCount + upcomingBills.length === 0} expanded={expandedCards.has('finance')} onToggle={()=>toggleCard('finance')}
         summary={`${formatCurrency(netWorth)} net worth · ${overBudgetCount?`${overBudgetCount} over budget`:'on track'}`}
@@ -290,14 +300,14 @@ export function Dashboard({navigate}:{navigate:(page:string, tab?: string)=>void
         </button>
       </DashCard>
       <DashCard
-        icon={<Plane size={19}/>} title="Travel & Bucket List" isMobile={isMobile}
-        quiet expanded={expandedCards.has('travel')} onToggle={()=>toggleCard('travel')}
-        summary={`${achievedThisYear} achieved this year`}
-        action={<button className="text-btn" onClick={()=>navigate('Travel & Bucket List')}>Open <ArrowRight size={15}/></button>}
+        icon={undefined} title="To Do" isMobile={isMobile}
+        quiet expanded={expandedCards.has('goals')} onToggle={()=>toggleCard('goals')}
+        summary={`${openTasks.length} tasks · ${currentGoals.length} goals · ${currentProjects.length} projects`}
         orderStyle={slot(11)}
       >
-        <div className="metric-pair"><span>Achieved this year</span><b>{achievedThisYear}</b></div>
-        {nextTrip ? <div className="metric-pair"><span>Next up</span><b>{nextTrip.title}</b></div> : <p className="muted">No trips planned yet.</p>}
+        <div className="metric-pair"><span>Tasks</span><b>{openTasks.length}</b></div>
+        <div className="metric-pair"><span>Goals</span><b>{currentGoals.length}</b></div>
+        <div className="metric-pair"><span>Projects</span><b>{currentProjects.length}</b></div>
       </DashCard>
       <DashCard
         className="span-2" icon={<Brain size={19}/>} title="Second Brain" isMobile={isMobile}
@@ -313,14 +323,12 @@ export function Dashboard({navigate}:{navigate:(page:string, tab?: string)=>void
         </div>
       </DashCard>
       <DashCard
-        icon={undefined} title="To Do" isMobile={isMobile}
-        quiet expanded={expandedCards.has('goals')} onToggle={()=>toggleCard('goals')}
-        summary={`${openTasks.length} tasks · ${currentGoals.length} goals · ${currentProjects.length} projects`}
+        icon={<LayoutGrid size={19}/>} title="Placeholder" isMobile={isMobile}
+        quiet expanded={expandedCards.has('placeholder')} onToggle={()=>toggleCard('placeholder')}
+        summary="Reserved for a future card"
         orderStyle={slot(13)}
       >
-        <div className="metric-pair"><span>Tasks</span><b>{openTasks.length}</b></div>
-        <div className="metric-pair"><span>Goals</span><b>{currentGoals.length}</b></div>
-        <div className="metric-pair"><span>Projects</span><b>{currentProjects.length}</b></div>
+        <p className="muted">This spot is reserved for a future dashboard card.</p>
       </DashCard>
     </div>
   </>;
