@@ -57,8 +57,14 @@ function formatDisplay(value?: string): string {
 }
 
 export function DatePicker({
-  value, onChange, placeholder, displayLabel, markedDates
-}: { value?: string; onChange: (value: string) => void; placeholder?: string; displayLabel?: string; markedDates?: string[] }) {
+  value, onChange, placeholder, displayLabel, markedDates, allowClear
+}: {
+  value?: string; onChange: (value: string) => void; placeholder?: string; displayLabel?: string; markedDates?: string[];
+  // When true, clicking the already-selected day clears the field instead of just re-picking the
+  // same date — only meaningful for genuinely optional dates (a required one, e.g. a bill's next
+  // due date, should never resolve to empty).
+  allowClear?: boolean;
+}) {
   const [open, setOpen] = useState(false);
   const [viewYear, setViewYear] = useState(() => parseIso(value).getFullYear());
   const [viewMonth, setViewMonth] = useState(() => parseIso(value).getMonth());
@@ -118,7 +124,7 @@ export function DatePicker({
   };
 
   const pick = (cell: GridCell) => {
-    onChange(cell.iso);
+    onChange(allowClear && cell.iso === value ? '' : cell.iso);
     setOpen(false);
   };
 

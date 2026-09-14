@@ -208,7 +208,7 @@ export function FinanceRecurringGrid({ kind }: { kind: RecurringKind }) {
                   <CheckCircle2 size={14} /> Mark paid — advances to {formatDate(advanceDueDate(editing.nextDue, editing.frequency ?? 'Monthly'))}
                 </button>
               )}
-              <label><span>Started</span><DatePicker value={editing.startDate ?? ''} onChange={v => patch(editing, { startDate: v })} placeholder="When this started…" /></label>
+              <label><span>Started</span><DatePicker value={editing.startDate ?? ''} onChange={v => patch(editing, { startDate: v })} placeholder="When this started…" allowClear /></label>
               <label>
                 <span>Frequency</span>
                 <select value={editing.frequency ?? 'Monthly'} onChange={e => patch(editing, { frequency: e.target.value as BillFrequency })}>
@@ -341,6 +341,7 @@ export function FinanceRecurringGrid({ kind }: { kind: RecurringKind }) {
                       onChange={v => patch(b, { startDate: v })}
                       placeholder="+ start date"
                       displayLabel={b.startDate ? `Started ${formatDate(b.startDate)}` : undefined}
+                      allowClear
                     />
                   </div>
                 </td>
