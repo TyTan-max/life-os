@@ -296,7 +296,7 @@ export function FinanceRecurringGrid({ kind }: { kind: RecurringKind }) {
           <thead>
             <tr>
               <th className="grid-drag-col" />
-              <SortableTh label="Name" sortKey="name" state={sort} onSort={k => setSort(s => toggleGridSort(s, k))} title="Matched (fuzzily, along with amount) against Transactions' merchant names in Budgets' Cash Flow Summary, to avoid counting an already-posted charge twice." />
+              <SortableTh label="Name" sortKey="name" state={sort} onSort={k => setSort(s => toggleGridSort(s, k))} />
               <SortableTh label="Amount" sortKey="amount" state={sort} onSort={k => setSort(s => toggleGridSort(s, k, 'desc'))} />
               <SortableTh label="Next Due" sortKey="nextDue" state={sort} onSort={k => setSort(s => toggleGridSort(s, k))} />
               <SortableTh label="Frequency" sortKey="frequency" state={sort} onSort={k => setSort(s => toggleGridSort(s, k))} />

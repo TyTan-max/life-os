@@ -183,7 +183,7 @@ export function FinanceSavingsGrid() {
           <thead>
             <tr>
               <th className="grid-drag-col" />
-              <SortableTh label="Name" sortKey="name" state={sort} onSort={k => setSort(s => toggleGridSort(s, k))} title="What this savings goal is called — shows up under this name on the Dashboard and in Cash Flow Summary's Savings line." />
+              <SortableTh label="Name" sortKey="name" state={sort} onSort={k => setSort(s => toggleGridSort(s, k))} />
               <th>
                 <SortableThLabel label="Category" sortKey="category" state={sort} onSort={k => setSort(s => toggleGridSort(s, k))} />
                 <button type="button" className="col-edit-btn" onClick={() => setManageCategories(true)} aria-label="Manage categories" title="Add or remove savings categories">

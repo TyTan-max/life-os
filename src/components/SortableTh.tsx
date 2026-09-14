@@ -36,10 +36,10 @@ export function SortableThLabel<K extends string>({
 
 // Sortable worksheet-table header: click to sort A-Z/low-high, click again for Z-A/high-low.
 export function SortableTh<K extends string>({
-  label, sortKey, state, onSort, title
-}: { label: string; sortKey: K; state: SortState<K> | null; onSort: (key: K) => void; title?: string }) {
+  label, sortKey, state, onSort
+}: { label: string; sortKey: K; state: SortState<K> | null; onSort: (key: K) => void }) {
   return (
-    <th className="sortable-th" title={title}>
+    <th className="sortable-th">
       <SortableThLabel label={label} sortKey={sortKey} state={state} onSort={onSort} />
     </th>
   );
