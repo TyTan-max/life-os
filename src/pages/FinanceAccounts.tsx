@@ -192,7 +192,7 @@ export function FinanceDebtGrid() {
           <thead>
             <tr>
               <th className="grid-drag-col" />
-              <SortableTh label="Name" sortKey="name" state={sort} onSort={k => setSort(s => toggleGridSort(s, k))} />
+              <SortableTh label="Name" sortKey="name" state={sort} onSort={k => setSort(s => toggleGridSort(s, k))} title="What this debt account is called — shows up on the Debt Payments and net worth panels under this name." />
               <th>
                 <SortableThLabel label="Type" sortKey="type" state={sort} onSort={k => setSort(s => toggleGridSort(s, k))} />
                 <button type="button" className="col-edit-btn" onClick={() => setManageTypes(true)} aria-label="Manage debt types" title="Add or remove debt types">
