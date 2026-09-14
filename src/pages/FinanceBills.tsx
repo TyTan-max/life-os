@@ -350,7 +350,6 @@ export function FinanceRecurringGrid({ kind }: { kind: RecurringKind }) {
                     className="grid-cell-input input-wide"
                     value={b.name}
                     placeholder={kind === 'Bill' ? 'Bill name' : 'Subscription name'}
-                    title="Matched (fuzzily, along with amount) against Transactions' merchant names in Budgets' Cash Flow Summary, to avoid counting an already-posted charge twice."
                     onChange={e => patch(b, { name: e.target.value })}
                     onBlur={() => checkClassification(b)}
                   />
