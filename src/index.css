@@ -1856,8 +1856,8 @@ input, select, textarea { font-family: inherit; }
 }
 .grid-notes-wrap { position: relative; display: block; width: 100%; }
 .grid-notes-more-dot {
-  position: absolute; top: 3px; right: 3px; width: 5px; height: 5px; border-radius: 50%;
-  background: var(--accent); pointer-events: none;
+  position: absolute; bottom: 1px; right: 4px; font-size: 11px; font-weight: 700;
+  letter-spacing: 1px; color: var(--accent); pointer-events: none; line-height: 1;
 }
 .grid-table-empty { padding: 20px 0; text-align: center; }
 .grid-add-row { margin-top: 12px; }
