@@ -237,17 +237,31 @@ function NumberField({
 // Single line at rest; grows to a wrapped, multi-line box while focused so a full note is easy to read/write.
 function NotesField({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   const [expanded, setExpanded] = useState(false);
+  // Same "more text" indicator as the shared NotesCell (Finance grids): collapsed to one clipped
+  // line, the native ellipsis is easy to miss, so an explicit "..." overlays the end of the line
+  // whenever the note is actually longer than what's visible.
+  const [truncated, setTruncated] = useState(false);
+  const ref = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    if (expanded) { setTruncated(false); return; }
+    const el = ref.current;
+    setTruncated(!!el && (el.scrollWidth > el.clientWidth + 1 || value.includes('\n')));
+  }, [value, expanded]);
   return (
-    <textarea
-      className={`tj-cell-input tj-notes-input ${expanded ? 'expanded' : ''}`}
-      rows={expanded ? 4 : 1}
-      placeholder="Add a note…"
-      value={value}
-      title={value}
-      onFocus={() => setExpanded(true)}
-      onBlur={() => setExpanded(false)}
-      onChange={e => onChange(e.target.value)}
-    />
+    <div className="grid-notes-wrap">
+      <textarea
+        ref={ref}
+        className={`tj-cell-input tj-notes-input ${expanded ? 'expanded' : ''}`}
+        rows={expanded ? 4 : 1}
+        placeholder="Add a note…"
+        value={value}
+        title={value}
+        onFocus={() => setExpanded(true)}
+        onBlur={() => setExpanded(false)}
+        onChange={e => onChange(e.target.value)}
+      />
+      {truncated && <span className="grid-notes-more-dot" title="More text — click to see the full note">...</span>}
+    </div>
   );
 }
 
