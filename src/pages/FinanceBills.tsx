@@ -350,6 +350,7 @@ export function FinanceRecurringGrid({ kind }: { kind: RecurringKind }) {
                     className="grid-cell-input input-wide"
                     value={b.name}
                     placeholder={kind === 'Bill' ? 'Bill name' : 'Subscription name'}
+                    title={b.name || undefined}
                     onChange={e => patch(b, { name: e.target.value })}
                     onBlur={() => checkClassification(b)}
                   />

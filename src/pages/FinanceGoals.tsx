@@ -219,7 +219,7 @@ export function FinanceSavingsGrid() {
                     <GripVertical size={13} />
                   </span>
                 </td>
-                <td><input type="text" className="grid-cell-input" value={g.name} placeholder="Goal name" onChange={e => patch(g, { name: e.target.value })} /></td>
+                <td><input type="text" className="grid-cell-input" value={g.name} placeholder="Goal name" title={g.name || undefined} onChange={e => patch(g, { name: e.target.value })} /></td>
                 <td>
                   <select className="grid-cell-select" value={g.category} onChange={e => patch(g, { category: e.target.value as FinanceGoalCategory })}>
                     {allCategories.map(c => <option key={c} value={c}>{c}</option>)}

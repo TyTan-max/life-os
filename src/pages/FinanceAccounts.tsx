@@ -229,7 +229,7 @@ export function FinanceDebtGrid() {
                     <GripVertical size={13} />
                   </span>
                 </td>
-                <td><input type="text" className="grid-cell-input" value={a.name} placeholder="Debt name" onChange={e => patch(a, { name: e.target.value })} /></td>
+                <td><input type="text" className="grid-cell-input" value={a.name} placeholder="Debt name" title={a.name || undefined} onChange={e => patch(a, { name: e.target.value })} /></td>
                 <td>
                   <select className="grid-cell-select" value={a.type} onChange={e => patch(a, { type: e.target.value as FinanceAccountType })}>
                     {allDebtTypes.map(t => <option key={t} value={t}>{t}</option>)}
