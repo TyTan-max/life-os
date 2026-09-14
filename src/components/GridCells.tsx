@@ -94,16 +94,31 @@ export function OptionalNumberCell({
 
 export function NotesCell({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   const [expanded, setExpanded] = useState(false);
+  // Collapsed to one clipped line, `text-overflow: ellipsis` on the textarea itself is easy to
+  // miss — this adds a small, unmistakable "more text" dot in the corner whenever the note is
+  // actually longer than what's visible, so a note isn't silently hidden until you happen to
+  // click in.
+  const [truncated, setTruncated] = useState(false);
+  const ref = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    if (expanded) { setTruncated(false); return; }
+    const el = ref.current;
+    setTruncated(!!el && (el.scrollWidth > el.clientWidth + 1 || value.includes('\n')));
+  }, [value, expanded]);
   return (
-    <textarea
-      className={`grid-cell-input grid-notes-input ${expanded ? 'expanded' : ''}`}
-      rows={expanded ? 3 : 1}
-      placeholder="Add a note…"
-      value={value}
-      title={value}
-      onFocus={() => setExpanded(true)}
-      onBlur={() => setExpanded(false)}
-      onChange={e => onChange(e.target.value)}
-    />
+    <div className="grid-notes-wrap">
+      <textarea
+        ref={ref}
+        className={`grid-cell-input grid-notes-input ${expanded ? 'expanded' : ''}`}
+        rows={expanded ? 3 : 1}
+        placeholder="Add a note…"
+        value={value}
+        title={value}
+        onFocus={() => setExpanded(true)}
+        onBlur={() => setExpanded(false)}
+        onChange={e => onChange(e.target.value)}
+      />
+      {truncated && <span className="grid-notes-more-dot" title="More text — click to see the full note" />}
+    </div>
   );
 }

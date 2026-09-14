@@ -1854,6 +1854,11 @@ input, select, textarea { font-family: inherit; }
   z-index: 5;
   box-shadow: var(--shadow);
 }
+.grid-notes-wrap { position: relative; display: block; width: 100%; }
+.grid-notes-more-dot {
+  position: absolute; top: 3px; right: 3px; width: 5px; height: 5px; border-radius: 50%;
+  background: var(--accent); pointer-events: none;
+}
 .grid-table-empty { padding: 20px 0; text-align: center; }
 .grid-add-row { margin-top: 12px; }
 .grid-add-row-group { display: flex; gap: 10px; margin-top: 12px; flex-wrap: wrap; }
