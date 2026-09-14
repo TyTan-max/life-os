@@ -1925,6 +1925,10 @@ input, select, textarea { font-family: inherit; }
 }
 .recur-start-date-picker .date-picker-trigger:hover { background: none; color: var(--text-muted); text-decoration: underline; }
 .recur-start-date-picker .date-picker-trigger svg { display: none; }
+.recur-due-soon {
+  display: flex; align-items: center; gap: 3px; margin-top: 3px; font-size: 10.5px; color: var(--text-faint);
+}
+.recur-due-soon.urgent { color: var(--red); font-weight: 650; }
 .recur-suggestions { margin-top: 20px; }
 .recur-suggestions-hint { font-size: 12px; margin-bottom: 12px; }
 
