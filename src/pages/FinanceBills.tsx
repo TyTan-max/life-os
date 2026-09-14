@@ -17,6 +17,16 @@ import type { AmountHistoryEntry, Bill, BillFrequency, FinanceAccount, FinanceCa
 
 type ManagerTarget = 'account' | 'category' | null;
 
+// `.toISOString()` converts to UTC — late enough in the day, that's already "tomorrow" for
+// anyone west of UTC, which is exactly what made the due-soon badge/KPIs read a day ahead of the
+// user's actual local date.
+function localIso(date = new Date()): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 const FREQUENCIES: BillFrequency[] = ['Weekly', 'Biweekly', 'Monthly', 'Quarterly', 'Semiannual', 'Yearly', 'Once'];
 
 // Automatic due-soon badge: appears once a bill/subscription is within a week of its due date,
@@ -62,10 +72,10 @@ export function FinanceRecurringGrid({ kind }: { kind: RecurringKind }) {
   const accounts = allAccounts.filter(a => !isLoanAccount(a.type)).sort((a, b) => (a.order ?? 9999) - (b.order ?? 9999));
   const items = data.bills.filter(b => (b.kind ?? 'Bill') === kind);
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localIso();
   const weekAhead = new Date();
   weekAhead.setDate(weekAhead.getDate() + 7);
-  const weekAheadIso = weekAhead.toISOString().slice(0, 10);
+  const weekAheadIso = localIso(weekAhead);
 
   const monthlyTotal = items.reduce((s, b) => s + billMonthlyEquivalent(b), 0);
   const dueThisWeek = items.filter(b => b.nextDue >= today && b.nextDue <= weekAheadIso);

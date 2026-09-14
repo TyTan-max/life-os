@@ -180,7 +180,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (loading || autopayCaughtUpRef.current) return;
     autopayCaughtUpRef.current = true;
-    const today = new Date().toISOString().slice(0, 10);
+    // Local date, not `.toISOString()` — that converts to UTC, which reads as "tomorrow" late
+    // enough in the day for anyone west of UTC and would catch bills up a day too early.
+    const now = new Date();
+    const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
     for (const bill of data.bills) {
       if (!bill.autopay || (bill.frequency ?? 'Monthly') === 'Once' || bill.nextDue >= today) continue;
       let nextDue = bill.nextDue;
