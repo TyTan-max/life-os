@@ -1,8 +1,13 @@
 import type { AppData } from './types';
 import { formatCurrency } from './components/UI';
+import { computeDailyBrief } from './lib/dailyBrief';
 
 const CHECK_INTERVAL_MS = 30_000;
 const shown = new Set<string>();
+
+function localIso(date = new Date()): string {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
 
 function isNotificationSupported(): boolean {
   return typeof window !== 'undefined' && 'Notification' in window;
@@ -65,6 +70,26 @@ function dueReminders(data: AppData, now: Date): DueReminder[] {
       }
     }
   }
+
+  // Daily brief — fires once per day, the first time the app notices the current local time has
+  // passed the chosen dailyBriefTime (checked every 30s, so within that margin of the exact
+  // minute). The date-stamped id is what makes it "once per day": once today's id has fired, it
+  // won't fire again until the id itself changes tomorrow.
+  const briefTime = data.settings.dailyBriefTime;
+  if (briefTime) {
+    const today = localIso(now);
+    const [hours, minutes] = briefTime.split(':').map(Number);
+    const scheduled = new Date(now);
+    scheduled.setHours(hours, minutes, 0, 0);
+    if (now >= scheduled) {
+      items.push({
+        id: `daily-brief-${today}`,
+        title: 'Your daily brief',
+        body: computeDailyBrief(data, today).join(' ')
+      });
+    }
+  }
+
   return items;
 }
 

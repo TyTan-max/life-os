@@ -8,6 +8,7 @@ import { useStore, newRecord } from '../store';
 import type { Habit, Note } from '../types';
 import { isLiabilityAccount } from './FinanceAccounts';
 import { actualSpendByCategory } from '../lib/budgetMath';
+import { computeDailyBrief } from '../lib/dailyBrief';
 import { getSessionVerse } from '../lib/bibleVerses';
 import { lastContactedDate, contactStatus } from '../lib/crmCadence';
 import { getEffectiveRoutineFilter, loadSavedRoutineFilter, matchesRoutineFilter, sortRoutines } from '../lib/habitRoutines';
@@ -130,7 +131,6 @@ export function Dashboard({navigate}:{navigate:(page:string, tab?: string)=>void
   const in7 = new Date(); in7.setDate(in7.getDate()+7);
   const in7Iso = localIso(in7);
   const upcomingBills = data.bills.filter(b=>(b.kind ?? 'Bill') === 'Bill' && b.nextDue>=today && b.nextDue<=in7Iso);
-  const upcomingBillsTotal = upcomingBills.reduce((s,b)=>s+b.amount,0);
   // Trading Journal moved to the real IndexedDB-backed store a while back — this card was never
   // updated off the old localStorage key it used to read, so it's been silently showing 0 days
   // logged / $0.00 regardless of actual data ever since. YouTube Analytics below is unaffected;
@@ -142,7 +142,6 @@ export function Dashboard({navigate}:{navigate:(page:string, tab?: string)=>void
   // balance plus all-time net (not scoped to any period, since this card has no date filter).
   const tradingCurrentBalance = (data.settings.tradingStartBalance ?? 50000) + tradingPnl;
   const tradingWinRate = tradingLogs.length ? Math.round((tradingLogs.filter(log => netOf(log) > 0).length / tradingLogs.length) * 100) : 0;
-  const tradingTotalTrades = tradingLogs.reduce((sum, log) => sum + (log.totalTrades || 0), 0);
   const youtubeViews = youtubeSnapshots.reduce((sum, item) => sum + Number(item.views || 0), 0);
   const youtubeSubs = youtubeSnapshots.reduce((sum, item) => sum + Number(item.subscribersDelta || 0), 0);
   const movies = data.movies.filter(m=>!m.needsReview);
@@ -179,12 +178,9 @@ export function Dashboard({navigate}:{navigate:(page:string, tab?: string)=>void
   const currentGoals = data.goals.filter(g=>g.status!=='Completed');
   const currentProjects = data.notes.filter(n=>n.paraType==='Project' && !n.archived && n.status!=='Completed');
   const focus = [...[...overdue].sort((a,b)=>a.dueDate.localeCompare(b.dueDate)),...dueToday,...openTasks.filter(t=>t.dueDate>today).sort((a,b)=>a.dueDate.localeCompare(b.dueDate))];
-  const brief = [
-    overdue.length ? `${overdue.length} overdue task${overdue.length===1?'':'s'} need attention.` : 'No overdue tasks.',
-    habitsDueToday.length ? `${todayDone} of ${habitsDueToday.length} scheduled habits are complete today.` : 'No habits are scheduled today.',
-    overBudgetCount ? `${overBudgetCount} budget categor${overBudgetCount===1?'y is':'ies are'} over their limit this month.` : upcomingBills.length ? `${upcomingBills.length} bill${upcomingBills.length===1?'':'s'} due in the next 7 days (${formatCurrency(upcomingBillsTotal)}).` : 'Budgets and bills are on track.',
-    backlogNeedsReview ? `${backlogNeedsReview} backlog item${backlogNeedsReview===1?'':'s'} in Movies/Games/Books need info.` : tradingLogs.length ? `${tradingLogs.length} trading day${tradingLogs.length===1?'':'s'} logged (${tradingTotalTrades} trades) with ${tradingWinRate}% green days.` : 'Start logging trading days to build your scalping data.'
-  ];
+  // Shared with the scheduled notification (notifications.ts) via computeDailyBrief, so the card
+  // and the notification you get at your chosen time can never say different things.
+  const brief = computeDailyBrief(data, today);
   const toggleHabitToday=async(habit:Habit)=>{
     const completed=habit.checkins.includes(today);
     await upsert('habits',{...habit,checkins:completed?habit.checkins.filter(date=>date!==today):[...habit.checkins,today]});

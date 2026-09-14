@@ -87,7 +87,15 @@ export function Settings() {
               {CURRENCIES.map(c => <option key={c.code} value={c.code}>{c.code} — {c.label}</option>)}
             </select>
           </label>
-          <label><span>Daily brief time</span><input type="time" value={settings.dailyBriefTime} onChange={e => void updateSettings({ dailyBriefTime: e.target.value })} /></label>
+          <label>
+            <span>Daily brief time</span>
+            <input
+              type="time"
+              value={settings.dailyBriefTime}
+              onChange={e => void updateSettings({ dailyBriefTime: e.target.value })}
+              title="Sends a browser notification with your daily brief at this time each day. Requires 'Enable browser notifications' below."
+            />
+          </label>
           <label>
             <span>Time Zone</span>
             <input type="text" value={`${timezone.name} — ${timezone.abbreviation} (${timezone.offset})`} disabled title="Detected from your device — adjusts for Daylight Saving Time automatically, no need to change it here." />
