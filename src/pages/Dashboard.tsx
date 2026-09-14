@@ -300,7 +300,7 @@ export function Dashboard({navigate}:{navigate:(page:string, tab?: string)=>void
         </button>
       </DashCard>
       <DashCard
-        icon={undefined} title="To Do" isMobile={isMobile}
+        icon={<ListTodo size={19}/>} title="To Do" isMobile={isMobile}
         quiet expanded={expandedCards.has('goals')} onToggle={()=>toggleCard('goals')}
         summary={`${openTasks.length} tasks · ${currentGoals.length} goals · ${currentProjects.length} projects`}
         orderStyle={slot(11)}
