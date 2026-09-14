@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { GripVertical, Pencil, Plus, Trash2 } from 'lucide-react';
+import { CheckCircle2, GripVertical, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useStore, newRecord } from '../store';
 import { Kpi, formatCurrency, formatDate, MoneyInput } from '../components/UI';
 import { DatePicker } from '../components/DatePicker';
@@ -10,7 +10,7 @@ import { Sheet } from '../components/Sheet';
 import { useIsMobile } from '../hooks/useIsMobile';
 import { SortableTh, SortableThLabel, toggleGridSort } from '../components/SortableTh';
 import type { GridSortState } from '../components/SortableTh';
-import { billMonthlyEquivalent } from '../lib/budgetMath';
+import { advanceDueDate, billMonthlyEquivalent } from '../lib/budgetMath';
 import { classifyRecurringKind } from '../lib/classifyRecurring';
 import { isLoanAccount } from './FinanceAccounts';
 import type { AmountHistoryEntry, Bill, BillFrequency, FinanceAccount, FinanceCategory, RecurringKind } from '../types';
@@ -126,6 +126,13 @@ export function FinanceRecurringGrid({ kind }: { kind: RecurringKind }) {
     void upsert('bills', newRecord<Bill>({ name: '', amount: 0, nextDue: today, frequency: 'Monthly', kind, order: items.length }));
   };
 
+  // Advances nextDue to the next cycle instead of leaving it stuck on the date that was just
+  // paid — a "Once" item has no next occurrence, so this is a no-op for those.
+  const markPaid = (b: Bill) => {
+    if ((b.frequency ?? 'Monthly') === 'Once') return;
+    patch(b, { nextDue: advanceDueDate(b.nextDue, b.frequency ?? 'Monthly') });
+  };
+
   const checkClassification = (b: Bill) => {
     const suggestion = classifyRecurringKind(b.name, b.amount, b.frequency);
     setSuggestFor(suggestion.kind !== kind && b.name.trim() ? b.id : null);
@@ -192,7 +199,16 @@ export function FinanceRecurringGrid({ kind }: { kind: RecurringKind }) {
                 <span>Amount</span>
                 <MoneyInput value={editing.amount} onChange={n => patch(editing, { amount: n })} />
               </label>
-              <label><span>Next due</span><DatePicker value={editing.nextDue} onChange={v => patch(editing, { nextDue: v })} /></label>
+              <label>
+                <span>Next due</span>
+                <DatePicker value={editing.nextDue} onChange={v => patch(editing, { nextDue: v })} />
+              </label>
+              {(editing.frequency ?? 'Monthly') !== 'Once' && (
+                <button type="button" className="btn ghost small" onClick={() => markPaid(editing)}>
+                  <CheckCircle2 size={14} /> Mark paid — advances to {formatDate(advanceDueDate(editing.nextDue, editing.frequency ?? 'Monthly'))}
+                </button>
+              )}
+              <label><span>Started</span><DatePicker value={editing.startDate ?? ''} onChange={v => patch(editing, { startDate: v })} placeholder="When this started…" /></label>
               <label>
                 <span>Frequency</span>
                 <select value={editing.frequency ?? 'Monthly'} onChange={e => patch(editing, { frequency: e.target.value as BillFrequency })}>
@@ -319,6 +335,14 @@ export function FinanceRecurringGrid({ kind }: { kind: RecurringKind }) {
                       Move to {kind === 'Bill' ? 'Subscriptions' : 'Bills'} →
                     </button>
                   )}
+                  <div className="recur-start-date-picker">
+                    <DatePicker
+                      value={b.startDate ?? ''}
+                      onChange={v => patch(b, { startDate: v })}
+                      placeholder="+ start date"
+                      displayLabel={b.startDate ? `Started ${formatDate(b.startDate)}` : undefined}
+                    />
+                  </div>
                 </td>
                 <td className="grid-td-compact"><NumberCell value={b.amount} onChange={n => patch(b, { amount: n })} min={0} decimals={2} /></td>
                 <td><DatePicker value={b.nextDue} onChange={v => patch(b, { nextDue: v })} /></td>
@@ -357,7 +381,22 @@ export function FinanceRecurringGrid({ kind }: { kind: RecurringKind }) {
                   </>
                 )}
                 <td><NotesCell value={b.notes ?? ''} onChange={v => patch(b, { notes: v })} /></td>
-                <td><button type="button" className="icon-btn danger" onClick={() => void remove('bills', b.id)} aria-label={`Delete ${b.name || 'item'}`}><Trash2 size={14} /></button></td>
+                <td>
+                  <div className="grid-row-actions">
+                    {(b.frequency ?? 'Monthly') !== 'Once' && (
+                      <button
+                        type="button"
+                        className="icon-btn"
+                        onClick={() => markPaid(b)}
+                        aria-label={`Mark ${b.name || 'item'} paid`}
+                        title={`Mark paid — advances Next Due to ${formatDate(advanceDueDate(b.nextDue, b.frequency ?? 'Monthly'))}`}
+                      >
+                        <CheckCircle2 size={14} />
+                      </button>
+                    )}
+                    <button type="button" className="icon-btn danger" onClick={() => void remove('bills', b.id)} aria-label={`Delete ${b.name || 'item'}`}><Trash2 size={14} /></button>
+                  </div>
+                </td>
               </tr>
             ))}
           </tbody>

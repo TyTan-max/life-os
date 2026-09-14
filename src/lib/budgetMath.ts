@@ -8,6 +8,22 @@ export function billMonthlyEquivalent(bill: Bill): number {
   return bill.amount * BILL_MONTHLY_MULTIPLIER[bill.frequency ?? 'Monthly'];
 }
 
+// One cycle forward from `dueDate` per the bill/subscription's frequency — used by "Mark Paid"
+// to auto-advance nextDue instead of leaving it stuck on the date that was just paid. A "Once"
+// item has no next occurrence, so it's returned unchanged.
+export function advanceDueDate(dueDate: string, frequency: BillFrequency = 'Monthly'): string {
+  if (frequency === 'Once') return dueDate;
+  const d = new Date(`${dueDate}T12:00:00`);
+  if (Number.isNaN(d.getTime())) return dueDate;
+  if (frequency === 'Weekly') d.setDate(d.getDate() + 7);
+  else if (frequency === 'Biweekly') d.setDate(d.getDate() + 14);
+  else if (frequency === 'Quarterly') d.setMonth(d.getMonth() + 3);
+  else if (frequency === 'Semiannual') d.setMonth(d.getMonth() + 6);
+  else if (frequency === 'Yearly') d.setFullYear(d.getFullYear() + 1);
+  else d.setMonth(d.getMonth() + 1);
+  return d.toISOString().slice(0, 10);
+}
+
 export function monthKey(date: Date = new Date()): string {
   return date.toISOString().slice(0, 7);
 }

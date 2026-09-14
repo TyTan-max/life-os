@@ -170,6 +170,9 @@ export interface Bill extends BaseRecord {
   name: string;
   amount: number;
   nextDue: string;
+  // When it actually started (as opposed to `createdAt`, which is just when this record was
+  // added to the app — the two can differ for something you've had for a while before tracking it).
+  startDate?: string;
   frequency?: BillFrequency;
   accountId?: string;
   categoryId?: string;

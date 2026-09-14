@@ -1918,6 +1918,13 @@ input, select, textarea { font-family: inherit; }
   background: var(--accent-soft); border: none; border-radius: 999px; padding: 2px 8px; cursor: pointer; white-space: nowrap;
 }
 .recur-suggest-pill:hover { filter: brightness(1.1); }
+.recur-start-date-picker { margin-top: 3px; }
+.recur-start-date-picker .date-picker-trigger {
+  width: auto; border: none; padding: 0; font-size: 10.5px; color: var(--text-faint);
+  background: none; justify-content: flex-start;
+}
+.recur-start-date-picker .date-picker-trigger:hover { background: none; color: var(--text-muted); text-decoration: underline; }
+.recur-start-date-picker .date-picker-trigger svg { display: none; }
 .recur-suggestions { margin-top: 20px; }
 .recur-suggestions-hint { font-size: 12px; margin-bottom: 12px; }
 
