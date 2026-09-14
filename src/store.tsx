@@ -9,6 +9,7 @@ import { mergeSnapshots } from './lib/syncMerge';
 import type { SyncSnapshot } from './lib/syncMerge';
 import { startBrowserReminderLoop, syncScheduledNotifications } from './notifications';
 import { registerCustomDebtTypes } from './pages/FinanceAccounts';
+import { advanceDueDate } from './lib/budgetMath';
 
 type Store = {
   data: AppData;
@@ -168,6 +169,29 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     await putRecord(collection, updated as CollectionRecord);
     pushHistory({ kind:'collection', collection, before, after, dedupeKey:`${collection}:${updated.id}` });
   }, [pushHistory]);
+
+  // Autopay implies the charge happens on its own — a bill/subscription on autopay whose due
+  // date has already passed gets its nextDue silently caught up (looping past every missed cycle
+  // in case the app wasn't opened for a while), instead of leaving it stuck in the past until
+  // someone clicks Mark Paid. Off-autopay items are untouched — those genuinely need a manual
+  // confirmation that they were paid. Runs once per load (guarded by the ref, not by `loading`
+  // alone) so re-renders from its own upsert calls below don't loop it again.
+  const autopayCaughtUpRef = useRef(false);
+  useEffect(() => {
+    if (loading || autopayCaughtUpRef.current) return;
+    autopayCaughtUpRef.current = true;
+    const today = new Date().toISOString().slice(0, 10);
+    for (const bill of data.bills) {
+      if (!bill.autopay || (bill.frequency ?? 'Monthly') === 'Once' || bill.nextDue >= today) continue;
+      let nextDue = bill.nextDue;
+      let guard = 0;
+      while (nextDue < today && guard < 240) {
+        nextDue = advanceDueDate(nextDue, bill.frequency ?? 'Monthly');
+        guard += 1;
+      }
+      if (nextDue !== bill.nextDue) void upsert('bills', { ...bill, nextDue });
+    }
+  }, [loading, data.bills, upsert]);
 
   const remove = useCallback(async (collection: CollectionName, id: string) => {
     const before = dataRef.current[collection] as CollectionRecord[];
