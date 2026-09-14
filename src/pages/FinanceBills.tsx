@@ -30,20 +30,20 @@ function localIso(date = new Date()): string {
 const FREQUENCIES: BillFrequency[] = ['Weekly', 'Biweekly', 'Monthly', 'Quarterly', 'Semiannual', 'Yearly', 'Once'];
 
 // Automatic due-soon badge: appears once a bill/subscription is within a week of its due date,
-// counting down "1 week" → "6 days" → … → "1 day" → "Due today" → "N days overdue", turning
-// urgent (red bell) once it's within 3 days, due today, or already overdue. Purely a display —
-// no per-item configuration, it just reacts to how close `nextDue` is to today.
-function dueSoonInfo(nextDue: string, today: string): { label: string; urgent: boolean } | null {
+// counting down "1 week" → "6 days" → … → "1 day" → "Due today" → "N days overdue". Color tiers
+// by urgency: green 7-5 days out, yellow 4-2 days out, red for 1 day out through overdue. Purely
+// a display — no per-item configuration, it just reacts to how close `nextDue` is to today.
+function dueSoonInfo(nextDue: string, today: string): { label: string; severity: 'ok' | 'warn' | 'urgent' } | null {
   const days = Math.round((new Date(`${nextDue}T00:00:00`).getTime() - new Date(`${today}T00:00:00`).getTime()) / 86400000);
   if (days > 7) return null;
-  const urgent = days <= 3;
+  const severity = days <= 1 ? 'urgent' : days <= 4 ? 'warn' : 'ok';
   let label: string;
   if (days === 7) label = '1 week';
   else if (days >= 2) label = `${days} days`;
   else if (days === 1) label = '1 day';
   else if (days === 0) label = 'Due today';
   else label = `${Math.abs(days)} day${days === -1 ? '' : 's'} overdue`;
-  return { label, urgent };
+  return { label, severity };
 }
 
 function UsageDots({ value, onChange }: { value: number; onChange: (n: number) => void }) {
@@ -379,7 +379,7 @@ export function FinanceRecurringGrid({ kind }: { kind: RecurringKind }) {
                     const info = dueSoonInfo(b.nextDue, today);
                     if (!info) return null;
                     return (
-                      <div className={`recur-due-soon ${info.urgent ? 'urgent' : ''}`}>
+                      <div className={`recur-due-soon ${info.severity}`}>
                         <Bell size={10} /> {info.label}
                       </div>
                     );
