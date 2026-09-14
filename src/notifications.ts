@@ -1,4 +1,5 @@
 import type { AppData } from './types';
+import { formatCurrency } from './components/UI';
 
 const CHECK_INTERVAL_MS = 30_000;
 const shown = new Set<string>();
@@ -44,7 +45,7 @@ function dueReminders(data: AppData, now: Date): DueReminder[] {
           items.push({
             id: `trial-${bill.id}-${bill.trialEndDate}`,
             title: 'Trial ending soon',
-            body: `${bill.name} trial ends in 3 days — you'll be charged $${bill.amount.toFixed(2)}`
+            body: `${bill.name} trial ends in 3 days — you'll be charged ${formatCurrency(bill.amount)}`
           });
         }
       }
@@ -58,7 +59,7 @@ function dueReminders(data: AppData, now: Date): DueReminder[] {
           items.push({
             id: `variance-${bill.id}-${bill.amount}`,
             title: 'Bill amount changed',
-            body: `${bill.name} is ${Math.round(Math.abs(deviationPct))}% ${deviationPct > 0 ? 'higher' : 'lower'} than usual ($${bill.amount.toFixed(2)} vs. ~$${avg.toFixed(2)})`
+            body: `${bill.name} is ${Math.round(Math.abs(deviationPct))}% ${deviationPct > 0 ? 'higher' : 'lower'} than usual (${formatCurrency(bill.amount)} vs. ~${formatCurrency(avg)})`
           });
         }
       }

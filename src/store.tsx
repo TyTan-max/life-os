@@ -10,6 +10,7 @@ import type { SyncSnapshot } from './lib/syncMerge';
 import { startBrowserReminderLoop, syncScheduledNotifications } from './notifications';
 import { registerCustomDebtTypes } from './pages/FinanceAccounts';
 import { advanceDueDate } from './lib/budgetMath';
+import { setActiveCurrency } from './components/UI';
 
 type Store = {
   data: AppData;
@@ -146,6 +147,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     registerCustomDebtTypes(data.settings.customDebtTypes ?? []);
   }, [data.settings.customDebtTypes]);
+
+  // Same reasoning as above: formatCurrency is called from nearly every page, so the active
+  // currency needs to be set globally on any settings change, not just from whichever page
+  // happens to be mounted when the user edits it.
+  useEffect(() => {
+    setActiveCurrency(data.settings.currency);
+  }, [data.settings.currency]);
 
   useEffect(() => startBrowserReminderLoop(() => dataRef.current), []);
 

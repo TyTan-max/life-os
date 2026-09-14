@@ -3,7 +3,7 @@ import type { KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent
 import { Calculator as CalculatorIcon, Calendar as CalendarIcon, ChevronDown, ChevronLeft, ChevronRight, ImagePlus, Minus, Plus, RotateCcw, StickyNote, Table2, TrendingDown, TrendingUp, Trash2, Upload, X } from 'lucide-react';
 import { useStore, newRecord } from '../store';
 import type { DailyLog, TradingScreenshot } from '../types';
-import { formatCurrency, Modal } from '../components/UI';
+import { formatCurrency, formatCurrencyCompact, Modal } from '../components/UI';
 import { DatePicker } from '../components/DatePicker';
 import { MobileRecordList } from '../components/MobileRecordList';
 import { useIsMobile } from '../hooks/useIsMobile';
@@ -96,8 +96,7 @@ function fmt(n: number, digits = 2): string {
 }
 
 function formatCompact(n: number): string {
-  const abs = Math.abs(n);
-  if (abs >= 1000) return `${n < 0 ? '-' : ''}$${(abs / 1000).toFixed(abs >= 10000 ? 0 : 1)}K`;
+  if (Math.abs(n) >= 1000) return formatCurrencyCompact(n);
   return formatCurrency(n);
 }
 

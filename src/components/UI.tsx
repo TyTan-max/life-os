@@ -30,9 +30,36 @@ export function ProgressBar({ value }: { value: number }) {
   );
 }
 
-export function formatCurrency(amount: number, currency = 'USD'): string {
+// Module-level rather than threaded through every one of formatCurrency's ~100 call sites —
+// set once from Settings (see store.tsx) whenever settings.currency changes, and every call
+// picks it up automatically via the default parameter below.
+let activeCurrency = 'USD';
+export function setActiveCurrency(code: string): void {
+  activeCurrency = code || 'USD';
+}
+
+export function formatCurrency(amount: number, currency = activeCurrency): string {
   if (!Number.isFinite(amount)) return '—';
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(amount);
+  try {
+    return new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(amount);
+  } catch {
+    // An invalid/unrecognized currency code (e.g. a stray value from an old backup file) would
+    // otherwise throw here — and this runs on nearly every page, so one bad code could take down
+    // rendering everywhere money shows up. Fall back to USD instead of crashing.
+    return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amount);
+  }
+}
+
+// Compact form (e.g. "$1.2K") for tight spaces like chart axes — lets Intl handle the
+// abbreviation instead of a hand-rolled "/1000 + K suffix", so it respects the active currency's
+// symbol placement/spacing automatically instead of always prefixing a literal "$".
+export function formatCurrencyCompact(amount: number, currency = activeCurrency): string {
+  if (!Number.isFinite(amount)) return '—';
+  try {
+    return new Intl.NumberFormat('en-US', { style: 'currency', currency, notation: 'compact', maximumFractionDigits: 1 }).format(amount);
+  } catch {
+    return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', notation: 'compact', maximumFractionDigits: 1 }).format(amount);
+  }
 }
 
 export function formatDate(dateStr?: string): string {

@@ -1,4 +1,5 @@
 import type { Bill, FinanceAccount, Transaction } from '../types';
+import { formatCurrency } from '../components/UI';
 
 export interface ForecastWarning {
   type: 'overdraft' | 'low-balance' | 'large-expense';
@@ -111,10 +112,10 @@ export function buildForecast(
     if (running < 0) {
       warnings.push({ type: 'overdraft', date: dateStr, message: `Projected to go negative around ${dateStr}, after "${e.label}"` });
     } else if (running < LOW_BALANCE_THRESHOLD) {
-      warnings.push({ type: 'low-balance', date: dateStr, message: `Balance projected to dip to $${running.toFixed(2)} around ${dateStr}` });
+      warnings.push({ type: 'low-balance', date: dateStr, message: `Balance projected to dip to ${formatCurrency(running)} around ${dateStr}` });
     }
     if (e.amount < 0 && Math.abs(e.amount) >= LARGE_EXPENSE_THRESHOLD) {
-      warnings.push({ type: 'large-expense', date: dateStr, message: `Large upcoming expense: ${e.label} ($${Math.abs(e.amount).toFixed(2)}) on ${dateStr}` });
+      warnings.push({ type: 'large-expense', date: dateStr, message: `Large upcoming expense: ${e.label} (${formatCurrency(Math.abs(e.amount))}) on ${dateStr}` });
     }
   }
 

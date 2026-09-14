@@ -6,6 +6,28 @@ import { Card, PageHeader } from '../components/UI';
 
 const THEMES: Theme[] = ['light', 'dark', 'system'];
 
+// A dropdown of real ISO 4217 codes rather than free text — formatCurrency feeds this straight
+// into Intl.NumberFormat, which throws on an invalid code, and that function runs on nearly every
+// page. Constraining the input here means a bad value can never reach it in the first place.
+const CURRENCIES: { code: string; label: string }[] = [
+  { code: 'USD', label: 'US Dollar' },
+  { code: 'EUR', label: 'Euro' },
+  { code: 'GBP', label: 'British Pound' },
+  { code: 'CAD', label: 'Canadian Dollar' },
+  { code: 'AUD', label: 'Australian Dollar' },
+  { code: 'JPY', label: 'Japanese Yen' },
+  { code: 'CNY', label: 'Chinese Yuan' },
+  { code: 'INR', label: 'Indian Rupee' },
+  { code: 'MXN', label: 'Mexican Peso' },
+  { code: 'BRL', label: 'Brazilian Real' },
+  { code: 'CHF', label: 'Swiss Franc' },
+  { code: 'SEK', label: 'Swedish Krona' },
+  { code: 'NZD', label: 'New Zealand Dollar' },
+  { code: 'SGD', label: 'Singapore Dollar' },
+  { code: 'KRW', label: 'South Korean Won' },
+  { code: 'VND', label: 'Vietnamese Dong' }
+];
+
 // Read-only — Life OS never stores a timezone, it always asks the OS "what's today, right now,
 // wherever I currently am," so this is purely a display for reassurance that detection (including
 // Daylight Saving Time) is working, not a setting that changes any behavior.
@@ -56,7 +78,15 @@ export function Settings() {
               {THEMES.map(t => <option key={t} value={t}>{t}</option>)}
             </select>
           </label>
-          <label><span>Currency</span><input value={settings.currency} onChange={e => void updateSettings({ currency: e.target.value })} /></label>
+          <label>
+            <span>Currency</span>
+            <select value={settings.currency} onChange={e => void updateSettings({ currency: e.target.value })}>
+              {!CURRENCIES.some(c => c.code === settings.currency) && (
+                <option value={settings.currency}>{settings.currency}</option>
+              )}
+              {CURRENCIES.map(c => <option key={c.code} value={c.code}>{c.code} — {c.label}</option>)}
+            </select>
+          </label>
           <label><span>Daily brief time</span><input type="time" value={settings.dailyBriefTime} onChange={e => void updateSettings({ dailyBriefTime: e.target.value })} /></label>
           <label>
             <span>Time Zone</span>
