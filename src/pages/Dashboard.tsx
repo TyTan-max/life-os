@@ -171,7 +171,7 @@ export function Dashboard({navigate}:{navigate:(page:string, tab?: string)=>void
     const rows = [
       ...openTasks.filter(t=>t.reminderAt).map(t=>({type:'Task',title:t.title,at:t.reminderAt!})),
       ...data.events.filter(e=>e.reminderAt||e.date>=today).map(e=>({type:'Event',title:e.title,at:e.reminderAt||`${e.date}T${e.startTime||'09:00'}`})),
-      ...data.bills.filter(b=>b.nextDue>=today).map(b=>({type:'Bill',title:`${b.name} (${formatCurrency(b.amount)})`,at:b.reminderAt||`${b.nextDue}T09:00`}))
+      ...data.bills.filter(b=>b.nextDue>=today && !b.autopay).map(b=>({type:'Bill',title:`${b.name} (${formatCurrency(b.amount)})`,at:b.reminderAt||`${b.nextDue}T09:00`}))
     ];
     return rows.sort((a,b)=>a.at.localeCompare(b.at));
   },[data,openTasks,today]);
