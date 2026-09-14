@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import {
   ArrowRight, Bell, BookOpen, Brain, Check, CheckCircle2, ChevronDown, Clapperboard,
-  Flame, Gamepad2, HeartPulse, ListTodo, NotebookPen, Plane, Quote as QuoteIcon, Sparkles, TrendingUp, Users, Video, Wallet
+  Flame, Gamepad2, HeartPulse, ListTodo, NotebookPen, Plane, Quote as QuoteIcon, Sparkles, TrendingUp, Users, Wallet
 } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { useStore, newRecord } from '../store';
@@ -16,22 +16,9 @@ import { Badge, Card, Kpi, ProgressBar, formatCurrency, formatDate } from '../co
 import { useIsMobile } from '../hooks/useIsMobile';
 
 type DailyLog = { totalTrades:number; dailyPL:number; dailyFees:number };
-type VideoSnapshot = { views:number; subscribersDelta:number };
 
 function netOf(l: DailyLog): number {
   return l.dailyPL - l.dailyFees;
-}
-
-function loadLocalArray<T>(key: string): T[] {
-  if (typeof window === 'undefined') return [];
-  try {
-    const raw = window.localStorage.getItem(key);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw) as T[];
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
 }
 
 function localIso(date = new Date()) {
@@ -133,17 +120,13 @@ export function Dashboard({navigate}:{navigate:(page:string, tab?: string)=>void
   const upcomingBills = data.bills.filter(b=>(b.kind ?? 'Bill') === 'Bill' && b.nextDue>=today && b.nextDue<=in7Iso);
   // Trading Journal moved to the real IndexedDB-backed store a while back — this card was never
   // updated off the old localStorage key it used to read, so it's been silently showing 0 days
-  // logged / $0.00 regardless of actual data ever since. YouTube Analytics below is unaffected;
-  // that page never migrated off its own localStorage collection, so its key is still live.
+  // logged / $0.00 regardless of actual data ever since.
   const tradingLogs = data.dailyLogs;
-  const youtubeSnapshots = loadLocalArray<VideoSnapshot>('life-os-youtube-analytics-v1');
   const tradingPnl = tradingLogs.reduce((sum, log) => sum + netOf(log), 0);
   // Same formula as the Trading Journal page's own Current Balance: a configurable starting
   // balance plus all-time net (not scoped to any period, since this card has no date filter).
   const tradingCurrentBalance = (data.settings.tradingStartBalance ?? 50000) + tradingPnl;
   const tradingWinRate = tradingLogs.length ? Math.round((tradingLogs.filter(log => netOf(log) > 0).length / tradingLogs.length) * 100) : 0;
-  const youtubeViews = youtubeSnapshots.reduce((sum, item) => sum + Number(item.views || 0), 0);
-  const youtubeSubs = youtubeSnapshots.reduce((sum, item) => sum + Number(item.subscribersDelta || 0), 0);
   const movies = data.movies.filter(m=>!m.needsReview);
   const videogames = data.videogames.filter(g=>!g.needsReview);
   const books = data.books.filter(b=>!b.needsReview);
@@ -269,17 +252,6 @@ export function Dashboard({navigate}:{navigate:(page:string, tab?: string)=>void
         <div className="metric-pair"><span>Current balance</span><b>{formatCurrency(tradingCurrentBalance)}</b></div>
         <div className="metric-pair"><span>Win rate</span><b>{tradingWinRate}%</b></div>
         <div className="metric-pair"><span>Net P/L</span><b className={tradingPnl >= 0 ? 'positive' : 'negative'}>{tradingPnl >= 0 ? '+' : ''}{tradingPnl.toFixed(2)}</b></div>
-      </DashCard>
-      <DashCard
-        icon={<Video size={19}/>} title="YouTube analytics" isMobile={isMobile}
-        quiet expanded={expandedCards.has('youtube')} onToggle={()=>toggleCard('youtube')}
-        summary={`${youtubeSnapshots.length} tracked upload${youtubeSnapshots.length===1?'':'s'}`}
-        action={<button className="text-btn" onClick={()=>navigate('YouTube Analytics')}>Open <ArrowRight size={15}/></button>}
-        orderStyle={slot(8)}
-      >
-        <div className="metric-pair"><span>Tracked uploads</span><b>{youtubeSnapshots.length}</b></div>
-        <div className="metric-pair"><span>Total views</span><b>{youtubeViews.toLocaleString('en-US')}</b></div>
-        <div className="metric-pair"><span>Subscriber delta</span><b>{youtubeSubs >= 0 ? '+' : ''}{youtubeSubs}</b></div>
       </DashCard>
       <DashCard
         className="span-2" icon={<Wallet size={19}/>} title="Finance overview" isMobile={isMobile}

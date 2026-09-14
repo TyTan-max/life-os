@@ -11,7 +11,6 @@ import { Videogames } from './pages/Videogames';
 import { Books } from './pages/Books';
 import { Finance } from './pages/Finance';
 import { TradingJournal } from './pages/TradingJournal';
-import { YouTubeAnalytics } from './pages/YouTubeAnalytics';
 import { Settings } from './pages/Settings';
 import { Research } from './pages/Research';
 import { SecondBrain } from './pages/SecondBrain';
@@ -23,7 +22,7 @@ import { UndoToast } from './components/UndoToast';
 
 const PAGES: Record<string, React.ComponentType> = {
   Habits, Movies, Videogames, Books,
-  Finance, 'Trading Journal': TradingJournal, 'YouTube Analytics': YouTubeAnalytics, Settings, Research,
+  Finance, 'Trading Journal': TradingJournal, Settings, Research,
   Health: HealthWellness, 'Travel & Bucket List': Travel,
   'Personal CRM': PersonalCRM
 };
