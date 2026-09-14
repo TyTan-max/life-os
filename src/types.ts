@@ -529,7 +529,8 @@ export interface Movie extends BaseRecord {
   description?: string;
   runtimeMin?: number;
   seasonsEpisodes?: string;
-  episodeProgress?: number;
+  currentSeason?: number;
+  currentEpisode?: number;
   status: MovieStatus;
   rating?: number;
   whereToWatch?: string[];

@@ -347,6 +347,29 @@ async function migrateSleepQualityScaleV1(db: IDBPDatabase): Promise<void> {
   await tx.done;
 }
 
+// Episode Progress moved from one flat "episodes watched" count to a Season/Episode pair —
+// carries the old count over as currentEpisode (season left unset, since the old field never
+// tracked which season it was in) rather than dropping it.
+async function migrateMovieEpisodeProgressV1(db: IDBPDatabase): Promise<void> {
+  const done = await db.get(META_STORE, 'movieEpisodeProgressMigratedV1');
+  if (done) return;
+
+  const movies = await db.getAll('movies') as (Movie & { episodeProgress?: number })[];
+  const toUpdate = movies
+    .filter(m => m.episodeProgress != null && m.currentEpisode == null)
+    .map(m => {
+      const { episodeProgress, ...rest } = m;
+      return { ...rest, currentEpisode: episodeProgress };
+    });
+
+  const tx = db.transaction(['movies', META_STORE], 'readwrite');
+  await Promise.all([
+    ...toUpdate.map(m => tx.objectStore('movies').put(m)),
+    tx.objectStore(META_STORE).put(true, 'movieEpisodeProgressMigratedV1')
+  ]);
+  await tx.done;
+}
+
 // Exercise logs moved off RoutineExercise onto a flat, exerciseId-keyed array on the routine
 // (so log history survives structural edits), and days moved under a dated `versions` list
 // (so structural edits only apply going forward from whichever date they were made on).
@@ -618,6 +641,7 @@ async function loadAllInternal(): Promise<AppData> {
     await db.put(META_STORE, true, 'videogameStatusMigratedV1');
     await db.put(META_STORE, true, 'workoutRoutineVersionsMigratedV1');
     await db.put(META_STORE, true, 'sleepQualityScaleMigratedV1');
+    await db.put(META_STORE, true, 'movieEpisodeProgressMigratedV1');
     await db.put(META_STORE, true, 'tradingJournalMigratedV1');
     // A brand-new install seeds directly from the now-deterministic-id buildSeedData() — there's
     // nothing to have duplicated yet, so there's nothing for either cleanup pass to do.
@@ -632,6 +656,7 @@ async function loadAllInternal(): Promise<AppData> {
   await migrateVideogameStatusV1(db);
   await migrateWorkoutRoutineVersionsV1(db);
   await migrateSleepQualityScaleV1(db);
+  await migrateMovieEpisodeProgressV1(db);
   await migrateTradingJournalV1(db);
   await dedupeLegacySeedDuplicatesV1(db);
   await dedupeLegacySeedDuplicatesV2(db);
