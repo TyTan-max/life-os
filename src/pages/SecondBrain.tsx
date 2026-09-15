@@ -2543,15 +2543,10 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                         <img src={img.src} alt="" draggable={false} />
                       </button>
                       <button type="button" className="sb-note-photo-remove" onClick={() => removeImage(img.ordinal)} aria-label="Remove photo"><X size={11} /></button>
-                      <input
-                        type="text"
-                        className="sb-note-photo-name"
-                        value={img.label ?? ''}
+                      <PhotoNameInput
+                        label={img.label}
                         placeholder={`Photo ${img.ordinal}`}
-                        onChange={e => renameImage(img.ordinal, e.target.value)}
-                        onMouseDown={e => e.stopPropagation()}
-                        draggable={false}
-                        aria-label="Name this photo"
+                        onRename={value => renameImage(img.ordinal, value)}
                       />
                     </div>
                   ))}
@@ -2903,15 +2898,10 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                         <img src={img.src} alt="" draggable={false} />
                       </button>
                       <button type="button" className="sb-note-photo-remove" onClick={() => removeSubtaskImage(img.ordinal)} aria-label="Remove photo"><X size={11} /></button>
-                      <input
-                        type="text"
-                        className="sb-note-photo-name"
-                        value={img.label ?? ''}
+                      <PhotoNameInput
+                        label={img.label}
                         placeholder={`Photo ${img.ordinal}`}
-                        onChange={e => renameSubtaskImage(img.ordinal, e.target.value)}
-                        onMouseDown={e => e.stopPropagation()}
-                        draggable={false}
-                        aria-label="Name this photo"
+                        onRename={value => renameSubtaskImage(img.ordinal, value)}
                       />
                     </div>
                   ))}
@@ -2925,6 +2915,35 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
         <PhotoLightbox src={imageLightboxSrc} onClose={() => setImageLightboxSrc(null)} />
       )}
     </>
+  );
+}
+
+// Local-state-backed, same reasoning as GridCells' NumberCell: renameImage commits a *trimmed*
+// value to the store on every keystroke, and binding the input straight to that trimmed prop
+// would silently eat a trailing space the instant it's typed (nothing left to separate it from
+// whatever word comes next) — trim() strips trailing whitespace, and until another character
+// lands after it, that space IS the trailing whitespace. Keeping the field's own live text
+// decoupled from the committed value (only resynced while not focused) lets the space survive
+// until the user's actually done, at which point onBlur pulls in the final trimmed label.
+function PhotoNameInput({
+  label, placeholder, onRename
+}: { label: string | undefined; placeholder: string; onRename: (value: string) => void }) {
+  const [text, setText] = useState(label ?? '');
+  const focusedRef = useRef(false);
+  useEffect(() => { if (!focusedRef.current) setText(label ?? ''); }, [label]);
+  return (
+    <input
+      type="text"
+      className="sb-note-photo-name"
+      value={text}
+      placeholder={placeholder}
+      onFocus={() => { focusedRef.current = true; }}
+      onBlur={() => { focusedRef.current = false; setText(label ?? ''); }}
+      onChange={e => { setText(e.target.value); onRename(e.target.value); }}
+      onMouseDown={e => e.stopPropagation()}
+      draggable={false}
+      aria-label="Name this photo"
+    />
   );
 }
 
