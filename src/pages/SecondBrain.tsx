@@ -2249,13 +2249,23 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
             // tab/area/resource scope and search/tag/language filters are active — reusing it
             // here means this list can never drift out of sync with what the sidebar shows.
             <div className="sb-editor-empty-list">
-              {filteredNotes.length ? filteredNotes.map(n => (
-                <button type="button" key={n.id} className="sb-overview-row" onClick={() => openNote(n)}>
-                  <span className={`sb-type-pill tone-${noteTypeTone(n)}`}>{noteTypeLabel(n)}</span>
-                  <b>{n.title || 'Untitled'}</b>
-                  <span className="sb-list-item-date">{formatDate(n.updatedAt)}</span>
-                </button>
-              )) : <EmptyState>Nothing here yet — create a note to get started.</EmptyState>}
+              {filteredNotes.length ? (
+                <>
+                  <div className="sb-empty-list-header">{filteredNotes.length} note{filteredNotes.length === 1 ? '' : 's'}</div>
+                  <div className="sb-empty-list-rows">
+                    {filteredNotes.map(n => (
+                      <button type="button" key={n.id} className="sb-empty-list-row" onClick={() => openNote(n)}>
+                        <span className={`sb-type-pill tone-${noteTypeTone(n)}`}>{noteTypeLabel(n)}</span>
+                        <b>{n.title || 'Untitled'}</b>
+                        {(n.tags ?? []).length > 0 && (
+                          <span className="sb-empty-list-tags">{(n.tags ?? []).slice(0, 3).join(', ')}</span>
+                        )}
+                        <span className="sb-list-item-date">{formatDate(n.updatedAt)}</span>
+                      </button>
+                    ))}
+                  </div>
+                </>
+              ) : <EmptyState>Nothing here yet — create a note to get started.</EmptyState>}
             </div>
           ) : (
             <>

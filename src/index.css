@@ -3751,11 +3751,26 @@ input, select, textarea { font-family: inherit; }
 }
 .sb-editor-empty { flex: 1; display: flex; align-items: center; justify-content: center; }
 /* The "no note selected" fallback for tabs with no dedicated hub of their own (Inbox, Archive, a
-   Resource kind, a drilled-into Area/Project list) — a plain list of .sb-overview-row buttons, so
-   it needs the same 10px padding context .sb-overview-section (a Card, 18px padding) gives those
-   rows elsewhere for their -10px hover-bleed margin to land against a real gutter instead of the
-   pane's bare edge. */
-.sb-editor-empty-list { flex: 1; min-height: 0; padding: 4px 10px; overflow-y: auto; }
+   Resource kind, a drilled-into Area/Project list) — a header + a bordered row list, deliberately
+   more table-like than .sb-overview-row's bare stack (a fixed-width type-pill column and a real
+   divider between rows read as structured data at a glance, not a loose pile of buttons). */
+.sb-editor-empty-list { flex: 1; min-height: 0; overflow-y: auto; }
+.sb-empty-list-header {
+  font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em;
+  color: var(--text-faint); padding: 2px 2px 10px; border-bottom: 1px solid var(--border);
+}
+.sb-empty-list-rows { display: flex; flex-direction: column; }
+.sb-empty-list-row {
+  display: flex; align-items: center; gap: 12px; width: 100%; text-align: left;
+  background: transparent; border: none; border-bottom: 1px solid var(--border);
+  padding: 11px 2px; cursor: pointer; color: var(--text);
+}
+.sb-empty-list-row:last-child { border-bottom: none; }
+.sb-empty-list-row:hover { background: var(--accent-soft); }
+.sb-empty-list-row .sb-type-pill { flex-shrink: 0; width: 84px; justify-content: center; }
+.sb-empty-list-row b { flex: 1; font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sb-empty-list-tags { flex-shrink: 0; font-size: 11.5px; color: var(--text-faint); max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sb-empty-list-row .sb-list-item-date { flex-shrink: 0; margin-left: 0; width: 64px; text-align: right; }
 .sb-editor-toolbar { display: flex; align-items: center; gap: 4px; margin-bottom: 10px; flex-shrink: 0; }
 .sb-editor-meta { margin-left: auto; font-size: 11.5px; color: var(--text-faint); }
 .sb-title-input {
