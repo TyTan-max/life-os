@@ -301,10 +301,16 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, {
   // (tracked by the browser as a node+offset pair) would otherwise land in the wrong place — or a
   // now-detached node — the instant a keystroke completes a token match. Character-offset
   // save/restore around the decorate call keeps it exactly where the user left it regardless.
+  // Restoring only applies while the editor still has focus: commit() also runs on blur (to
+  // sanitize/save whatever was just typed), and re-selecting a Range inside a contenteditable
+  // element forces the browser to refocus it — without this guard, clicking anywhere else (e.g. a
+  // sibling "name this photo" field) would blur the editor and have that same blur's commit()
+  // immediately steal focus right back before the click's own focus could land.
   const commit = () => {
     if (!ref.current) return;
     if (decorate) {
-      const offsets = getSelectionOffsets(ref.current);
+      const hadFocus = document.activeElement === ref.current;
+      const offsets = hadFocus ? getSelectionOffsets(ref.current) : null;
       decorate(ref.current);
       if (offsets !== null) setSelectionOffsets(ref.current, offsets.start, offsets.end);
     }
