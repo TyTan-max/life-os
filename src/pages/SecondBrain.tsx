@@ -1772,20 +1772,7 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
           )}
           <div className="sb-list">
             {filteredNotes.length ? filteredNotes.map(n => (
-              <div
-                className={`sb-list-item-wrap ${dragNoteId === n.id ? 'dragging' : ''} ${dragOverNoteId === n.id && dragNoteId !== null && dragNoteId !== n.id ? 'drag-over' : ''}`}
-                key={n.id}
-                draggable={!isMobile}
-                onDragStart={() => setDragNoteId(n.id)}
-                onDragEnter={() => setDragOverNoteId(n.id)}
-                onDragOver={e => e.preventDefault()}
-                onDrop={() => {
-                  if (dragNoteId) reorderNotes(dragNoteId, n.id);
-                  setDragNoteId(null);
-                  setDragOverNoteId(null);
-                }}
-                onDragEnd={() => { setDragNoteId(null); setDragOverNoteId(null); }}
-              >
+              <div className="sb-list-item-wrap" key={n.id}>
                 <SwipeRow
                   disabled={!isMobile}
                   trailing={n.locked ? undefined : { label: 'Delete', icon: <Trash2 size={16} />, onTrigger: () => deleteNote(n.id) }}
@@ -2288,7 +2275,22 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                   <div className="sb-empty-list-header">{filteredNotes.length} note{filteredNotes.length === 1 ? '' : 's'}</div>
                   <div className="sb-empty-list-rows">
                     {filteredNotes.map(n => (
-                      <button type="button" key={n.id} className="sb-empty-list-row" onClick={() => openNote(n)}>
+                      <button
+                        type="button"
+                        key={n.id}
+                        className={`sb-empty-list-row ${dragNoteId === n.id ? 'dragging' : ''} ${dragOverNoteId === n.id && dragNoteId !== null && dragNoteId !== n.id ? 'drag-over' : ''}`}
+                        draggable={!isMobile}
+                        onDragStart={() => setDragNoteId(n.id)}
+                        onDragEnter={() => setDragOverNoteId(n.id)}
+                        onDragOver={e => e.preventDefault()}
+                        onDrop={() => {
+                          if (dragNoteId) reorderNotes(dragNoteId, n.id);
+                          setDragNoteId(null);
+                          setDragOverNoteId(null);
+                        }}
+                        onDragEnd={() => { setDragNoteId(null); setDragOverNoteId(null); }}
+                        onClick={() => openNote(n)}
+                      >
                         <span className={`sb-type-pill tone-${noteTypeTone(n)}`}>{noteTypeLabel(n)}</span>
                         <b>{n.title || 'Untitled'}</b>
                         {(n.tags ?? []).length > 0 && (

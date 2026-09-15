@@ -3698,8 +3698,6 @@ input, select, textarea { font-family: inherit; }
    red background through it even at rest. A margin on the wrap, outside the swipe row entirely,
    can't do that. */
 .sb-list-item-wrap { position: relative; margin-bottom: 8px; }
-.sb-list-item-wrap.dragging { opacity: 0.4; }
-.sb-list-item-wrap.drag-over .sb-list-item { border-color: var(--accent); }
 .sb-list-item-delete {
   position: absolute;
   top: 8px;
@@ -3785,6 +3783,8 @@ input, select, textarea { font-family: inherit; }
 }
 .sb-empty-list-row:last-child { border-bottom: none; }
 .sb-empty-list-row:hover { background: var(--accent-soft); }
+.sb-empty-list-row.dragging { opacity: 0.4; }
+.sb-empty-list-row.drag-over { background: var(--accent-soft); box-shadow: inset 0 2px 0 var(--accent); }
 .sb-empty-list-row .sb-type-pill { flex-shrink: 0; width: 84px; justify-content: center; }
 .sb-empty-list-row b { flex: 1; font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sb-empty-list-tags { flex-shrink: 0; font-size: 11.5px; color: var(--text-faint); max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
