@@ -285,6 +285,11 @@ export interface Note extends BaseRecord {
   body: string;
   tags?: string[];
   pinned?: boolean;
+  // Manual drag-reorder in the sidebar list — undefined until the user drags a note for the
+  // first time, at which point the whole currently-visible list gets renumbered from its current
+  // order. Missing values sink to the bottom (see filteredNotes' sort), same convention already
+  // used for Debt/Goals/Budget-category ordering elsewhere in the app.
+  order?: number;
   // Blocks every delete path for this note (sidebar swipe/icon, editor toolbar, the All-tab
   // table) — for a note that should never disappear by an accidental or hasty click, distinct
   // from archiving (which is about visibility, not protection, and stays fully reversible either

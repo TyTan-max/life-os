@@ -788,6 +788,8 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
   const [imageLightboxSrc, setImageLightboxSrc] = useState<string | null>(null);
   const [dragImageOrdinal, setDragImageOrdinal] = useState<number | null>(null);
   const [dragOverImageOrdinal, setDragOverImageOrdinal] = useState<number | null>(null);
+  const [dragNoteId, setDragNoteId] = useState<string | null>(null);
+  const [dragOverNoteId, setDragOverNoteId] = useState<string | null>(null);
   // Shared by both Kanban boards in this file (the cross-project Projects board and a single
   // Project's own subtask board below) — safe to share since only one of the two is ever
   // mounted at once (the former only renders with no note open, the latter only inside one).
@@ -949,7 +951,7 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
       .filter(n => !tagFilter || (n.tags ?? []).includes(tagFilter))
       .filter(n => !languageFilter || n.language === languageFilter)
       .filter(n => !q || n.title.toLowerCase().includes(q) || n.body.toLowerCase().includes(q) || (n.tags ?? []).some(t => t.toLowerCase().includes(q)))
-      .sort((a, b) => (Number(b.pinned) - Number(a.pinned)) || (b.updatedAt ?? '').localeCompare(a.updatedAt ?? ''));
+      .sort((a, b) => ((a.order ?? 9999) - (b.order ?? 9999)) || (Number(b.pinned) - Number(a.pinned)) || (b.updatedAt ?? '').localeCompare(a.updatedAt ?? ''));
   }, [scopedNotes, query, tagFilter, languageFilter]);
 
   // Defaults to pinned-first (matching the sidebar list's own default), but any column here is an
@@ -1155,6 +1157,25 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
     if (patch.title !== undefined && oldTitle.trim()) {
       void cascadeRename(oldTitle, patch.title, notes, note.id, upsert);
     }
+  };
+
+  // Drag-to-reorder the sidebar list — renumbers whatever's currently visible (filteredNotes) into
+  // its new sequence. Same pattern as the Debt/Goals grids' own drag-reorder: only notes whose
+  // order actually changed get written, so dragging one note doesn't touch every other note's
+  // updatedAt in the same pass.
+  const reorderNotes = (fromId: string, toId: string) => {
+    if (fromId === toId) return;
+    const ids = filteredNotes.map(n => n.id);
+    const fromIndex = ids.indexOf(fromId);
+    const toIndex = ids.indexOf(toId);
+    if (fromIndex === -1 || toIndex === -1) return;
+    const next = [...ids];
+    next.splice(fromIndex, 1);
+    next.splice(toIndex, 0, fromId);
+    next.forEach((id, index) => {
+      const n = notes.find(x => x.id === id);
+      if (n && n.order !== index) void upsert('notes', { ...n, order: index });
+    });
   };
 
   // A project's own fields (status, due date, next action, area, tags, write-up) otherwise only
@@ -1751,7 +1772,20 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
           )}
           <div className="sb-list">
             {filteredNotes.length ? filteredNotes.map(n => (
-              <div className="sb-list-item-wrap" key={n.id}>
+              <div
+                className={`sb-list-item-wrap ${dragNoteId === n.id ? 'dragging' : ''} ${dragOverNoteId === n.id && dragNoteId !== null && dragNoteId !== n.id ? 'drag-over' : ''}`}
+                key={n.id}
+                draggable={!isMobile}
+                onDragStart={() => setDragNoteId(n.id)}
+                onDragEnter={() => setDragOverNoteId(n.id)}
+                onDragOver={e => e.preventDefault()}
+                onDrop={() => {
+                  if (dragNoteId) reorderNotes(dragNoteId, n.id);
+                  setDragNoteId(null);
+                  setDragOverNoteId(null);
+                }}
+                onDragEnd={() => { setDragNoteId(null); setDragOverNoteId(null); }}
+              >
                 <SwipeRow
                   disabled={!isMobile}
                   trailing={n.locked ? undefined : { label: 'Delete', icon: <Trash2 size={16} />, onTrigger: () => deleteNote(n.id) }}
