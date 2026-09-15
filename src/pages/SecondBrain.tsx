@@ -780,6 +780,11 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
   // photo upload).
   const bodyEditorRef = useRef<RichTextEditorHandle>(null);
   const subtaskNotesEditorRef = useRef<RichTextEditorHandle>(null);
+  // Captured the instant "Link to another note" is clicked — by the time the picker modal
+  // closes and insertLink actually runs, the editor's own selection has long since moved on
+  // (the modal itself takes focus), so without this the link would land wherever a bare
+  // ref.current.focus() happens to park the caret instead of where the user was.
+  const linkInsertRangeRef = useRef<Range | null>(null);
   const [imageLightboxSrc, setImageLightboxSrc] = useState<string | null>(null);
   const [dragImageOrdinal, setDragImageOrdinal] = useState<number | null>(null);
   const [dragOverImageOrdinal, setDragOverImageOrdinal] = useState<number | null>(null);
@@ -1343,7 +1348,8 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
   // Inserted as plain [[Title]] text at the cursor inside the rich text body — the editor has no
   // idea what a wikilink is, it's just text to it, same as it always was inside the old textarea.
   const insertLink = (title: string) => {
-    bodyEditorRef.current?.insertText(`[[${title}]]`);
+    bodyEditorRef.current?.insertText(`[[${title}]]`, linkInsertRangeRef.current);
+    linkInsertRangeRef.current = null;
     setLinkPickerOpen(false);
   };
 
@@ -2246,7 +2252,17 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                 <button type="button" className="icon-btn" onClick={() => patchNote({ pinned: !note.pinned })} title={note.pinned ? 'Unpin' : 'Pin'}>
                   {note.pinned ? <PinOff size={15} /> : <Pin size={15} />}
                 </button>
-                <button type="button" className="icon-btn" onClick={() => setLinkPickerOpen(true)} title="Link to another note">
+                <button
+                  type="button"
+                  className="icon-btn"
+                  onMouseDown={e => e.preventDefault()}
+                  onClick={() => {
+                    const sel = window.getSelection();
+                    linkInsertRangeRef.current = sel && sel.rangeCount > 0 ? sel.getRangeAt(0).cloneRange() : null;
+                    setLinkPickerOpen(true);
+                  }}
+                  title="Link to another note"
+                >
                   <Link2 size={15} />
                 </button>
                 <button type="button" className="icon-btn" onClick={toggleArchive} title={note.archived ? 'Unarchive' : 'Archive'}>
