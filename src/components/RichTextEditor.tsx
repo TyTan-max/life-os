@@ -107,7 +107,23 @@ function plainTextToHtml(text: string): string {
 // inline styles on <span>/<div> (the common case for Docs/Word paste).
 function convertPastedHtml(html: string): string {
   const doc = new DOMParser().parseFromString(html, 'text/html');
-  doc.querySelectorAll('style, script, meta, link, img, table').forEach(n => n.remove());
+  doc.querySelectorAll('style, script, meta, link, img').forEach(n => n.remove());
+
+  // Tables aren't a supported block type here, but silently deleting one (the previous behavior)
+  // took every cell's text down with it — a paste that looked like it did nothing. Each row
+  // becomes its own line instead, cells joined by " | ", so the content survives even though the
+  // grid layout itself doesn't.
+  doc.querySelectorAll('table').forEach(table => {
+    const frag = doc.createDocumentFragment();
+    table.querySelectorAll('tr').forEach(row => {
+      const cells = Array.from(row.querySelectorAll('th, td')).map(cell => (cell.textContent ?? '').trim());
+      if (cells.every(c => !c)) return;
+      const p = doc.createElement('p');
+      p.textContent = cells.join(' | ');
+      frag.appendChild(p);
+    });
+    table.replaceWith(frag);
+  });
 
   const isBold = (el: HTMLElement) => {
     const w = el.style.fontWeight;
