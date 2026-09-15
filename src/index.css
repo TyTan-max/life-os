@@ -3655,12 +3655,17 @@ input, select, textarea { font-family: inherit; }
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 12px 14px;
-  border-bottom: 1px solid var(--border);
+  margin: 10px 14px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
   color: var(--text-faint);
   flex-shrink: 0;
+  transition: border-color 0.12s ease;
 }
-.sb-search input { flex: 1; border: none; background: transparent; color: var(--text); font-size: 13.5px; outline: none; }
+.sb-search:focus-within { border-color: var(--accent); }
+.sb-search input { flex: 1; border: none; background: transparent; color: var(--text); font-size: 13px; outline: none; }
 .sb-tag-row { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 14px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
 .sb-tag-chip {
   border: 1px solid var(--border);
