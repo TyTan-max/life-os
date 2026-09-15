@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, ReactNode } from 'react';
 import {
   Archive, ArchiveRestore, BookMarked, Check, ChevronDown, ChevronLeft, Clock, Code2, Command,
-  Layers, Lightbulb, Link2, ListChecks, Lock, LockOpen, Maximize2, Pencil, Pin, PinOff, Plus, Quote, Search, StickyNote, Trash2, TrendingUp,
+  Layers, Lightbulb, Link2, ListChecks, Lock, LockOpen, Maximize2, Minimize2, Pencil, Pin, PinOff, Plus, Quote, Search, StickyNote, Trash2, TrendingUp,
   Vault as VaultIcon, X
 } from 'lucide-react';
 import { useStore, newRecord } from '../store';
@@ -749,6 +749,7 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
   const [projectDetailTab, setProjectDetailTab] = useState<'Board' | 'Notes'>('Board');
   const [tableSort, setTableSort] = useState<SortState<'pinned' | 'title' | 'type' | 'tags' | 'updated'>>({ key: 'pinned', dir: 'desc' });
   const [linkPickerOpen, setLinkPickerOpen] = useState(false);
+  const [editorExpanded, setEditorExpanded] = useState(false);
   const [projectEditOpen, setProjectEditOpen] = useState(false);
   const [projectEditForm, setProjectEditForm] = useState<Partial<Note>>({});
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -1477,10 +1478,11 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
   };
 
   // A leftover draft from one Project's subtask box shouldn't still be sitting there, half-typed,
-  // once a different note is opened.
-  useEffect(() => { setSubtaskDraft(''); setEditingSubtaskId(null); setConfirmDeleteColumn(null); }, [selectedId]);
+  // once a different note is opened. Expanded reading mode is likewise reset — it's a per-note
+  // reading aid, not something that should carry over onto whatever note opens next.
+  useEffect(() => { setSubtaskDraft(''); setEditingSubtaskId(null); setConfirmDeleteColumn(null); setEditorExpanded(false); }, [selectedId]);
 
-  // Cmd/Ctrl+K → jump-to-note palette, Cmd/Ctrl+N → new note, Esc → deselect note.
+  // Cmd/Ctrl+K → jump-to-note palette, Cmd/Ctrl+N → new note, Esc → collapse expanded editor, else deselect note.
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       const mod = e.ctrlKey || e.metaKey;
@@ -1490,6 +1492,7 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
       );
       if (mod && e.key.toLowerCase() === 'k') { e.preventDefault(); setPaletteOpen(true); return; }
       if (mod && e.key.toLowerCase() === 'n' && !editing) { e.preventDefault(); void createNote(); return; }
+      if (e.key === 'Escape' && editorExpanded) { setEditorExpanded(false); return; }
       if (e.key === 'Escape' && !editing && !paletteOpen && !linkPickerOpen && selectedId) setSelectedId(null);
     };
     window.addEventListener('keydown', handler);
@@ -1523,13 +1526,14 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
   // instant one does) so the browser has a translateX(100%) frame to transition *from* — adding
   // both the fixed positioning and the "slid in" state in the same render would jump instead
   // of sliding, since there's no prior frame to animate against.
-  const editorClass = !isMobile
+  const editorClass = (!isMobile
     ? 'sb-editor'
     : mobileHubActive
       ? 'sb-editor sb-editor-hub'
       : mobileSplitActive
         ? 'sb-editor sb-editor-split'
-        : `sb-editor sb-editor-push${mobileNoteOpen ? ' sb-editor-active' : ''}`;
+        : `sb-editor sb-editor-push${mobileNoteOpen ? ' sb-editor-active' : ''}`)
+    + (editorExpanded ? ' sb-editor-expanded' : '');
 
   return (
     <>
@@ -2254,6 +2258,14 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                 <span className="sb-editor-meta">
                   {note.archived ? `Archived ${formatDate(note.archivedAt)}` : `Updated ${formatDate(note.updatedAt)}`}
                 </span>
+                <button
+                  type="button"
+                  className="icon-btn"
+                  onClick={() => setEditorExpanded(e => !e)}
+                  title={editorExpanded ? 'Shrink (Esc)' : 'Expand for easier reading'}
+                >
+                  {editorExpanded ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
+                </button>
                 {!note.locked && (
                   <button type="button" className="icon-btn danger" onClick={() => deleteNote(note.id)} title="Delete note">
                     <Trash2 size={15} />
