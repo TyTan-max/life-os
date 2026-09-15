@@ -2241,7 +2241,22 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
               </div>
             </>
           ) : !note ? (
-            <div className="sb-editor-empty"><EmptyState>Select a note, or create a new one.</EmptyState></div>
+            // Every other tab's own hub view (Overview, Tasks, Goals, Projects Board, Areas) is
+            // handled by an earlier branch above and never reaches here — this is specifically
+            // the tabs with no dedicated hub of their own (Inbox, Archive, a Resource kind, a
+            // drilled-into Area/Project list left with nothing selected). filteredNotes is
+            // already the exact set the sidebar list to the left is showing, respecting whatever
+            // tab/area/resource scope and search/tag/language filters are active — reusing it
+            // here means this list can never drift out of sync with what the sidebar shows.
+            <div className="sb-editor-empty-list">
+              {filteredNotes.length ? filteredNotes.map(n => (
+                <button type="button" key={n.id} className="sb-overview-row" onClick={() => openNote(n)}>
+                  <span className={`sb-type-pill tone-${noteTypeTone(n)}`}>{noteTypeLabel(n)}</span>
+                  <b>{n.title || 'Untitled'}</b>
+                  <span className="sb-list-item-date">{formatDate(n.updatedAt)}</span>
+                </button>
+              )) : <EmptyState>Nothing here yet — create a note to get started.</EmptyState>}
+            </div>
           ) : (
             <>
               {isMobile && (
