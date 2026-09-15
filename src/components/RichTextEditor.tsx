@@ -299,8 +299,17 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, {
 
   // Wrapping recognized tokens in colored spans restructures the DOM mid-typing, so the caret
   // (tracked by the browser as a node+offset pair) would otherwise land in the wrong place — or a
-  // now-detached node — the instant a keystroke completes a token match. Character-offset
-  // save/restore around the decorate call keeps it exactly where the user left it regardless.
+  // now-detached node — the instant a keystroke completes a token match. decorateBody only ever
+  // touches a text node that actually contains a matched token (everything else, including a
+  // blank line from Enter, is left completely alone) — so the original Range's exact node is
+  // still attached afterward in the overwhelming majority of keystrokes, and re-adding that exact
+  // Range is both simpler and safer than recomputing a plain-text character offset: offsets are
+  // measured via Range.toString(), which contributes zero characters for an empty paragraph/<br>,
+  // so several blank lines in a row are all indistinguishable from "the end of the last real
+  // sentence" in offset space — restoring by offset alone would silently snap the caret back
+  // there instead of leaving it on the blank line the user just typed Enter to create. The offset
+  // fallback below only fires for the narrower case decorate() actually mutated the caret's node
+  // (finishing a [[Wikilink]] or [Photo N] token), where the original node is really gone.
   // Restoring only applies while the editor still has focus: commit() also runs on blur (to
   // sanitize/save whatever was just typed), and re-selecting a Range inside a contenteditable
   // element forces the browser to refocus it — without this guard, clicking anywhere else (e.g. a
@@ -310,9 +319,19 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, {
     if (!ref.current) return;
     if (decorate) {
       const hadFocus = document.activeElement === ref.current;
+      const sel = hadFocus ? window.getSelection() : null;
+      const savedRange = sel && sel.rangeCount > 0 && ref.current.contains(sel.getRangeAt(0).startContainer)
+        ? sel.getRangeAt(0).cloneRange()
+        : null;
       const offsets = hadFocus ? getSelectionOffsets(ref.current) : null;
       decorate(ref.current);
-      if (offsets !== null) setSelectionOffsets(ref.current, offsets.start, offsets.end);
+      if (savedRange && ref.current.contains(savedRange.startContainer) && ref.current.contains(savedRange.endContainer)) {
+        const sel2 = window.getSelection();
+        sel2?.removeAllRanges();
+        sel2?.addRange(savedRange);
+      } else if (offsets !== null) {
+        setSelectionOffsets(ref.current, offsets.start, offsets.end);
+      }
     }
     const html = sanitizeHtml(ref.current.innerHTML);
     onChange(html);
