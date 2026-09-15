@@ -1070,12 +1070,12 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
     return notes.filter(n => n.id !== note.id && extractLinkedTitles(n.body).includes(target));
   }, [notes, note]);
 
-  // Code Vault's body is a plain textarea (no rich-text token rendering), so a [[Title]] typed
-  // in there has no clickable, in-place highlight the way it does in the rich text editor.
-  // Resolving it into an actual list here gives it a click-through path anyway, just below the
-  // code area instead of inline within it.
+  // Every note kind gets this, not just Code Vault: a rich-text note already renders [[Title]] as
+  // a clickable inline token, but that still means hunting through the body to see everything it
+  // points to — this resolves the same set into an actual list, same as "Linked mentions" does
+  // for the reverse direction.
   const outgoingLinks = useMemo(() => {
-    if (!note || note.resourceKind !== 'Repo') return [];
+    if (!note) return [];
     const titles = new Set(extractLinkedTitles(note.body));
     if (!titles.size) return [];
     return notes.filter(n => n.id !== note.id && titles.has(n.title.trim().toLowerCase()));
@@ -2390,20 +2390,6 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                     value={note.body}
                     onChange={e => patchNote({ body: e.target.value })}
                   />
-                  {outgoingLinks.length > 0 && (
-                    <div className="sb-backlinks">
-                      <button type="button" className="sb-backlinks-head" onClick={() => setLinksToOpen(o => !o)}>
-                        <h3>Links to ({outgoingLinks.length})</h3>
-                        <ChevronDown size={14} className={`sb-backlinks-chevron ${linksToOpen ? 'open' : ''}`} />
-                      </button>
-                      {linksToOpen && outgoingLinks.map(n => (
-                        <button type="button" key={n.id} className="sb-backlink-row" onClick={() => openNote(n)}>
-                          <b>{n.title || 'Untitled'}</b>
-                          <small>{snippet(n.body, 70)}</small>
-                        </button>
-                      ))}
-                    </div>
-                  )}
                 </>
               ) : note.resourceKind === 'Book Note' ? (
                 <div className="sb-book-sections">
@@ -2506,6 +2492,20 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                         aria-label="Name this photo"
                       />
                     </div>
+                  ))}
+                </div>
+              )}
+              {outgoingLinks.length > 0 && (
+                <div className="sb-backlinks">
+                  <button type="button" className="sb-backlinks-head" onClick={() => setLinksToOpen(o => !o)}>
+                    <h3>Links to ({outgoingLinks.length})</h3>
+                    <ChevronDown size={14} className={`sb-backlinks-chevron ${linksToOpen ? 'open' : ''}`} />
+                  </button>
+                  {linksToOpen && outgoingLinks.map(n => (
+                    <button type="button" key={n.id} className="sb-backlink-row" onClick={() => openNote(n)}>
+                      <b>{n.title || 'Untitled'}</b>
+                      <small>{snippet(n.body, 70)}</small>
+                    </button>
                   ))}
                 </div>
               )}
