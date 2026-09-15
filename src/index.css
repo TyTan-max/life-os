@@ -3692,7 +3692,7 @@ input, select, textarea { font-family: inherit; }
    would leave an unpainted gap at the row's bottom edge — exposing the trailing delete action's
    red background through it even at rest. A margin on the wrap, outside the swipe row entirely,
    can't do that. */
-.sb-list-item-wrap { position: relative; margin-bottom: 2px; }
+.sb-list-item-wrap { position: relative; margin-bottom: 8px; }
 .sb-list-item-delete {
   position: absolute;
   top: 8px;
@@ -3707,16 +3707,15 @@ input, select, textarea { font-family: inherit; }
   display: block;
   width: 100%;
   text-align: left;
-  border: none;
-  border-left: 2px solid transparent;
-  background: transparent;
-  border-radius: 8px;
-  padding: 10px 10px 10px 8px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  border-radius: 10px;
+  padding: 10px 10px;
   cursor: pointer;
   transition: background 0.12s ease, border-color 0.12s ease;
 }
-.sb-list-item:hover { background: var(--surface); }
-.sb-list-item.active { background: var(--accent-soft); border-left-color: var(--accent); }
+.sb-list-item:hover { border-color: var(--accent); }
+.sb-list-item.active { background: var(--accent-soft); border-color: var(--accent); }
 .sb-list-item-row { display: flex; gap: 8px; align-items: flex-start; }
 .sb-list-item-body { flex: 1; min-width: 0; }
 .sb-list-item-cover {
