@@ -3,7 +3,10 @@ import type { KeyboardEvent, MouseEvent as ReactMouseEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { Bold, Eraser, Heading2, Image as ImageIcon, Italic, Link2, List, ListOrdered, Quote, Strikethrough, Underline } from 'lucide-react';
 
-const ALLOWED_TAGS = new Set(['B', 'STRONG', 'I', 'EM', 'U', 'S', 'STRIKE', 'UL', 'OL', 'LI', 'BLOCKQUOTE', 'A', 'BR', 'P', 'DIV', 'H2', 'IMG', 'SPAN']);
+const ALLOWED_TAGS = new Set([
+  'B', 'STRONG', 'I', 'EM', 'U', 'S', 'STRIKE', 'UL', 'OL', 'LI', 'BLOCKQUOTE', 'A', 'BR', 'P', 'DIV', 'H2', 'IMG', 'SPAN',
+  'TABLE', 'THEAD', 'TBODY', 'TR', 'TH', 'TD'
+]);
 // The only classes a <span> is ever allowed to carry through — a caller's `decorate` callback
 // (see the prop below) is the one place that creates these, wrapping a token like a [[Wikilink]]
 // for a color. A span whose class isn't in here (a foreign one from pasted HTML, say) keeps
@@ -102,28 +105,14 @@ function plainTextToHtml(text: string): string {
 }
 
 // Rewrites pasted HTML (from Google Docs, Word, browsers, etc.) down to our allowed tag set
-// while preserving structure — paragraphs, nested bullet/numbered lists (indentation), and
-// bold/italic/underline/strikethrough, whether they arrive as semantic tags (<b>, <em>) or as
-// inline styles on <span>/<div> (the common case for Docs/Word paste).
+// while preserving structure — paragraphs, nested bullet/numbered lists (indentation), tables,
+// and bold/italic/underline/strikethrough, whether they arrive as semantic tags (<b>, <em>) or
+// as inline styles on <span>/<div> (the common case for Docs/Word paste). A pasted table keeps
+// its rows/cells (TABLE/THEAD/TBODY/TR/TH/TD are all in ALLOWED_TAGS) but not colspan/rowspan or
+// any styling — every other allowed tag already loses its attributes the same way on the way in.
 function convertPastedHtml(html: string): string {
   const doc = new DOMParser().parseFromString(html, 'text/html');
-  doc.querySelectorAll('style, script, meta, link, img').forEach(n => n.remove());
-
-  // Tables aren't a supported block type here, but silently deleting one (the previous behavior)
-  // took every cell's text down with it — a paste that looked like it did nothing. Each row
-  // becomes its own line instead, cells joined by " | ", so the content survives even though the
-  // grid layout itself doesn't.
-  doc.querySelectorAll('table').forEach(table => {
-    const frag = doc.createDocumentFragment();
-    table.querySelectorAll('tr').forEach(row => {
-      const cells = Array.from(row.querySelectorAll('th, td')).map(cell => (cell.textContent ?? '').trim());
-      if (cells.every(c => !c)) return;
-      const p = doc.createElement('p');
-      p.textContent = cells.join(' | ');
-      frag.appendChild(p);
-    });
-    table.replaceWith(frag);
-  });
+  doc.querySelectorAll('style, script, meta, link, img, colgroup, col').forEach(n => n.remove());
 
   const isBold = (el: HTMLElement) => {
     const w = el.style.fontWeight;
@@ -143,7 +132,7 @@ function convertPastedHtml(html: string): string {
       let el = child as HTMLElement;
       walk(el);
 
-      const tag = HEADING_TAGS.has(el.tagName) ? 'H2' : el.tagName === 'TR' ? 'DIV' : el.tagName;
+      const tag = HEADING_TAGS.has(el.tagName) ? 'H2' : el.tagName;
 
       if (ALLOWED_TAGS.has(tag) && tag !== 'DIV' && tag !== 'SPAN') {
         if (el.tagName !== tag) {

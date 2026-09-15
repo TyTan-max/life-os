@@ -1383,6 +1383,9 @@ input, select, textarea { font-family: inherit; }
   color: var(--text-muted);
 }
 .rte-body a { color: var(--blue); }
+.rte-body table { border-collapse: collapse; width: 100%; margin: 0 0 8px; font-size: 13px; }
+.rte-body th, .rte-body td { border: 1px solid var(--border); padding: 5px 8px; text-align: left; vertical-align: top; }
+.rte-body th { background: var(--surface-hover); font-weight: 650; }
 .sb-tok-wikilink { color: var(--amber); cursor: pointer; }
 .sb-tok-photo { color: var(--green); cursor: pointer; }
 .rte-placeholder {
