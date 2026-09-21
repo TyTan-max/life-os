@@ -64,7 +64,7 @@ const PARA_TEMPLATES: Partial<Record<ParaType, string>> = {
 // the Overview branch below), since Projects/Areas/Resources/Inbox all having both a dedicated
 // tab AND a jump-in card was redundant navigation to the same place.
 export type ParaTab = 'Overview' | 'All' | 'Tasks' | 'Inbox' | 'Goals' | 'Projects' | 'Areas' | 'Flashcards' | 'Archive' | 'Books';
-const PARA_TABS: ParaTab[] = ['Books', 'Overview', 'All', 'Inbox', 'Tasks', 'Goals', 'Projects', 'Areas', 'Flashcards', 'Archive'];
+const PARA_TABS: ParaTab[] = ['Books', 'Overview', 'All', 'Inbox', 'Tasks', 'Goals', 'Projects', 'Areas', 'Archive', 'Flashcards'];
 // A tab's implied paraType, for defaulting new notes created while it's active.
 const TAB_PARA_TYPE: Partial<Record<ParaTab, ParaType>> = { Projects: 'Project', Areas: 'Area' };
 
