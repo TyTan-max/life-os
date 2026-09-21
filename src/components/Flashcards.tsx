@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, ChevronLeft, ChevronRight, Layers, Plus, RotateCcw, Shuffle, Trash2, Upload, X } from 'lucide-react';
 import { newRecord, useStore } from '../store';
 import type { Flashcard, FlashcardDeck } from '../types';
@@ -6,6 +6,27 @@ import { generateId } from '../utils/id';
 import { EmptyState, Modal } from './UI';
 
 const blankCard = (): Flashcard => ({ id: generateId(), term: '', definition: '' });
+
+// A textarea that grows to fit its text instead of scrolling. Height is reset to auto first so it
+// can also shrink back when text is deleted, and re-measured on window resize because a narrower
+// column wraps the same text onto more lines.
+function AutoTextarea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
+  const ref = useRef<HTMLTextAreaElement>(null);
+  const fit = () => {
+    const el = ref.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    // scrollHeight excludes the border, but the box is border-box — add it back or the last
+    // line ends up clipped by a couple of pixels.
+    el.style.height = `${el.scrollHeight + (el.offsetHeight - el.clientHeight)}px`;
+  };
+  useLayoutEffect(fit, [props.value]);
+  useEffect(() => {
+    window.addEventListener('resize', fit);
+    return () => window.removeEventListener('resize', fit);
+  }, []);
+  return <textarea {...props} ref={ref} rows={1} />;
+}
 
 // Bulk import: one card per line. Picks whichever separator actually appears in the pasted text
 // (tab first — what copying two spreadsheet/Quizlet columns produces — then " - ", then a comma)
@@ -162,14 +183,12 @@ function DeckEditor({ deck, onBack, onStudy, onDelete }: {
         {deck.cards.map((card, index) => (
           <div className="fc-row" key={card.id}>
             <span className="fc-row-num">{index + 1}</span>
-            <textarea
-              rows={1}
+            <AutoTextarea
               value={card.term}
               placeholder="Term"
               onChange={e => setCard(card.id, { term: e.target.value })}
             />
-            <textarea
-              rows={1}
+            <AutoTextarea
               value={card.definition}
               placeholder="Definition"
               onChange={e => setCard(card.id, { definition: e.target.value })}

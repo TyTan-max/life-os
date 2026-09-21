@@ -5193,7 +5193,7 @@ input, select, textarea { font-family: inherit; }
 .fc-row { border: 1px solid var(--border); background: var(--surface); border-radius: 10px; padding: 10px; }
 .fc-row-num { font-size: 12px; color: var(--text-faint); padding-top: 8px; text-align: center; }
 .fc-row textarea {
-  resize: vertical; min-height: 34px; border: none; border-bottom: 2px solid var(--border); background: transparent;
+  resize: none; overflow: hidden; min-height: 34px; border: none; border-bottom: 2px solid var(--border); background: transparent;
   color: var(--text); font: inherit; font-size: 13.5px; padding: 6px 2px; outline: none; border-radius: 0;
 }
 .fc-add-card { align-self: flex-start; }
