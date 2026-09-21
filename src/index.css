@@ -4909,6 +4909,12 @@ input, select, textarea { font-family: inherit; }
    A landscape phone (e.g. 812x375) now correctly matches via max-height, instead of falling
    through to the desktop/tablet tiers above just because its width happens to clear 640px. */
 @media (max-width: 500px), (max-height: 500px) {
+  /* A note with a lot of photos used to wrap its gallery into as many rows as it needed — 21
+     photos measured 538px tall on a 780px screen and squeezed the text box down to 20px. One
+     horizontally-scrolling row keeps the gallery a fixed, small height however many photos there
+     are, and the text box gets a floor so it can't be squeezed out of view regardless. */
+  .sb-note-photos { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 6px; -webkit-overflow-scrolling: touch; }
+  .sb-body-rte .rte-body { min-height: 180px; }
   /* The bottom tab bar owns the bottom edge in the mobile tier, so the top nav strip and the
      floating history cluster both retire — Save/Undo/Redo live in the More sheet instead. */
   .sidebar { display: none; }
