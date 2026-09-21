@@ -98,7 +98,7 @@ function addFrequency(dateString: string, frequency?: Task['frequency']): string
 export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [data, setData] = useState<AppData>(() => ({
     tasks:[], habits:[], habitRoutines:[], routineAssignments:[], goals:[], events:[], budgets:[], transactions:[], bills:[],
-    movies:[], videogames:[], books:[], financeAccounts:[], financeCategories:[], financeGoals:[], notes:[], bucketList:[],
+    movies:[], videogames:[], books:[], financeAccounts:[], financeCategories:[], financeGoals:[], notes:[], secondBrainWorkspaces:[], bucketList:[],
     workouts:[], weightEntries:[], sleepEntries:[], medications:[], meals:[], glucoseEntries:[], workoutRoutines:[],
     contacts:[], contactInteractions:[], dailyLogs:[],
     settings:{ userName:'Khuong', theme:'light', notificationsEnabled:false, launchAtLogin:false, dailyBriefTime:'08:00', currency:'USD', weightUnit:'lb', sleepTargetHours:8, dailyCalorieTarget:2200, proteinTargetG:150, glucoseUnit:'mg/dL', glucoseTrackingEnabled:false }

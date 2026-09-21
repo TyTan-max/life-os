@@ -2,7 +2,7 @@ import { openDB, type IDBPDatabase } from 'idb';
 import type {
   AppData, BaseRecord, Bill, Budget, BucketListItem, CalendarEvent, CollectionName, CollectionRecord,
   Book, DailyLog, ExerciseSetLog, FinanceAccount, FinanceCategory, GlucoseEntry, Goal, Habit, MealEntry, Medication, Movie,
-  Note, RoutineDay, Settings, SleepEntry, Task, Transaction, Videogame, WeightEntry, WorkoutEntry, WorkoutRoutine
+  Note, RoutineDay, SecondBrainWorkspace, Settings, SleepEntry, Task, Transaction, Videogame, WeightEntry, WorkoutEntry, WorkoutRoutine
 } from './types';
 import { COLLECTION_NAMES } from './types';
 import { generateId } from './utils/id';
@@ -10,11 +10,11 @@ import { buildStarterRoutine, ROUTINE_EPOCH } from './lib/starterRoutine';
 import type { SyncSnapshot, Tombstone } from './lib/syncMerge';
 
 const DB_NAME = 'life-os';
-// Bumped for the new `dailyLogs` store — IndexedDB only runs the `upgrade` callback (which is
-// what actually creates a missing object store) on a version increase, not just because
+// Bumped for the new `secondBrainWorkspaces` store — IndexedDB only runs the `upgrade` callback
+// (which is what actually creates a missing object store) on a version increase, not just because
 // COLLECTION_NAMES grew. Existing installs stay on the old version, and the new store, forever
 // if this number doesn't move.
-const DB_VERSION = 21;
+const DB_VERSION = 22;
 const META_STORE = 'meta';
 const TOMBSTONES_KEY = 'tombstones';
 const SETTINGS_UPDATED_AT_KEY = 'settingsUpdatedAt';
@@ -287,6 +287,40 @@ async function backfillCategoryBudgetGroups(db: IDBPDatabase): Promise<void> {
     ...toUpdate.map(c => tx.objectStore('financeCategories').put(c)),
     tx.objectStore(META_STORE).put(true, 'categoryBudgetGroupBackfilledV1')
   ]);
+  await tx.done;
+}
+
+// Every Second Brain note/task/goal used to live in one shared pool — multiple workspaces let a
+// user split e.g. "General" from "Plumbing" into genuinely separate, non-interfering spaces. A
+// stable (not random) id for the auto-created default workspace means this migration is safe to
+// re-derive from and matches across devices instead of minting a new "General" everywhere.
+export const DEFAULT_WORKSPACE_ID = 'default-workspace';
+
+async function migrateSecondBrainWorkspacesV1(db: IDBPDatabase): Promise<void> {
+  const done = await db.get(META_STORE, 'secondBrainWorkspacesMigratedV1');
+  if (done) return;
+
+  const existingWorkspaces = await db.getAll('secondBrainWorkspaces') as SecondBrainWorkspace[];
+  const notes = await db.getAll('notes') as Note[];
+  const tasks = await db.getAll('tasks') as Task[];
+  const goals = await db.getAll('goals') as Goal[];
+
+  const tx = db.transaction(['notes', 'tasks', 'goals', 'secondBrainWorkspaces', META_STORE], 'readwrite');
+  const writes: Promise<unknown>[] = [];
+
+  if (existingWorkspaces.length === 0) {
+    const now = new Date().toISOString();
+    writes.push(tx.objectStore('secondBrainWorkspaces').put(
+      { id: DEFAULT_WORKSPACE_ID, name: 'General', order: 0, createdAt: now, updatedAt: now } as SecondBrainWorkspace
+    ));
+  }
+
+  writes.push(...notes.filter(n => !n.workspaceId).map(n => tx.objectStore('notes').put({ ...n, workspaceId: DEFAULT_WORKSPACE_ID })));
+  writes.push(...tasks.filter(t => !t.workspaceId).map(t => tx.objectStore('tasks').put({ ...t, workspaceId: DEFAULT_WORKSPACE_ID })));
+  writes.push(...goals.filter(g => !g.workspaceId).map(g => tx.objectStore('goals').put({ ...g, workspaceId: DEFAULT_WORKSPACE_ID })));
+  writes.push(tx.objectStore(META_STORE).put(true, 'secondBrainWorkspacesMigratedV1'));
+
+  await Promise.all(writes);
   await tx.done;
 }
 
@@ -651,6 +685,7 @@ async function loadAllInternal(): Promise<AppData> {
     await db.put(META_STORE, true, 'sleepQualityScaleMigratedV1');
     await db.put(META_STORE, true, 'movieEpisodeProgressMigratedV2');
     await db.put(META_STORE, true, 'tradingJournalMigratedV1');
+    await db.put(META_STORE, true, 'secondBrainWorkspacesMigratedV1');
     // A brand-new install seeds directly from the now-deterministic-id buildSeedData() — there's
     // nothing to have duplicated yet, so there's nothing for either cleanup pass to do.
     await db.put(META_STORE, true, 'seedDuplicatesDedupedV1');
@@ -666,6 +701,7 @@ async function loadAllInternal(): Promise<AppData> {
   await migrateSleepQualityScaleV1(db);
   await migrateMovieEpisodeProgressV2(db);
   await migrateTradingJournalV1(db);
+  await migrateSecondBrainWorkspacesV1(db);
   await dedupeLegacySeedDuplicatesV1(db);
   await dedupeLegacySeedDuplicatesV2(db);
   return readAllCollections(db);
@@ -795,13 +831,14 @@ function buildSeedData(): AppData {
   seedIdCounter = 0;
   const data = emptyData();
   data.settings = { ...DEFAULT_SETTINGS, userName: 'Khuong' };
+  data.secondBrainWorkspaces = [seed<SecondBrainWorkspace>({ id: DEFAULT_WORKSPACE_ID, name: 'General', order: 0 })];
 
   data.tasks = [
     seed<Task>({ title: 'Review weekly budget', status: 'Not Started', priority: 'High', dueDate: iso(-1), category: 'Finance' }),
     seed<Task>({ title: 'Plan trip itinerary', status: 'Not Started', priority: 'Medium', dueDate: iso(0), category: 'Personal' }),
     seed<Task>({ title: 'Ship Life OS v1', status: 'In Progress', priority: 'Urgent', dueDate: iso(2), project: 'Life OS' }),
     seed<Task>({ title: 'Call the dentist', status: 'Not Started', priority: 'Low', dueDate: iso(5), category: 'Health' })
-  ];
+  ].map(t => ({ ...t, workspaceId: DEFAULT_WORKSPACE_ID }));
 
   data.habits = [
     seed<Habit>({ name: 'Wake Up', description: 'One focused action can change the direction of your whole day.', frequency: 'Daily', checkins: ['2026-08-04', '2026-08-05'], active: true, reminderAt: '06:00', order: 0, targetPerWeek: 7 }),
@@ -827,7 +864,8 @@ function buildSeedData(): AppData {
   const monthlyCareer = seed<Goal>({ title: 'Finish project scoping', horizon: 'Monthly', category: 'Career', progress: 25, status: 'In Progress', targetDate: '2026-07-31', parentId: quarterlyCareer.id });
   const weeklyHealth = seed<Goal>({ title: 'Hit the gym Mon / Wed / Fri this week', horizon: 'Weekly', category: 'Health', progress: 60, status: 'In Progress', targetDate: '2026-07-26', parentId: monthlyHealth.id });
   const weeklyCareer = seed<Goal>({ title: 'Draft the project brief', horizon: 'Weekly', category: 'Career', progress: 25, status: 'In Progress', targetDate: '2026-07-26', parentId: monthlyCareer.id });
-  data.goals = [weeklyHealth, weeklyCareer, monthlyHealth, monthlyCareer, quarterlyHealth, quarterlyCareer, annualHealth, annualCareer];
+  data.goals = [weeklyHealth, weeklyCareer, monthlyHealth, monthlyCareer, quarterlyHealth, quarterlyCareer, annualHealth, annualCareer]
+    .map(g => ({ ...g, workspaceId: DEFAULT_WORKSPACE_ID }));
 
   data.events = [
     seed<CalendarEvent>({ title: 'Team sync', date: iso(0), startTime: '10:00', endTime: '10:30' }),
@@ -900,7 +938,7 @@ function buildSeedData(): AppData {
       '- Graph view of note links',
     tags: ['life-os', 'ideas']
   });
-  data.notes = [welcomeNote, ideasNote];
+  data.notes = [welcomeNote, ideasNote].map(n => ({ ...n, workspaceId: DEFAULT_WORKSPACE_ID }));
 
   data.bucketList = [
     seed<BucketListItem>({

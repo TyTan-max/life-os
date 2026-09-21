@@ -20,6 +20,10 @@ export interface Task extends BaseRecord {
   recurring?: boolean;
   frequency?: Frequency;
   completedAt?: string;
+  // Which Second Brain workspace this was created from — only used to filter Second Brain's own
+  // Tasks tab/Overview widgets by the active workspace. Dashboard and Calendar deliberately never
+  // filter by this; they keep showing every task from every workspace, unchanged.
+  workspaceId?: string;
 }
 
 export type HabitFrequency = 'Daily' | 'Weekdays' | 'Weekly' | 'Custom';
@@ -76,6 +80,9 @@ export interface Goal extends BaseRecord {
   rangeTarget?: number;
   rangeValue?: number;
   rangeUnit?: string;
+  // Same convention as Task.workspaceId — filters Second Brain's own Goals tab/Overview widgets
+  // by the active workspace; Dashboard and Calendar ignore it and keep showing every goal.
+  workspaceId?: string;
 }
 
 export interface CalendarEvent extends BaseRecord {
@@ -285,6 +292,10 @@ export interface Note extends BaseRecord {
   body: string;
   tags?: string[];
   pinned?: boolean;
+  // Which Second Brain workspace this note belongs to — every note is scoped to exactly one
+  // workspace, and Second Brain only ever shows/searches/links within the active one. See
+  // SecondBrainWorkspace below.
+  workspaceId?: string;
   // Manual drag-reorder in the sidebar list — undefined until the user drags a note for the
   // first time, at which point the whole currently-visible list gets renumbered from its current
   // order. Missing values sink to the bottom (see filteredNotes' sort), same convention already
@@ -631,6 +642,9 @@ export interface Settings {
   glucoseTrackingEnabled?: boolean;
   medicationListHidden?: boolean;
   activeWorkoutRoutineId?: string;
+  // Which Second Brain workspace is currently selected — persists across reloads, same pattern
+  // as activeWorkoutRoutineId.
+  activeSecondBrainWorkspaceId?: string;
   // Undefined means "use the WORKOUT_TYPES default list" — only set once the user actually
   // customizes it (add/rename/delete), same lazy pattern as customDebtTypes.
   workoutTypes?: string[];
@@ -748,6 +762,11 @@ export interface ContactInteraction extends BaseRecord {
   giftDirection?: 'Given' | 'Received';
 }
 
+export interface SecondBrainWorkspace extends BaseRecord {
+  name: string;
+  order?: number;
+}
+
 export interface AppData {
   tasks: Task[];
   habits: Habit[];
@@ -765,6 +784,7 @@ export interface AppData {
   financeCategories: FinanceCategory[];
   financeGoals: FinanceGoal[];
   notes: Note[];
+  secondBrainWorkspaces: SecondBrainWorkspace[];
   bucketList: BucketListItem[];
   workouts: WorkoutEntry[];
   weightEntries: WeightEntry[];
@@ -783,13 +803,13 @@ export type CollectionName = Exclude<keyof AppData, 'settings'>;
 
 export type CollectionRecord =
   | Task | Habit | HabitRoutine | RoutineDateAssignment | Goal | CalendarEvent | Budget | Transaction | Bill
-  | Movie | Videogame | Book | FinanceAccount | FinanceCategory | FinanceGoal | Note | BucketListItem
+  | Movie | Videogame | Book | FinanceAccount | FinanceCategory | FinanceGoal | Note | SecondBrainWorkspace | BucketListItem
   | WorkoutEntry | WeightEntry | SleepEntry | Medication | MealEntry | GlucoseEntry | WorkoutRoutine
   | Contact | ContactInteraction | DailyLog;
 
 export const COLLECTION_NAMES: CollectionName[] = [
   'tasks', 'habits', 'habitRoutines', 'routineAssignments', 'goals', 'events', 'budgets', 'transactions',
-  'bills', 'movies', 'videogames', 'books', 'notes', 'bucketList', 'contacts', 'contactInteractions',
+  'bills', 'movies', 'videogames', 'books', 'notes', 'secondBrainWorkspaces', 'bucketList', 'contacts', 'contactInteractions',
   'financeAccounts', 'financeCategories', 'financeGoals',
   'workouts', 'weightEntries', 'sleepEntries', 'medications', 'meals', 'glucoseEntries', 'workoutRoutines',
   'dailyLogs'

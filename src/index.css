@@ -3896,6 +3896,7 @@ input, select, textarea { font-family: inherit; }
 .sb-link-picker-row small { color: var(--text-faint); font-size: 11.5px; }
 
 /* Second Brain — PARA */
+.sb-workspace-row { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
 .sb-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
 .sb-para-tabs { display: flex; flex-wrap: wrap; gap: 6px; }
 .sb-header-actions { display: flex; align-items: center; gap: 8px; }

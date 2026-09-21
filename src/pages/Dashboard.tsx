@@ -6,6 +6,7 @@ import {
 import type { ReactNode } from 'react';
 import { useStore, newRecord } from '../store';
 import type { Habit, Note } from '../types';
+import { DEFAULT_WORKSPACE_ID } from '../storage';
 import { isLiabilityAccount } from './FinanceAccounts';
 import { actualSpendByCategory } from '../lib/budgetMath';
 import { computeDailyBrief } from '../lib/dailyBrief';
@@ -172,7 +173,7 @@ export function Dashboard({navigate}:{navigate:(page:string, tab?: string)=>void
   const capture=async()=>{
     const text=captureText.trim();
     if(!text) return;
-    const record=newRecord<Note>({title:'',body:text,tags:[],pinned:false});
+    const record=newRecord<Note>({title:'',body:text,tags:[],pinned:false,workspaceId:data.settings.activeSecondBrainWorkspaceId??DEFAULT_WORKSPACE_ID});
     await upsert('notes',record);
     setCaptureText('');
   };

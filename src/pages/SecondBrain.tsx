@@ -6,11 +6,13 @@ import {
   Vault as VaultIcon, X
 } from 'lucide-react';
 import { useStore, newRecord } from '../store';
-import type { BookActionItem, BookNoteRow, BookNoteStatus, BookQuoteRow, Frequency, Goal, GoalHorizon, GoalProgressMode, GoalStatus, Note, NoteImage, ParaProjectStatus, ParaType, Priority, ProjectBoardColumn, ProjectSubtask, ResourceKind, ReviewCadence, Task, TaskStatus } from '../types';
+import type { BookActionItem, BookNoteRow, BookNoteStatus, BookQuoteRow, Frequency, Goal, GoalHorizon, GoalProgressMode, GoalStatus, Note, NoteImage, ParaProjectStatus, ParaType, Priority, ProjectBoardColumn, ProjectSubtask, ResourceKind, ReviewCadence, SecondBrainWorkspace, Task, TaskStatus } from '../types';
+import { DEFAULT_WORKSPACE_ID } from '../storage';
 import { generateId } from '../utils/id';
 import { Badge, Card, EmptyState, Kpi, Modal, PageHeader, formatDate } from '../components/UI';
 import { SortableTh, toggleSort } from '../components/SortableTh';
 import type { SortState } from '../components/SortableTh';
+import { ListManagerModal } from '../components/ListManagerModal';
 import { DatePicker } from '../components/DatePicker';
 import { RichTextEditor } from '../components/RichTextEditor';
 import type { RichTextEditorHandle } from '../components/RichTextEditor';
@@ -733,10 +735,20 @@ function CommandPalette({
 }
 
 export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
-  const { data, upsert, remove, toggleTask } = useStore();
+  const { data, upsert, remove, toggleTask, updateSettings } = useStore();
   const isMobile = useIsMobile();
   const isLandscapePhone = useIsMobileLandscape();
-  const notes = data.notes;
+  // Every note lives in exactly one workspace (see SecondBrainWorkspace in types.ts) — `notes`
+  // below is the single alias almost everything else in this file reads through, so filtering it
+  // to the active workspace here is what makes switching workspaces make the whole page (sidebar,
+  // every tab, every hub, backlinks/wikilinks, search) show a genuinely separate, blank-feeling
+  // space without needing to touch each of those computations individually.
+  const workspaces = useMemo(
+    () => (data.secondBrainWorkspaces ?? []).slice().sort((a, b) => (a.order ?? 9999) - (b.order ?? 9999)),
+    [data.secondBrainWorkspaces]
+  );
+  const activeWorkspaceId = data.settings.activeSecondBrainWorkspaceId ?? workspaces[0]?.id ?? DEFAULT_WORKSPACE_ID;
+  const notes = useMemo(() => data.notes.filter(n => n.workspaceId === activeWorkspaceId), [data.notes, activeWorkspaceId]);
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [query, setQuery] = useState('');
@@ -751,6 +763,7 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
   const [linkPickerOpen, setLinkPickerOpen] = useState(false);
   const [editorExpanded, setEditorExpanded] = useState(false);
   const [projectEditOpen, setProjectEditOpen] = useState(false);
+  const [manageWorkspacesOpen, setManageWorkspacesOpen] = useState(false);
   const [projectEditForm, setProjectEditForm] = useState<Partial<Note>>({});
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [taskFilter, setTaskFilter] = useState<TaskFilter>('Open');
@@ -806,7 +819,7 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
   const quickCapture = async () => {
     const text = captureText.trim();
     if (!text) return;
-    const record = newRecord<Note>({ title: '', body: text, tags: [], pinned: false });
+    const record = newRecord<Note>({ title: '', body: text, tags: [], pinned: false, workspaceId: activeWorkspaceId });
     await upsert('notes', record);
     setCaptureText('');
   };
@@ -820,6 +833,58 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
     setSelectedId(null);
   };
 
+  // Switching workspaces resets exactly the same scope state changeTab does — an areaScopeId or
+  // an open note left over from the workspace just departed would otherwise keep pointing at a
+  // note that no longer exists in the new (now-filtered) `notes` list.
+  const switchWorkspace = (id: string) => {
+    void updateSettings({ activeSecondBrainWorkspaceId: id });
+    setParaTab('Overview');
+    setAreaScopeId(null);
+    setResourceScope(null);
+    setLanguageFilter(null);
+    setTagFilter(null);
+    setSelectedId(null);
+  };
+
+  const addWorkspace = (name: string) => {
+    void upsert('secondBrainWorkspaces', newRecord<SecondBrainWorkspace>({ name, order: workspaces.length }));
+  };
+
+  const renameWorkspace = (id: string, name: string) => {
+    const w = workspaces.find(x => x.id === id);
+    if (w) void upsert('secondBrainWorkspaces', { ...w, name });
+  };
+
+  const reorderWorkspaces = (orderedIds: string[]) => {
+    orderedIds.forEach((id, index) => {
+      const w = workspaces.find(x => x.id === id);
+      if (w && w.order !== index) void upsert('secondBrainWorkspaces', { ...w, order: index });
+    });
+  };
+
+  // Blocked (not cascade-deleted) whenever the workspace still holds anything — forces moving or
+  // deleting its contents first rather than silently destroying a workspace's notes/tasks/goals
+  // in one click. Also refuses to delete the very last remaining workspace; there must always be
+  // at least one to land on.
+  const deleteWorkspace = (id: string) => {
+    if (workspaces.length <= 1) {
+      window.alert("You can't delete your only remaining workspace.");
+      return;
+    }
+    const hasContent = data.notes.some(n => n.workspaceId === id)
+      || data.tasks.some(t => t.workspaceId === id)
+      || data.goals.some(g => g.workspaceId === id);
+    if (hasContent) {
+      window.alert('This workspace still has notes, tasks, or goals in it — move or delete them first.');
+      return;
+    }
+    void remove('secondBrainWorkspaces', id);
+    if (id === activeWorkspaceId) {
+      const fallback = workspaces.find(w => w.id !== id);
+      if (fallback) switchWorkspace(fallback.id);
+    }
+  };
+
   // Opening a note always lands on its Board tab when it's a Project — that's where the actual
   // work happens — and has no effect on any other note type. Accepts either a note (when the
   // caller already has it in hand) or a bare id (backlinks, the command palette).
@@ -829,12 +894,16 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
     setProjectDetailTab('Board');
   };
 
+  // Tasks/Goals stay one shared collection (Dashboard and Calendar keep showing every one of
+  // them, unfiltered) — only Second Brain's own views narrow down to the active workspace, via
+  // workspaceId rather than being split into per-workspace collections.
   const visibleTasks = useMemo(
     () => data.tasks
+      .filter(t => t.workspaceId === activeWorkspaceId)
       .filter(t => taskFilter === 'All' ? true : taskFilter === 'Open' ? t.status !== 'Completed' : t.status === 'Completed')
       .slice()
       .sort((a, b) => a.dueDate.localeCompare(b.dueDate)),
-    [data.tasks, taskFilter]
+    [data.tasks, taskFilter, activeWorkspaceId]
   );
 
   const startAddTask = () => { setTaskForm(blankTask()); setEditingTaskId(null); setShowTaskForm(true); };
@@ -847,7 +916,7 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
       if (!base) return cancelTaskForm();
       await upsert('tasks', { ...base, ...taskForm } as Task);
     } else {
-      await upsert('tasks', newRecord<Task>(taskForm));
+      await upsert('tasks', newRecord<Task>({ ...taskForm, workspaceId: activeWorkspaceId }));
     }
     cancelTaskForm();
   };
@@ -855,8 +924,8 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
   const setTaskField = <K extends keyof Task>(key: K, value: Task[K]) => setTaskForm(prev => ({ ...prev, [key]: value }));
 
   const visibleGoals = useMemo(
-    () => data.goals.slice().sort((a, b) => GOAL_HORIZON_ORDER[a.horizon] - GOAL_HORIZON_ORDER[b.horizon]),
-    [data.goals]
+    () => data.goals.filter(g => g.workspaceId === activeWorkspaceId).slice().sort((a, b) => GOAL_HORIZON_ORDER[a.horizon] - GOAL_HORIZON_ORDER[b.horizon]),
+    [data.goals, activeWorkspaceId]
   );
 
   const startAddGoal = () => { setGoalForm(blankGoal()); setEditingGoalId(null); setShowGoalForm(true); };
@@ -881,7 +950,7 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
       if (!base) return cancelGoalForm();
       await upsert('goals', { ...base, ...payload } as Goal);
     } else {
-      await upsert('goals', newRecord<Goal>(payload));
+      await upsert('goals', newRecord<Goal>({ ...payload, workspaceId: activeWorkspaceId }));
     }
     cancelGoalForm();
   };
@@ -1031,7 +1100,7 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
     type Upcoming = { id: string; kind: 'Task' | 'Project'; title: string; dueDate: string; overdue: boolean };
     const items: Upcoming[] = [];
     for (const t of data.tasks) {
-      if (t.status === 'Completed' || !t.dueDate || t.dueDate > cutoff) continue;
+      if (t.workspaceId !== activeWorkspaceId || t.status === 'Completed' || !t.dueDate || t.dueDate > cutoff) continue;
       items.push({ id: t.id, kind: 'Task', title: t.title, dueDate: t.dueDate, overdue: t.dueDate < today });
     }
     for (const n of notes) {
@@ -1039,7 +1108,7 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
       items.push({ id: n.id, kind: 'Project', title: n.title || 'Untitled', dueDate: n.dueDate, overdue: isProjectOverdue(n) });
     }
     return items.sort((a, b) => a.dueDate.localeCompare(b.dueDate)).slice(0, 6);
-  }, [data.tasks, notes]);
+  }, [data.tasks, notes, activeWorkspaceId]);
 
   const tasksDueSoonCount = useMemo(() => {
     // Local date, not `.toISOString()` — that converts to UTC, which reads a day ahead late
@@ -1047,10 +1116,13 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
     const cutoffDate = new Date();
     cutoffDate.setDate(cutoffDate.getDate() + 8);
     const cutoff = `${cutoffDate.getFullYear()}-${String(cutoffDate.getMonth() + 1).padStart(2, '0')}-${String(cutoffDate.getDate()).padStart(2, '0')}`;
-    return data.tasks.filter(t => t.status !== 'Completed' && t.dueDate && t.dueDate <= cutoff).length;
-  }, [data.tasks]);
+    return data.tasks.filter(t => t.workspaceId === activeWorkspaceId && t.status !== 'Completed' && t.dueDate && t.dueDate <= cutoff).length;
+  }, [data.tasks, activeWorkspaceId]);
 
-  const activeGoals = useMemo(() => data.goals.filter(g => g.status !== 'Completed'), [data.goals]);
+  const activeGoals = useMemo(
+    () => data.goals.filter(g => g.workspaceId === activeWorkspaceId && g.status !== 'Completed'),
+    [data.goals, activeWorkspaceId]
+  );
   const goalProgressAvg = useMemo(
     () => activeGoals.length ? Math.round(activeGoals.reduce((s, g) => s + (g.progress ?? 0), 0) / activeGoals.length) : null,
     [activeGoals]
@@ -1108,7 +1180,7 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
           ? { paraType: 'Resource', resourceKind: 'Book Note', bookStatus: 'Reading' }
           : { paraType: typeOverride ?? TAB_PARA_TYPE[paraTab] };
     const body = scopePatch.paraType ? (PARA_TEMPLATES[scopePatch.paraType] ?? '') : '';
-    const record = newRecord<Note>({ title: '', body, tags: [], pinned: false, ...scopePatch });
+    const record = newRecord<Note>({ title: '', body, tags: [], pinned: false, workspaceId: activeWorkspaceId, ...scopePatch });
     await upsert('notes', record);
     openNote(record);
   };
@@ -1205,7 +1277,8 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
       status: 'Not Started',
       priority: 'Medium',
       dueDate: localIso(),
-      notes: `From book note: ${note.title || 'Untitled'}`
+      notes: `From book note: ${note.title || 'Untitled'}`,
+      workspaceId: activeWorkspaceId
     });
     await upsert('tasks', task);
     patchNote({ bookActionItems: (note.bookActionItems ?? []).map(i => (i.id === item.id ? { ...i, taskId: task.id } : i)) });
@@ -1583,6 +1656,24 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
           </div>
         }
       />
+
+      <div className="sb-workspace-row">
+        <div className="sb-para-tabs">
+          {workspaces.map(w => (
+            <button
+              key={w.id}
+              type="button"
+              className={`sb-para-tab ${w.id === activeWorkspaceId ? 'on' : ''}`}
+              onClick={() => switchWorkspace(w.id)}
+            >
+              {w.name}
+            </button>
+          ))}
+        </div>
+        <button type="button" className="icon-btn" onClick={() => setManageWorkspacesOpen(true)} title="Manage workspaces" aria-label="Manage workspaces">
+          <Pencil size={13} />
+        </button>
+      </div>
 
       <div className="sb-toolbar">
         <div className="sb-para-tabs">
@@ -2603,6 +2694,19 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
       {linkPickerOpen && note && (
         <LinkPickerModal notes={notes.filter(n => n.id !== note.id)} onPick={insertLink} onClose={() => setLinkPickerOpen(false)} />
       )}
+      {manageWorkspacesOpen && (
+        <ListManagerModal
+          title="Manage Workspaces"
+          subtitle="Each workspace keeps its own notes, tasks, and goals completely separate — switch between them with the pills above."
+          items={workspaces.map(w => ({ id: w.id, label: w.name }))}
+          onAdd={addWorkspace}
+          onRename={renameWorkspace}
+          onReorder={reorderWorkspaces}
+          onDelete={deleteWorkspace}
+          onClose={() => setManageWorkspacesOpen(false)}
+          addPlaceholder="Workspace name…"
+        />
+      )}
       {paletteOpen && (
         <CommandPalette
           notes={notes.filter(n => !n.archived)}
@@ -2724,7 +2828,7 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
               <span>Linked to</span>
               <select value={goalForm.parentId ?? ''} onChange={e => setGoalField('parentId', e.target.value || undefined)}>
                 <option value="">None</option>
-                {data.goals.filter(g => g.id !== editingGoalId).map(g => <option key={g.id} value={g.id}>{g.title}</option>)}
+                {data.goals.filter(g => g.id !== editingGoalId && g.workspaceId === activeWorkspaceId).map(g => <option key={g.id} value={g.id}>{g.title}</option>)}
               </select>
             </label>
             <label className="field-full"><span>Notes</span><RichTextEditor value={goalForm.notes ?? ''} onChange={v => setGoalField('notes', v)} /></label>
