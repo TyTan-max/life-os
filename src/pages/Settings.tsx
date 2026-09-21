@@ -1,7 +1,8 @@
 import { useRef } from 'react';
 import { Download, RotateCcw, Upload } from 'lucide-react';
 import { useStore } from '../store';
-import type { Theme } from '../types';
+import type { PhotoQuality, Theme } from '../types';
+import { DEFAULT_PHOTO_QUALITY, PHOTO_QUALITY_PRESETS } from '../lib/photoQuality';
 import { Card, PageHeader } from '../components/UI';
 
 const THEMES: Theme[] = ['light', 'dark', 'system'];
@@ -95,6 +96,18 @@ export function Settings() {
               onChange={e => void updateSettings({ dailyBriefTime: e.target.value })}
               title="Sends a browser notification with your daily brief at this time each day. Requires 'Enable browser notifications' below."
             />
+          </label>
+          <label>
+            <span>Note photo quality</span>
+            <select
+              value={settings.photoQuality ?? DEFAULT_PHOTO_QUALITY}
+              onChange={e => void updateSettings({ photoQuality: e.target.value as PhotoQuality })}
+              title="How much photos pasted or uploaded into Second Brain notes are shrunk. Higher keeps small text readable but uses more storage. Only applies to photos added from now on — existing ones keep the quality they were saved at."
+            >
+              {(Object.keys(PHOTO_QUALITY_PRESETS) as PhotoQuality[]).map(q => (
+                <option key={q} value={q}>{PHOTO_QUALITY_PRESETS[q].label} — {PHOTO_QUALITY_PRESETS[q].hint}</option>
+              ))}
+            </select>
           </label>
           <label>
             <span>Time Zone</span>

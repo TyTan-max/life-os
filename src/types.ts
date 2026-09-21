@@ -424,6 +424,7 @@ export interface WorkoutEntry extends BaseRecord {
 }
 
 export type WeightUnit = 'lb' | 'kg';
+export type PhotoQuality = 'compact' | 'balanced' | 'high';
 
 export interface WeightEntry extends BaseRecord {
   date: string;
@@ -633,6 +634,9 @@ export interface Settings {
   // until 2 more charges), this just removes the entry from view since there's nothing left to
   // manage for it.
   hiddenDismissedSuggestions?: string[];
+  // How much pasted/uploaded note photos are shrunk before being stored (see PHOTO_QUALITY_PRESETS
+  // in SecondBrain.tsx). Only affects photos added from then on. Undefined means 'high'.
+  photoQuality?: PhotoQuality;
   weightUnit?: WeightUnit;
   weightGoalTarget?: number;
   sleepTargetHours?: number;

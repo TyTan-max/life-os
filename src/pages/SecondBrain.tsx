@@ -8,6 +8,7 @@ import {
 import { useStore, newRecord } from '../store';
 import type { BookActionItem, BookNoteRow, BookNoteStatus, BookQuoteRow, Frequency, Goal, GoalHorizon, GoalProgressMode, GoalStatus, Note, NoteImage, ParaProjectStatus, ParaType, Priority, ProjectBoardColumn, ProjectSubtask, ResourceKind, ReviewCadence, SecondBrainWorkspace, Task, TaskStatus } from '../types';
 import { DEFAULT_WORKSPACE_ID } from '../storage';
+import { photoQualityPreset } from '../lib/photoQuality';
 import { generateId } from '../utils/id';
 import { Badge, Card, EmptyState, Kpi, Modal, PageHeader, formatDate } from '../components/UI';
 import { SortableTh, toggleSort } from '../components/SortableTh';
@@ -294,13 +295,10 @@ function decorateBody(root: HTMLElement, images: NoteImage[]): void {
   });
 }
 
-const NOTE_IMAGE_MAX_DIM = 1200;
-const NOTE_IMAGE_QUALITY = 0.82;
-
 // Downscales and re-encodes as JPEG so pasted screenshots don't bloat IndexedDB (and, eventually,
 // every device's Drive sync payload) with a full-resolution PNG for what's usually just a
-// reference image inside a note.
-function fileToCompressedDataUrl(file: File, maxDim = NOTE_IMAGE_MAX_DIM, quality = NOTE_IMAGE_QUALITY): Promise<string> {
+// reference image inside a note. How aggressively is the user's Settings > Photo quality choice.
+function fileToCompressedDataUrl(file: File, { maxDim, quality }: { maxDim: number; quality: number }): Promise<string> {
   return new Promise((resolve, reject) => {
     const img = new Image();
     const reader = new FileReader();
@@ -1379,7 +1377,7 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
     const noteId = note.id;
     const subtaskId = editingSubtask.id;
     try {
-      const dataUrl = await fileToCompressedDataUrl(file);
+      const dataUrl = await fileToCompressedDataUrl(file, photoQualityPreset(data.settings.photoQuality));
       const latest = notes.find(n => n.id === noteId);
       const latestSubtask = latest?.subtasks?.find(s => s.id === subtaskId);
       if (!latest || !latestSubtask) return;
@@ -1458,7 +1456,7 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
     const targetId = note?.id;
     if (!targetId) return;
     try {
-      const dataUrl = await fileToCompressedDataUrl(file);
+      const dataUrl = await fileToCompressedDataUrl(file, photoQualityPreset(data.settings.photoQuality));
       // Re-read from `notes` rather than trusting the closed-over `note` — compression takes a
       // moment, and the note could have changed in the meantime.
       const latest = notes.find(n => n.id === targetId);
