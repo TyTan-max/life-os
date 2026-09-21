@@ -811,6 +811,7 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
   const [editingSubtaskId, setEditingSubtaskId] = useState<string | null>(null);
   const [linkedMentionsOpen, setLinkedMentionsOpen] = useState(true);
   const [photosOpen, setPhotosOpen] = useState(true);
+  const [subtaskPhotosOpen, setSubtaskPhotosOpen] = useState(true);
   const [linksToOpen, setLinksToOpen] = useState(true);
   const [relatedByTagOpen, setRelatedByTagOpen] = useState(true);
 
@@ -2987,6 +2988,12 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                 decorate={root => decorateBody(root, editingSubtask.images ?? [])}
               />
               {(editingSubtask.images ?? []).length > 0 && (
+                <div className="sb-backlinks sb-photos-panel">
+                  <button type="button" className="sb-backlinks-head" onClick={() => setSubtaskPhotosOpen(o => !o)}>
+                    <h3>Photos ({(editingSubtask.images ?? []).length})</h3>
+                    <ChevronDown size={14} className={`sb-backlinks-chevron ${subtaskPhotosOpen ? 'open' : ''}`} />
+                  </button>
+                  {subtaskPhotosOpen && (
                 <div className="sb-note-photos">
                   {(editingSubtask.images ?? []).map(img => (
                     <div
@@ -3020,6 +3027,8 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                       />
                     </div>
                   ))}
+                </div>
+                  )}
                 </div>
               )}
             </label>
