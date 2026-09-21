@@ -1383,7 +1383,8 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
       const latest = notes.find(n => n.id === noteId);
       const latestSubtask = latest?.subtasks?.find(s => s.id === subtaskId);
       if (!latest || !latestSubtask) return;
-      const ordinal = latestSubtask.nextPhotoNumber ?? 1;
+      // Same reset-when-empty rule as insertNotePhoto below.
+      const ordinal = (latestSubtask.images ?? []).length === 0 ? 1 : latestSubtask.nextPhotoNumber ?? 1;
       const image: NoteImage = { src: dataUrl, addedAt: new Date().toISOString(), ordinal };
       // Same one-combined-write reasoning as insertNotePhoto — a separately-upserted images/
       // nextPhotoNumber patch built from this same pre-insert `latestSubtask` would otherwise
@@ -1463,7 +1464,12 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
       // moment, and the note could have changed in the meantime.
       const latest = notes.find(n => n.id === targetId);
       if (!latest) return;
-      const ordinal = latest.nextPhotoNumber ?? 1;
+      // Numbers are never reused while any photo remains (so a stale "[Photo 2]" can't silently
+      // start pointing at a different picture) — but with none left, removeImage has already
+      // stripped every marker, nothing can point at an old number, and counting from 1 again is
+      // what the user expects. Deciding here (not on delete) also fixes notes whose counter was
+      // already inflated by past deletions.
+      const ordinal = (latest.images ?? []).length === 0 ? 1 : latest.nextPhotoNumber ?? 1;
       const image: NoteImage = { src: dataUrl, addedAt: new Date().toISOString(), ordinal };
       // One combined write, built from the marker-inserted HTML — inserting via the ref and then
       // separately upserting the image metadata would race two updates against the same record,
