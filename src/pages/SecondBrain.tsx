@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, ReactNode } from 'react';
 import {
   Archive, ArchiveRestore, BookMarked, Check, ChevronDown, ChevronLeft, Clock, Code2, Command,
-  Layers, Lightbulb, Link2, ListChecks, Lock, LockOpen, Maximize2, Minimize2, Pencil, Pin, PinOff, Plus, Quote, Search, StickyNote, Trash2, TrendingUp,
+  Layers, Lightbulb, Link2, ListChecks, Lock, LockOpen, Maximize2, Minimize2, Pencil, Pin, PinOff, Plus, Quote, Search, SquareStack, StickyNote, Trash2, TrendingUp,
   Vault as VaultIcon, X
 } from 'lucide-react';
 import { useStore, newRecord } from '../store';
@@ -1683,12 +1683,12 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
             <button
               key={tab}
               type="button"
-              className={`sb-para-tab ${tab === 'Archive' || tab === 'Books' ? 'sb-para-tab-icon' : ''} ${paraTab === tab && !areaScopeId && !resourceScope ? 'on' : ''}`}
+              className={`sb-para-tab ${tab === 'Archive' || tab === 'Books' || tab === 'Flashcards' ? 'sb-para-tab-icon' : ''} ${paraTab === tab && !areaScopeId && !resourceScope ? 'on' : ''}`}
               onClick={() => changeTab(tab)}
-              title={tab === 'Archive' || tab === 'Books' ? tab : undefined}
-              aria-label={tab === 'Archive' || tab === 'Books' ? tab : undefined}
+              title={tab === 'Archive' || tab === 'Books' || tab === 'Flashcards' ? tab : undefined}
+              aria-label={tab === 'Archive' || tab === 'Books' || tab === 'Flashcards' ? tab : undefined}
             >
-              {tab === 'Archive' ? <Archive size={14} /> : tab === 'Books' ? <BookMarked size={14} /> : tab}
+              {tab === 'Archive' ? <Archive size={14} /> : tab === 'Books' ? <BookMarked size={14} /> : tab === 'Flashcards' ? <SquareStack size={14} /> : tab}
             </button>
           ))}
         </div>
