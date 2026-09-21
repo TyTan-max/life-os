@@ -767,6 +767,21 @@ export interface SecondBrainWorkspace extends BaseRecord {
   order?: number;
 }
 
+export interface Flashcard {
+  id: string;
+  term: string;
+  definition: string;
+}
+
+// A Quizlet-style set of term/definition pairs. Belongs to exactly one Second Brain workspace
+// (same isolation rule as notes), and the cards live inside the deck record itself rather than
+// as their own collection — they're only ever read, edited, and studied as part of one deck.
+export interface FlashcardDeck extends BaseRecord {
+  name: string;
+  workspaceId?: string;
+  cards: Flashcard[];
+}
+
 export interface AppData {
   tasks: Task[];
   habits: Habit[];
@@ -785,6 +800,7 @@ export interface AppData {
   financeGoals: FinanceGoal[];
   notes: Note[];
   secondBrainWorkspaces: SecondBrainWorkspace[];
+  flashcardDecks: FlashcardDeck[];
   bucketList: BucketListItem[];
   workouts: WorkoutEntry[];
   weightEntries: WeightEntry[];
@@ -803,13 +819,13 @@ export type CollectionName = Exclude<keyof AppData, 'settings'>;
 
 export type CollectionRecord =
   | Task | Habit | HabitRoutine | RoutineDateAssignment | Goal | CalendarEvent | Budget | Transaction | Bill
-  | Movie | Videogame | Book | FinanceAccount | FinanceCategory | FinanceGoal | Note | SecondBrainWorkspace | BucketListItem
+  | Movie | Videogame | Book | FinanceAccount | FinanceCategory | FinanceGoal | Note | SecondBrainWorkspace | FlashcardDeck | BucketListItem
   | WorkoutEntry | WeightEntry | SleepEntry | Medication | MealEntry | GlucoseEntry | WorkoutRoutine
   | Contact | ContactInteraction | DailyLog;
 
 export const COLLECTION_NAMES: CollectionName[] = [
   'tasks', 'habits', 'habitRoutines', 'routineAssignments', 'goals', 'events', 'budgets', 'transactions',
-  'bills', 'movies', 'videogames', 'books', 'notes', 'secondBrainWorkspaces', 'bucketList', 'contacts', 'contactInteractions',
+  'bills', 'movies', 'videogames', 'books', 'notes', 'secondBrainWorkspaces', 'flashcardDecks', 'bucketList', 'contacts', 'contactInteractions',
   'financeAccounts', 'financeCategories', 'financeGoals',
   'workouts', 'weightEntries', 'sleepEntries', 'medications', 'meals', 'glucoseEntries', 'workoutRoutines',
   'dailyLogs'

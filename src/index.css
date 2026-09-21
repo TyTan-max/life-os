@@ -5163,3 +5163,70 @@ input, select, textarea { font-family: inherit; }
     border-bottom: none; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px;
   }
 }
+
+/* Flashcards (Second Brain tab) */
+.fc-shell { display: flex; flex-direction: column; gap: 14px; }
+.fc-decks-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.fc-decks-header h2 { margin: 0; font-size: 15px; }
+.fc-new-deck { display: flex; gap: 8px; }
+.fc-new-deck input, .fc-deck-title, .fc-import-text {
+  border: 1px solid var(--border); background: var(--surface); color: var(--text);
+  border-radius: 8px; padding: 8px 10px; font: inherit; font-size: 13px; outline: none;
+}
+.fc-new-deck input:focus, .fc-deck-title:focus, .fc-import-text:focus, .fc-row textarea:focus { border-color: var(--accent); }
+.fc-deck-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 12px; }
+.fc-deck-card {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 6px; text-align: left; cursor: pointer;
+  border: 1px solid var(--border); background: var(--surface); color: var(--text); border-radius: 12px; padding: 14px;
+  transition: border-color 0.12s ease;
+}
+.fc-deck-card:hover { border-color: var(--accent); }
+.fc-deck-card svg { color: var(--teal); }
+.fc-deck-card b { font-size: 14px; }
+.fc-deck-card span { font-size: 12px; color: var(--text-faint); }
+.fc-editor-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.fc-editor-actions { display: flex; align-items: center; gap: 8px; }
+.fc-deck-title { font-size: 20px; font-weight: 700; padding: 10px 12px; }
+.fc-list { display: flex; flex-direction: column; gap: 8px; }
+.fc-list-head, .fc-row { display: grid; grid-template-columns: 28px 1fr 1fr 28px; gap: 10px; align-items: start; }
+.fc-list-head { font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; color: var(--text-faint); padding: 0 2px; }
+.fc-row { border: 1px solid var(--border); background: var(--surface); border-radius: 10px; padding: 10px; }
+.fc-row-num { font-size: 12px; color: var(--text-faint); padding-top: 8px; text-align: center; }
+.fc-row textarea {
+  resize: vertical; min-height: 34px; border: none; border-bottom: 2px solid var(--border); background: transparent;
+  color: var(--text); font: inherit; font-size: 13.5px; padding: 6px 2px; outline: none; border-radius: 0;
+}
+.fc-add-card { align-self: flex-start; }
+.fc-import-text { width: 100%; resize: vertical; font-family: inherit; }
+.fc-study { max-width: 720px; margin: 0 auto; width: 100%; }
+.fc-study-title { font-size: 14px; }
+.fc-progress { display: flex; flex-direction: column; gap: 6px; }
+.fc-progress small { color: var(--text-faint); text-align: center; }
+.fc-progress-bar { height: 5px; background: var(--border); border-radius: 999px; overflow: hidden; }
+.fc-progress-bar span { display: block; height: 100%; background: var(--teal); transition: width 0.2s ease; }
+.fc-card {
+  position: relative; display: block; width: 100%; min-height: 280px; padding: 0; border: none; background: none;
+  cursor: pointer; perspective: 1200px; color: var(--text); font: inherit;
+}
+.fc-face {
+  position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
+  padding: 28px; text-align: center; font-size: 22px; font-weight: 600; line-height: 1.4;
+  border: 1px solid var(--border); background: var(--surface); border-radius: 16px; box-shadow: var(--shadow);
+  backface-visibility: hidden; transition: transform 0.4s ease; overflow-wrap: anywhere;
+}
+.fc-face small { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-faint); }
+.fc-back { transform: rotateY(180deg); border-color: var(--teal); }
+.fc-card.flipped .fc-front { transform: rotateY(-180deg); }
+.fc-card.flipped .fc-back { transform: rotateY(0deg); }
+.fc-hint { margin: 0; text-align: center; font-size: 12px; color: var(--text-faint); }
+.fc-study-actions { display: flex; justify-content: center; align-items: center; gap: 10px; }
+.fc-learning { color: var(--amber); }
+.fc-done { text-align: center; padding: 36px 12px; display: flex; flex-direction: column; gap: 10px; align-items: center; }
+.fc-done h2 { margin: 0; }
+.fc-done p { margin: 0; color: var(--text-muted); }
+.fc-done-actions { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; margin-top: 8px; }
+@media (max-width: 720px) {
+  .fc-list-head, .fc-row { grid-template-columns: 22px 1fr 1fr 26px; gap: 6px; }
+  .fc-face { font-size: 18px; padding: 18px; }
+  .fc-card { min-height: 240px; }
+}

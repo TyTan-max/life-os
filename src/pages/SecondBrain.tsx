@@ -13,6 +13,7 @@ import { Badge, Card, EmptyState, Kpi, Modal, PageHeader, formatDate } from '../
 import { SortableTh, toggleSort } from '../components/SortableTh';
 import type { SortState } from '../components/SortableTh';
 import { ListManagerModal } from '../components/ListManagerModal';
+import { Flashcards } from '../components/Flashcards';
 import { DatePicker } from '../components/DatePicker';
 import { RichTextEditor } from '../components/RichTextEditor';
 import type { RichTextEditorHandle } from '../components/RichTextEditor';
@@ -62,8 +63,8 @@ const PARA_TEMPLATES: Partial<Record<ParaType, string>> = {
 // Resources isn't a tab of its own — it lives as a card grid on the Overview tab instead (see
 // the Overview branch below), since Projects/Areas/Resources/Inbox all having both a dedicated
 // tab AND a jump-in card was redundant navigation to the same place.
-export type ParaTab = 'Overview' | 'All' | 'Tasks' | 'Inbox' | 'Goals' | 'Projects' | 'Areas' | 'Archive' | 'Books';
-const PARA_TABS: ParaTab[] = ['Books', 'Overview', 'All', 'Inbox', 'Tasks', 'Goals', 'Projects', 'Areas', 'Archive'];
+export type ParaTab = 'Overview' | 'All' | 'Tasks' | 'Inbox' | 'Goals' | 'Projects' | 'Areas' | 'Flashcards' | 'Archive' | 'Books';
+const PARA_TABS: ParaTab[] = ['Books', 'Overview', 'All', 'Inbox', 'Tasks', 'Goals', 'Projects', 'Areas', 'Flashcards', 'Archive'];
 // A tab's implied paraType, for defaulting new notes created while it's active.
 const TAB_PARA_TYPE: Partial<Record<ParaTab, ParaType>> = { Projects: 'Project', Areas: 'Area' };
 
@@ -873,9 +874,10 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
     }
     const hasContent = data.notes.some(n => n.workspaceId === id)
       || data.tasks.some(t => t.workspaceId === id)
-      || data.goals.some(g => g.workspaceId === id);
+      || data.goals.some(g => g.workspaceId === id)
+      || data.flashcardDecks.some(d => d.workspaceId === id);
     if (hasContent) {
-      window.alert('This workspace still has notes, tasks, or goals in it — move or delete them first.');
+      window.alert('This workspace still has notes, tasks, goals, or flashcard decks in it — move or delete them first.');
       return;
     }
     void remove('secondBrainWorkspaces', id);
@@ -1650,7 +1652,7 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
               <button className="btn primary" onClick={startAddTask}><Plus size={16} /> Add task</button>
             ) : paraTab === 'Goals' ? (
               <button className="btn primary" onClick={startAddGoal}><Plus size={16} /> Add goal</button>
-            ) : (
+            ) : paraTab === 'Flashcards' ? null : (
               <button className="btn primary" onClick={() => void createNote()}><Plus size={16} /> New note</button>
             )}
           </div>
@@ -1703,7 +1705,9 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
         )}
       </div>
 
-      {showAllTable ? (
+      {paraTab === 'Flashcards' && !areaScopeId && !resourceScope ? (
+        <Flashcards workspaceId={activeWorkspaceId} />
+      ) : showAllTable ? (
         <div className={`sb-shell sb-table-shell ${mobileHubActive ? 'sb-hub-active' : ''}`}>
           <div className="sb-table-toolbar">
             <div className="sb-table-toolbar-row">

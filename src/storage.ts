@@ -10,11 +10,11 @@ import { buildStarterRoutine, ROUTINE_EPOCH } from './lib/starterRoutine';
 import type { SyncSnapshot, Tombstone } from './lib/syncMerge';
 
 const DB_NAME = 'life-os';
-// Bumped for the new `secondBrainWorkspaces` store — IndexedDB only runs the `upgrade` callback
+// Bumped for the new `flashcardDecks` store — IndexedDB only runs the `upgrade` callback
 // (which is what actually creates a missing object store) on a version increase, not just because
 // COLLECTION_NAMES grew. Existing installs stay on the old version, and the new store, forever
 // if this number doesn't move.
-const DB_VERSION = 22;
+const DB_VERSION = 23;
 const META_STORE = 'meta';
 const TOMBSTONES_KEY = 'tombstones';
 const SETTINGS_UPDATED_AT_KEY = 'settingsUpdatedAt';
