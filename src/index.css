@@ -5231,6 +5231,15 @@ input, select, textarea { font-family: inherit; }
 .fc-done h2 { margin: 0; }
 .fc-done p { margin: 0; color: var(--text-muted); }
 .fc-done-actions { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; margin-top: 8px; }
+.fc-done-lists { display: flex; gap: 16px; flex-wrap: wrap; justify-content: center; width: 100%; margin-top: 12px; text-align: left; }
+.fc-done-list { flex: 1 1 260px; max-width: 360px; }
+.fc-done-list h3 { margin: 0 0 8px; font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; color: var(--text-faint); }
+.fc-done-row {
+  display: flex; align-items: baseline; gap: 8px; padding: 8px 10px; border: 1px solid var(--border);
+  border-radius: 8px; background: var(--surface); margin-bottom: 6px; font-size: 13px;
+}
+.fc-done-row b { flex-shrink: 0; max-width: 45%; overflow-wrap: anywhere; }
+.fc-done-row span { color: var(--text-faint); overflow-wrap: anywhere; }
 @media (max-width: 720px) {
   .fc-list-head, .fc-row { grid-template-columns: 22px 1fr 1fr 26px; gap: 6px; }
   .fc-face { font-size: 18px; padding: 18px; }

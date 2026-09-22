@@ -310,6 +310,24 @@ function StudyMode({ deck, onExit }: { deck: FlashcardDeck; onExit: () => void }
             )}
             <button type="button" className="btn ghost" onClick={() => restart(playable)}><RotateCcw size={14} /> Restart all {playable.length}</button>
           </div>
+          <div className="fc-done-lists">
+            {stillLearning.length > 0 && (
+              <div className="fc-done-list">
+                <h3>Still learning ({stillLearning.length})</h3>
+                {stillLearning.map(c => (
+                  <div className="fc-done-row" key={c.id}><b>{c.term}</b><span>{c.definition}</span></div>
+                ))}
+              </div>
+            )}
+            {known.size > 0 && (
+              <div className="fc-done-list">
+                <h3>Got it ({known.size})</h3>
+                {queue.filter(c => known.has(c.id)).map(c => (
+                  <div className="fc-done-row" key={c.id}><b>{c.term}</b><span>{c.definition}</span></div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       ) : (
         <>
