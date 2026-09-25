@@ -331,9 +331,10 @@ export function PersonalCRM() {
     () => (typeof window !== 'undefined' && window.matchMedia(MOBILE_QUERY).matches ? 'Used' : 'All')
   );
   const [detailsSort, setDetailsSort] = useState<SortState<DetailsSortKey>>({ key: 'name', dir: 'asc' });
-  // Separate from detailsSort's alphabetical Role toggle — this narrows the Details table down to
-  // one exact role via the header's dropdown, rather than reordering everyone by it.
+  // Separate from detailsSort's alphabetical Role/Company toggle — these narrow the Details table
+  // down to one exact value via the header's dropdown, rather than reordering everyone by it.
   const [roleFilter, setRoleFilter] = useState<string>('All');
+  const [companyFilter, setCompanyFilter] = useState<string>('All');
 
   const now = new Date();
   const [bdayMonth, setBdayMonth] = useState(now.getMonth());
@@ -428,17 +429,23 @@ export function PersonalCRM() {
     return Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0]));
   }, [tagFilteredContacts]);
 
-  // Every distinct role currently in use, for the Role header's filter dropdown — scoped to
-  // tagFilteredContacts so it only ever offers roles that could actually match something.
+  // Every distinct role/company currently in use, for their header filter dropdowns — scoped to
+  // tagFilteredContacts so they only ever offer values that could actually match something.
   const distinctRoles = useMemo(
     () => Array.from(new Set(tagFilteredContacts.map(c => c.role).filter((r): r is string => !!r))).sort((a, b) => a.localeCompare(b)),
     [tagFilteredContacts]
   );
-
-  const roleFilteredContacts = useMemo(
-    () => roleFilter === 'All' ? tagFilteredContacts : tagFilteredContacts.filter(c => c.role === roleFilter),
-    [tagFilteredContacts, roleFilter]
+  const distinctCompanies = useMemo(
+    () => Array.from(new Set(tagFilteredContacts.map(c => c.company).filter((c): c is string => !!c))).sort((a, b) => a.localeCompare(b)),
+    [tagFilteredContacts]
   );
+
+  const roleFilteredContacts = useMemo(() => {
+    let list = tagFilteredContacts;
+    if (roleFilter !== 'All') list = list.filter(c => c.role === roleFilter);
+    if (companyFilter !== 'All') list = list.filter(c => c.company === companyFilter);
+    return list;
+  }, [tagFilteredContacts, roleFilter, companyFilter]);
 
   const sortedDetailsContacts = useMemo(() => {
     return roleFilteredContacts.slice().sort((a, b) => {
@@ -809,7 +816,30 @@ export function PersonalCRM() {
                     <thead>
                       <tr>
                         <SortableTh label="Name" sortKey="name" state={detailsSort} onSort={k => setDetailsSort(s => toggleSort(s, k))} />
-                        <SortableTh label="Company" sortKey="company" state={detailsSort} onSort={k => setDetailsSort(s => toggleSort(s, k))} />
+                        <th className="sortable-th">
+                          {/* Same split as the Role header: label is a filter dropdown, arrow icon
+                              is the normal alphabetical toggle sort. */}
+                          <span className="sortable-th-inner role-th-inner">
+                            <select
+                              className={`role-filter-select ${companyFilter !== 'All' ? 'active' : ''}`}
+                              value={companyFilter}
+                              onChange={e => setCompanyFilter(e.target.value)}
+                              onClick={e => e.stopPropagation()}
+                              aria-label="Filter by company"
+                            >
+                              <option value="All">Company</option>
+                              {distinctCompanies.map(c => <option key={c} value={c}>{c}</option>)}
+                            </select>
+                            <span
+                              className={`sort-icon ${detailsSort.key === 'company' ? 'active' : ''}`}
+                              onClick={() => setDetailsSort(s => toggleSort(s, 'company'))}
+                              role="button"
+                              aria-label="Sort by company"
+                            >
+                              {detailsSort.key === 'company' ? (detailsSort.dir === 'asc' ? <ChevronUp size={11} /> : <ChevronDown size={11} />) : <ChevronsUpDown size={11} />}
+                            </span>
+                          </span>
+                        </th>
                         <th className="sortable-th">
                           {/* Split header: the label itself is a filter dropdown (narrows to one exact
                               role), while the arrow icon keeps the normal alphabetical toggle sort —
