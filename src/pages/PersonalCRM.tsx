@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import {
-  Archive, Briefcase, Cake, CalendarCheck, CalendarDays, Camera, ChevronLeft, ChevronRight, CircleSlash, Gift, GraduationCap,
+  Archive, Briefcase, Cake, CalendarCheck, CalendarDays, Camera, ChevronDown, ChevronLeft, ChevronRight, ChevronsUpDown, ChevronUp, CircleSlash, Gift, GraduationCap,
   Handshake, Home, LayoutGrid, Link2, Mail, MapPin, Medal, MessageCircle, Pencil, Phone,
   Plus, Search, Send, SlidersHorizontal, Sparkles, Star, Table2, Tag as TagIcon, Trash2, Upload, UserPlus, Users, Wrench, X
 } from 'lucide-react';
@@ -331,6 +331,9 @@ export function PersonalCRM() {
     () => (typeof window !== 'undefined' && window.matchMedia(MOBILE_QUERY).matches ? 'Used' : 'All')
   );
   const [detailsSort, setDetailsSort] = useState<SortState<DetailsSortKey>>({ key: 'name', dir: 'asc' });
+  // Separate from detailsSort's alphabetical Role toggle — this narrows the Details table down to
+  // one exact role via the header's dropdown, rather than reordering everyone by it.
+  const [roleFilter, setRoleFilter] = useState<string>('All');
 
   const now = new Date();
   const [bdayMonth, setBdayMonth] = useState(now.getMonth());
@@ -425,8 +428,20 @@ export function PersonalCRM() {
     return Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0]));
   }, [tagFilteredContacts]);
 
+  // Every distinct role currently in use, for the Role header's filter dropdown — scoped to
+  // tagFilteredContacts so it only ever offers roles that could actually match something.
+  const distinctRoles = useMemo(
+    () => Array.from(new Set(tagFilteredContacts.map(c => c.role).filter((r): r is string => !!r))).sort((a, b) => a.localeCompare(b)),
+    [tagFilteredContacts]
+  );
+
+  const roleFilteredContacts = useMemo(
+    () => roleFilter === 'All' ? tagFilteredContacts : tagFilteredContacts.filter(c => c.role === roleFilter),
+    [tagFilteredContacts, roleFilter]
+  );
+
   const sortedDetailsContacts = useMemo(() => {
-    return tagFilteredContacts.slice().sort((a, b) => {
+    return roleFilteredContacts.slice().sort((a, b) => {
       let cmp: number;
       switch (detailsSort.key) {
         case 'name': cmp = a.name.localeCompare(b.name); break;
@@ -440,7 +455,7 @@ export function PersonalCRM() {
       }
       return detailsSort.dir === 'asc' ? cmp : -cmp;
     });
-  }, [tagFilteredContacts, detailsSort, statusByContact]);
+  }, [roleFilteredContacts, detailsSort, statusByContact]);
 
   const overdueCount = activeContacts.filter(c => statusByContact.get(c.id)?.status === 'Overdue').length;
   const dueSoonCount = activeContacts.filter(c => statusByContact.get(c.id)?.status === 'Due soon').length;
@@ -795,7 +810,32 @@ export function PersonalCRM() {
                       <tr>
                         <SortableTh label="Name" sortKey="name" state={detailsSort} onSort={k => setDetailsSort(s => toggleSort(s, k))} />
                         <SortableTh label="Company" sortKey="company" state={detailsSort} onSort={k => setDetailsSort(s => toggleSort(s, k))} />
-                        <SortableTh label="Role" sortKey="role" state={detailsSort} onSort={k => setDetailsSort(s => toggleSort(s, k))} />
+                        <th className="sortable-th">
+                          {/* Split header: the label itself is a filter dropdown (narrows to one exact
+                              role), while the arrow icon keeps the normal alphabetical toggle sort —
+                              two different jobs living in the same header, like Category's filter
+                              chip elsewhere plus this table's usual A-Z sort. */}
+                          <span className="sortable-th-inner role-th-inner">
+                            <select
+                              className={`role-filter-select ${roleFilter !== 'All' ? 'active' : ''}`}
+                              value={roleFilter}
+                              onChange={e => setRoleFilter(e.target.value)}
+                              onClick={e => e.stopPropagation()}
+                              aria-label="Filter by role"
+                            >
+                              <option value="All">Role</option>
+                              {distinctRoles.map(r => <option key={r} value={r}>{r}</option>)}
+                            </select>
+                            <span
+                              className={`sort-icon ${detailsSort.key === 'role' ? 'active' : ''}`}
+                              onClick={() => setDetailsSort(s => toggleSort(s, 'role'))}
+                              role="button"
+                              aria-label="Sort by role"
+                            >
+                              {detailsSort.key === 'role' ? (detailsSort.dir === 'asc' ? <ChevronUp size={11} /> : <ChevronDown size={11} />) : <ChevronsUpDown size={11} />}
+                            </span>
+                          </span>
+                        </th>
                         <SortableTh label="Email" sortKey="email" state={detailsSort} onSort={k => setDetailsSort(s => toggleSort(s, k))} />
                         <th>Phone</th>
                         <SortableTh label="Social profiles" sortKey="socialProfiles" state={detailsSort} onSort={k => setDetailsSort(s => toggleSort(s, k, 'desc'))} />

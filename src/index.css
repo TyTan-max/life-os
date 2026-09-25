@@ -1625,6 +1625,14 @@ input, select, textarea { font-family: inherit; }
 .sortable-th-inner .sort-icon { display: inline-flex; color: var(--text-faint); flex-shrink: 0; }
 .sortable-th-inner .sort-icon.active { color: var(--accent); }
 .sortable-th-inner:hover .sort-icon { color: var(--text); }
+/* Role header's filter dropdown — styled to disappear into the plain header text until you
+   notice it's actually a <select>; picking a role tints it like an active filter chip. */
+.role-filter-select {
+  appearance: none; -webkit-appearance: none; border: none; background: none; padding: 0;
+  margin: 0; font: inherit; font-weight: inherit; color: inherit; cursor: pointer; max-width: 110px;
+}
+.role-filter-select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 3px; }
+.role-filter-select.active { color: var(--accent); font-weight: 700; }
 
 .expense-summary-toggle { display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--text-faint); cursor: pointer; white-space: nowrap; }
 .expense-summary-toggle input { accent-color: var(--accent); }
