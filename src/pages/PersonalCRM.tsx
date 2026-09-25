@@ -844,16 +844,18 @@ export function PersonalCRM() {
                 <MobileRecordList
                   items={sortedDetailsContacts}
                   primary={c => c.name}
-                  // The stage is the subheading (tinted like its badge) and the phone number takes
-                  // the bold right-hand slot — the stage there was truncating the name.
-                  secondary={c => {
+                  secondary={c => c.category ?? 'Uncategorized'}
+                  // Right-hand column: phone number, with the stage (tinted like its badge) beneath
+                  // it. The stage alone in that slot used to truncate the name.
+                  trailing={c => {
                     const status = statusByContact.get(c.id)?.status;
-                    return <>
-                      {status && <span className={`crm-status-text tone-${STATUS_BADGE_TONE[status]}`}>{status}</span>}
-                      {status && ' · '}{c.category ?? 'Uncategorized'}
-                    </>;
+                    return (
+                      <span className="crm-trailing-stack">
+                        {c.phone && <span>{c.phone}</span>}
+                        {status && <small className={`crm-status-text tone-${STATUS_BADGE_TONE[status]}`}>{status}</small>}
+                      </span>
+                    );
                   }}
-                  trailing={c => c.phone || ''}
                   fields={[
                     { label: 'Company', value: c => [c.role, c.company].filter(Boolean).join(' at ') || '—' },
                     { label: 'Last contact', value: c => {

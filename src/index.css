@@ -1950,6 +1950,8 @@ input, select, textarea { font-family: inherit; }
 .grid-table-empty { padding: 20px 0; text-align: center; }
 /* Personal CRM — contact stage as tinted text (Details list subheading), matching its badge tones */
 .crm-status-text { font-weight: 650; }
+.crm-trailing-stack { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
+.crm-trailing-stack small { font-size: 11.5px; }
 .crm-status-text.tone-danger { color: var(--red); }
 .crm-status-text.tone-warning { color: var(--amber); }
 .crm-status-text.tone-success { color: var(--green); }
