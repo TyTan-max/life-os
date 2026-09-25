@@ -844,15 +844,23 @@ export function PersonalCRM() {
                 <MobileRecordList
                   items={sortedDetailsContacts}
                   primary={c => c.name}
-                  secondary={c => c.category ?? 'Uncategorized'}
-                  trailing={c => statusByContact.get(c.id)?.status ?? ''}
+                  // The stage is the subheading (tinted like its badge) and the phone number takes
+                  // the bold right-hand slot — the stage there was truncating the name.
+                  secondary={c => {
+                    const status = statusByContact.get(c.id)?.status;
+                    return <>
+                      {status && <span className={`crm-status-text tone-${STATUS_BADGE_TONE[status]}`}>{status}</span>}
+                      {status && ' · '}{c.category ?? 'Uncategorized'}
+                    </>;
+                  }}
+                  trailing={c => c.phone || ''}
                   fields={[
                     { label: 'Company', value: c => [c.role, c.company].filter(Boolean).join(' at ') || '—' },
                     { label: 'Last contact', value: c => {
                       const d = statusByContact.get(c.id)?.lastDate;
                       return d ? formatDate(d) : 'Never';
                     } },
-                    { label: 'Reach', value: c => c.email || c.phone || '—' }
+                    { label: 'Email', value: c => c.email || '—' }
                   ]}
                   onOpen={c => setSelectedContactId(c.id)}
                   leadingAction={c => ({ label: 'Log', icon: <MessageCircle size={16} />, onTrigger: () => openQuickLog(c.id) })}

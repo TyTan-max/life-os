@@ -1948,6 +1948,12 @@ input, select, textarea { font-family: inherit; }
   letter-spacing: 1px; color: var(--accent); pointer-events: none; line-height: 1;
 }
 .grid-table-empty { padding: 20px 0; text-align: center; }
+/* Personal CRM — contact stage as tinted text (Details list subheading), matching its badge tones */
+.crm-status-text { font-weight: 650; }
+.crm-status-text.tone-danger { color: var(--red); }
+.crm-status-text.tone-warning { color: var(--amber); }
+.crm-status-text.tone-success { color: var(--green); }
+
 /* Personal CRM — phone quick actions on a contact page */
 .crm-quick-actions { display: flex; justify-content: center; gap: 12px; margin: 14px 0 6px; }
 .crm-quick-action {
@@ -5414,6 +5420,11 @@ input, select, textarea { font-family: inherit; }
     color: inherit; font-family: inherit; text-align: left; cursor: pointer;
   }
   .sb-overview-goal-link .progress-bar { margin: 0; }
+  /* CRM Details list: the record cards sat inside another padded card, costing 36px of a row that
+     now also carries a phone number on the right. And the stage subheading wraps rather than
+     truncating to "Never contact…". */
+  .crm-main > .card:has(> .mrl) { padding: 0; border: none; background: none; box-shadow: none; }
+  .crm-main .mrl-text small { white-space: normal; }
   /* Contact form: 14 category chips wrapped to ~5 rows; one swipeable row costs 40px instead. */
   .cf-category-chips {
     flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none;
