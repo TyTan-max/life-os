@@ -301,7 +301,7 @@ const CRM_VIEWS: { key: CrmView; icon: typeof LayoutGrid }[] = [
   { key: 'Reach out', icon: Send }
 ];
 
-type DetailsSortKey = 'name' | 'email' | 'socialProfiles' | 'address' | 'category' | 'lastContact';
+type DetailsSortKey = 'name' | 'company' | 'role' | 'email' | 'socialProfiles' | 'address' | 'category' | 'lastContact';
 
 function addressOf(c: Contact): string {
   return c.address || [c.city, c.region].filter(Boolean).join(', ');
@@ -430,6 +430,8 @@ export function PersonalCRM() {
       let cmp: number;
       switch (detailsSort.key) {
         case 'name': cmp = a.name.localeCompare(b.name); break;
+        case 'company': cmp = (a.company ?? '').localeCompare(b.company ?? ''); break;
+        case 'role': cmp = (a.role ?? '').localeCompare(b.role ?? ''); break;
         case 'email': cmp = (a.email ?? '').localeCompare(b.email ?? ''); break;
         case 'socialProfiles': cmp = socialCountOf(a) - socialCountOf(b); break;
         case 'address': cmp = addressOf(a).localeCompare(addressOf(b)); break;
@@ -774,6 +776,7 @@ export function PersonalCRM() {
                   secondary={c => c.category ?? 'Uncategorized'}
                   trailing={c => statusByContact.get(c.id)?.status ?? ''}
                   fields={[
+                    { label: 'Company', value: c => [c.role, c.company].filter(Boolean).join(' at ') || '—' },
                     { label: 'Last contact', value: c => {
                       const d = statusByContact.get(c.id)?.lastDate;
                       return d ? formatDate(d) : 'Never';
@@ -791,6 +794,8 @@ export function PersonalCRM() {
                     <thead>
                       <tr>
                         <SortableTh label="Name" sortKey="name" state={detailsSort} onSort={k => setDetailsSort(s => toggleSort(s, k))} />
+                        <SortableTh label="Company" sortKey="company" state={detailsSort} onSort={k => setDetailsSort(s => toggleSort(s, k))} />
+                        <SortableTh label="Role" sortKey="role" state={detailsSort} onSort={k => setDetailsSort(s => toggleSort(s, k))} />
                         <SortableTh label="Email" sortKey="email" state={detailsSort} onSort={k => setDetailsSort(s => toggleSort(s, k))} />
                         <th>Phone</th>
                         <SortableTh label="Social profiles" sortKey="socialProfiles" state={detailsSort} onSort={k => setDetailsSort(s => toggleSort(s, k, 'desc'))} />
@@ -808,6 +813,20 @@ export function PersonalCRM() {
                         return (
                           <tr key={c.id}>
                             <td><button type="button" className="text-btn" onClick={() => setSelectedContactId(c.id)}>{c.name}</button></td>
+                            <td className="grid-td-compact">
+                              <input
+                                type="text" className="grid-cell-input autosize" placeholder="Add company…"
+                                style={{ width: `${autosizeCh(c.company ?? '', 'Add company…')}ch` }}
+                                value={c.company ?? ''} onChange={e => patchContact(c, { company: e.target.value || undefined })}
+                              />
+                            </td>
+                            <td className="grid-td-compact">
+                              <input
+                                type="text" className="grid-cell-input autosize" placeholder="Add role…"
+                                style={{ width: `${autosizeCh(c.role ?? '', 'Add role…')}ch` }}
+                                value={c.role ?? ''} onChange={e => patchContact(c, { role: e.target.value || undefined })}
+                              />
+                            </td>
                             <td className="grid-td-compact">
                               <input
                                 type="email" className="grid-cell-input autosize" placeholder="Add email…"
