@@ -748,6 +748,9 @@ export function PersonalCRM() {
                               <button type="button" className="crm-card-body" onClick={() => setSelectedContactId(c.id)}>
                                 <ContactAvatar contact={c} size="card" />
                                 <b>{c.name}</b>
+                                {(c.role || c.company) && (
+                                  <small className="crm-card-role">{[c.role, c.company].filter(Boolean).join(' at ')}</small>
+                                )}
                                 {c.email && <small>{c.email}</small>}
                                 {c.phone && <small>{c.phone}</small>}
                               </button>
