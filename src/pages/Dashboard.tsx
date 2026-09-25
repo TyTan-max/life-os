@@ -237,12 +237,15 @@ export function Dashboard({navigate}:{navigate:(page:string, tab?: string)=>void
         // (~900px, with the habit list scrolling inside the page scroll). One card, three tabs.
         <Card className="dash-now" style={{ order: -200 }}>
           <div className="segmented dash-now-tabs" role="tablist" aria-label="Now">
+            {/* Same icons the three desktop cards use, so the tabs read as those cards. */}
             {([
-              ['Habits', `Habits ${todayDone}/${habitsDueToday.length}`],
-              ['Tasks', "Today's Focus"],
-              ['Brief', 'Brief']
-            ] as const).map(([key, label]) => (
-              <button type="button" key={key} role="tab" aria-selected={nowTab === key} className={nowTab === key ? 'on' : ''} onClick={() => chooseNowTab(key)}>{label}</button>
+              ['Habits', 'Habits', Flame],
+              ['Tasks', "Today's Focus", CheckCircle2],
+              ['Brief', 'Brief', Sparkles]
+            ] as const).map(([key, label, Icon]) => (
+              <button type="button" key={key} role="tab" aria-selected={nowTab === key} className={nowTab === key ? 'on' : ''} onClick={() => chooseNowTab(key)}>
+                <Icon size={14} aria-hidden="true" />{label}
+              </button>
             ))}
           </div>
           {nowTab === 'Habits' && <>
