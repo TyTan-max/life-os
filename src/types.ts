@@ -747,6 +747,10 @@ export interface Contact extends BaseRecord {
   personalNotes?: string;
   businessNotes?: string;
   archived?: boolean;
+  // Manual drag-reorder position. Overview reorders within one category's cards; Details reorders
+  // the whole filtered table. Both write into this same field, matching how every other grid's
+  // drag-reorder (Goals, notes, etc.) only ever renumbers whatever subset is currently visible.
+  order?: number;
 }
 
 // Interaction log is the single source of truth for "last contacted" — it's derived from

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import {
   Archive, Briefcase, Cake, CalendarCheck, CalendarDays, Camera, ChevronDown, ChevronLeft, ChevronRight, ChevronsUpDown, ChevronUp, CircleSlash, Gift, GraduationCap,
-  Handshake, Home, LayoutGrid, Link2, Mail, MapPin, Medal, MessageCircle, Pencil, Phone,
+  GripVertical, Handshake, Home, LayoutGrid, Link2, Mail, MapPin, Medal, MessageCircle, Pencil, Phone,
   Plus, Search, Send, SlidersHorizontal, Sparkles, Star, Table2, Tag as TagIcon, Trash2, Upload, UserPlus, Users, Wrench, X
 } from 'lucide-react';
 import { useStore, newRecord } from '../store';
@@ -15,8 +15,8 @@ import { Sheet } from '../components/Sheet';
 import { useIsMobile, MOBILE_QUERY } from '../hooks/useIsMobile';
 import { useFabAction } from '../hooks/useFabAction';
 import { ListManagerModal } from '../components/ListManagerModal';
-import { SortableTh, toggleSort } from '../components/SortableTh';
-import type { SortState } from '../components/SortableTh';
+import { SortableTh, toggleGridSort } from '../components/SortableTh';
+import type { GridSortState } from '../components/SortableTh';
 import type { Contact, ContactInteraction, ContactCategory, InteractionType } from '../types';
 import { CONTACT_CATEGORIES, INTERACTION_TYPES } from '../types';
 import {
@@ -330,7 +330,12 @@ export function PersonalCRM() {
   const [tagViewMode, setTagViewMode] = useState<'All' | 'Used'>(
     () => (typeof window !== 'undefined' && window.matchMedia(MOBILE_QUERY).matches ? 'Used' : 'All')
   );
-  const [detailsSort, setDetailsSort] = useState<SortState<DetailsSortKey>>({ key: 'name', dir: 'asc' });
+  // null = showing manual drag order (each contact's own `order` field); clicking a header sorts
+  // by that column instead, and a third click clears it back to drag order — same pattern as the
+  // Goals/Debt grids' own drag-reorder.
+  const [detailsSort, setDetailsSort] = useState<GridSortState<DetailsSortKey>>(null);
+  const [dragContactId, setDragContactId] = useState<string | null>(null);
+  const [dragOverCardId, setDragOverCardId] = useState<string | null>(null);
   // Separate from detailsSort's alphabetical Role/Company toggle — these narrow the Details table
   // down to one exact value via the header's dropdown, rather than reordering everyone by it.
   const [roleFilter, setRoleFilter] = useState<string>('All');
@@ -418,7 +423,9 @@ export function PersonalCRM() {
   );
 
   // Each contact has exactly one Category, so this is a straight partition (unlike the old
-  // multi-tag grouping, where one contact could land in several buckets at once).
+  // multi-tag grouping, where one contact could land in several buckets at once). Each group's
+  // own list is sorted by `order` so Overview's drag-reorder (scoped to one category at a time)
+  // has something stable to reorder.
   const groupedByTag = useMemo(() => {
     const map = new Map<string, Contact[]>();
     for (const c of tagFilteredContacts) {
@@ -426,8 +433,26 @@ export function PersonalCRM() {
       if (!map.has(cat)) map.set(cat, []);
       map.get(cat)!.push(c);
     }
+    for (const list of map.values()) list.sort((a, b) => (a.order ?? 9999) - (b.order ?? 9999));
     return Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0]));
   }, [tagFilteredContacts]);
+
+  // Drag-to-reorder helper shared by Overview (scoped to one category's own id list) and Details
+  // (scoped to the whole currently-filtered/sorted table) — reindexes just the ids handed to it,
+  // so dragging in one place never touches contacts outside that specific list.
+  const reorderContacts = (ids: string[], fromId: string, toId: string) => {
+    if (fromId === toId) return;
+    const fromIndex = ids.indexOf(fromId);
+    const toIndex = ids.indexOf(toId);
+    if (fromIndex === -1 || toIndex === -1) return;
+    const next = [...ids];
+    next.splice(fromIndex, 1);
+    next.splice(toIndex, 0, fromId);
+    next.forEach((id, index) => {
+      const c = contacts.find(x => x.id === id);
+      if (c && c.order !== index) void upsert('contacts', { ...c, order: index });
+    });
+  };
 
   // Every distinct role/company currently in use, for their header filter dropdowns — scoped to
   // tagFilteredContacts so they only ever offer values that could actually match something.
@@ -447,8 +472,16 @@ export function PersonalCRM() {
     return list;
   }, [tagFilteredContacts, roleFilter, companyFilter]);
 
+  // Manual drag order first — a header sort (when active) re-sorts on top of it, and clearing
+  // that sort (the SortableTh's third click) falls straight back to this order.
+  const orderedRoleFilteredContacts = useMemo(
+    () => roleFilteredContacts.slice().sort((a, b) => (a.order ?? 9999) - (b.order ?? 9999)),
+    [roleFilteredContacts]
+  );
+
   const sortedDetailsContacts = useMemo(() => {
-    return roleFilteredContacts.slice().sort((a, b) => {
+    if (!detailsSort) return orderedRoleFilteredContacts;
+    return orderedRoleFilteredContacts.slice().sort((a, b) => {
       let cmp: number;
       switch (detailsSort.key) {
         case 'name': cmp = a.name.localeCompare(b.name); break;
@@ -462,7 +495,7 @@ export function PersonalCRM() {
       }
       return detailsSort.dir === 'asc' ? cmp : -cmp;
     });
-  }, [roleFilteredContacts, detailsSort, statusByContact]);
+  }, [orderedRoleFilteredContacts, detailsSort, statusByContact]);
 
   const overdueCount = activeContacts.filter(c => statusByContact.get(c.id)?.status === 'Overdue').length;
   const dueSoonCount = activeContacts.filter(c => statusByContact.get(c.id)?.status === 'Due soon').length;
@@ -754,7 +787,20 @@ export function PersonalCRM() {
                       </div>
                       <div className="crm-card-grid">
                         {list.map(c => (
-                          <div className="crm-card" key={c.id}>
+                          <div
+                            className={`crm-card ${dragContactId === c.id ? 'dragging' : ''} ${dragOverCardId === c.id && dragContactId !== null && dragContactId !== c.id ? 'drag-over' : ''}`}
+                            key={c.id}
+                            draggable={!isMobile}
+                            onDragStart={() => setDragContactId(c.id)}
+                            onDragEnter={() => setDragOverCardId(c.id)}
+                            onDragOver={e => e.preventDefault()}
+                            onDrop={() => {
+                              if (dragContactId) reorderContacts(list.map(x => x.id), dragContactId, c.id);
+                              setDragContactId(null);
+                              setDragOverCardId(null);
+                            }}
+                            onDragEnd={() => { setDragContactId(null); setDragOverCardId(null); }}
+                          >
                             {/* Edit/Delete here only ever worked on :hover, which never fires on
                                 touch — silently unreachable on mobile with no fallback. Swipe
                                 replaces it there; desktop keeps the hover reveal unchanged. */}
@@ -815,7 +861,8 @@ export function PersonalCRM() {
                   <table className="grid-table">
                     <thead>
                       <tr>
-                        <SortableTh label="Name" sortKey="name" state={detailsSort} onSort={k => setDetailsSort(s => toggleSort(s, k))} />
+                        <th className="grid-drag-col" />
+                        <SortableTh label="Name" sortKey="name" state={detailsSort} onSort={k => setDetailsSort(s => toggleGridSort(s, k))} />
                         <th className="sortable-th">
                           {/* Same split as the Role header: label is a filter dropdown, arrow icon
                               is the normal alphabetical toggle sort. */}
@@ -831,12 +878,12 @@ export function PersonalCRM() {
                               {distinctCompanies.map(c => <option key={c} value={c}>{c}</option>)}
                             </select>
                             <span
-                              className={`sort-icon ${detailsSort.key === 'company' ? 'active' : ''}`}
-                              onClick={() => setDetailsSort(s => toggleSort(s, 'company'))}
+                              className={`sort-icon ${detailsSort?.key === 'company' ? 'active' : ''}`}
+                              onClick={() => setDetailsSort(s => toggleGridSort(s, 'company'))}
                               role="button"
                               aria-label="Sort by company"
                             >
-                              {detailsSort.key === 'company' ? (detailsSort.dir === 'asc' ? <ChevronUp size={11} /> : <ChevronDown size={11} />) : <ChevronsUpDown size={11} />}
+                              {detailsSort?.key === 'company' ? (detailsSort.dir === 'asc' ? <ChevronUp size={11} /> : <ChevronDown size={11} />) : <ChevronsUpDown size={11} />}
                             </span>
                           </span>
                         </th>
@@ -857,22 +904,22 @@ export function PersonalCRM() {
                               {distinctRoles.map(r => <option key={r} value={r}>{r}</option>)}
                             </select>
                             <span
-                              className={`sort-icon ${detailsSort.key === 'role' ? 'active' : ''}`}
-                              onClick={() => setDetailsSort(s => toggleSort(s, 'role'))}
+                              className={`sort-icon ${detailsSort?.key === 'role' ? 'active' : ''}`}
+                              onClick={() => setDetailsSort(s => toggleGridSort(s, 'role'))}
                               role="button"
                               aria-label="Sort by role"
                             >
-                              {detailsSort.key === 'role' ? (detailsSort.dir === 'asc' ? <ChevronUp size={11} /> : <ChevronDown size={11} />) : <ChevronsUpDown size={11} />}
+                              {detailsSort?.key === 'role' ? (detailsSort.dir === 'asc' ? <ChevronUp size={11} /> : <ChevronDown size={11} />) : <ChevronsUpDown size={11} />}
                             </span>
                           </span>
                         </th>
-                        <SortableTh label="Email" sortKey="email" state={detailsSort} onSort={k => setDetailsSort(s => toggleSort(s, k))} />
+                        <SortableTh label="Email" sortKey="email" state={detailsSort} onSort={k => setDetailsSort(s => toggleGridSort(s, k))} />
                         <th>Phone</th>
-                        <SortableTh label="Social profiles" sortKey="socialProfiles" state={detailsSort} onSort={k => setDetailsSort(s => toggleSort(s, k, 'desc'))} />
-                        <SortableTh label="Address" sortKey="address" state={detailsSort} onSort={k => setDetailsSort(s => toggleSort(s, k))} />
-                        <SortableTh label="Category" sortKey="category" state={detailsSort} onSort={k => setDetailsSort(s => toggleSort(s, k))} />
+                        <SortableTh label="Social profiles" sortKey="socialProfiles" state={detailsSort} onSort={k => setDetailsSort(s => toggleGridSort(s, k, 'desc'))} />
+                        <SortableTh label="Address" sortKey="address" state={detailsSort} onSort={k => setDetailsSort(s => toggleGridSort(s, k))} />
+                        <SortableTh label="Category" sortKey="category" state={detailsSort} onSort={k => setDetailsSort(s => toggleGridSort(s, k))} />
                         <th>Status<br /><small>Computed</small></th>
-                        <SortableTh label="Last contact" sortKey="lastContact" state={detailsSort} onSort={k => setDetailsSort(s => toggleSort(s, k, 'desc'))} />
+                        <SortableTh label="Last contact" sortKey="lastContact" state={detailsSort} onSort={k => setDetailsSort(s => toggleGridSort(s, k, 'desc'))} />
                         <th />
                       </tr>
                     </thead>
@@ -881,7 +928,28 @@ export function PersonalCRM() {
                         const info = statusByContact.get(c.id)!;
                         const socials: [string, string | undefined][] = [['LinkedIn', c.linkedin], ['Instagram', c.instagram], ['Facebook', c.facebook]];
                         return (
-                          <tr key={c.id}>
+                          <tr
+                            key={c.id}
+                            className={dragContactId === c.id ? 'dragging' : ''}
+                            onDragOver={e => e.preventDefault()}
+                            onDrop={() => {
+                              if (dragContactId) reorderContacts(orderedRoleFilteredContacts.map(x => x.id), dragContactId, c.id);
+                              setDragContactId(null);
+                            }}
+                          >
+                            <td className="grid-drag-col">
+                              <span
+                                className="drag-handle"
+                                draggable={!detailsSort}
+                                aria-disabled={Boolean(detailsSort)}
+                                title={detailsSort ? 'Clear the sort to drag-reorder' : 'Drag to reorder'}
+                                aria-label={`Drag to reorder ${c.name}`}
+                                onDragStart={e => { if (detailsSort) { e.preventDefault(); return; } setDragContactId(c.id); e.dataTransfer.effectAllowed = 'move'; }}
+                                onDragEnd={() => setDragContactId(null)}
+                              >
+                                <GripVertical size={13} />
+                              </span>
+                            </td>
                             <td><button type="button" className="text-btn" onClick={() => setSelectedContactId(c.id)}>{c.name}</button></td>
                             <td className="grid-td-compact">
                               <input
