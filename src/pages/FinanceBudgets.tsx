@@ -153,7 +153,7 @@ function HorizontalWaterfallChart({ items, total, totalLabel }: { items: Waterfa
   );
 }
 
-export function FinanceBudgets() {
+export function FinanceBudgets({ hideLedger = false }: { hideLedger?: boolean } = {}) {
   const { data, upsert, remove } = useStore();
   const [month, setMonth] = useState(monthKey());
   const [viewMode, setViewMode] = useState<BudgetViewMode>('month');
@@ -905,7 +905,7 @@ export function FinanceBudgets() {
         </Card>
       </div>
 
-      <FinanceLedger />
+      {!hideLedger && <FinanceLedger />}
 
       {showEditBudgets && (
         <Modal

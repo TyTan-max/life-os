@@ -1,6 +1,7 @@
 import { ChevronRight, Trash2 } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { SwipeRow } from './SwipeRow';
+import type { SwipeAction } from './SwipeRow';
 
 export interface MobileRecordField<T> {
   /** Short label shown above the value in the card's meta row. */
@@ -12,8 +13,10 @@ export interface MobileRecordField<T> {
 // scanning is the point there; a phone card shows the three fields that identify a row and
 // defers the rest to whatever detail view the page already has.
 export function MobileRecordList<T extends { id: string }>({
-  items, primary, secondary, trailing, trailingTone, fields, onOpen, onDelete, deleteLabel, empty
+  items, primary, secondary, trailing, trailingTone, fields, onOpen, onDelete, deleteLabel, empty, leadingAction
 }: {
+  /** Optional swipe-right shortcut (e.g. "Log"). Like delete, it must also be reachable elsewhere. */
+  leadingAction?: (item: T) => SwipeAction;
   items: T[];
   /** The line that identifies the record — a name, merchant, or title. */
   primary: (item: T) => ReactNode;
@@ -41,7 +44,8 @@ export function MobileRecordList<T extends { id: string }>({
                 only way to delete a row, since a gesture with no visible affordance is easy to
                 never discover in the first place. */}
             <SwipeRow
-              disabled={!onDelete}
+              disabled={!onDelete && !leadingAction}
+              leading={leadingAction?.(item)}
               trailing={onDelete ? { label: 'Delete', icon: <Trash2 size={16} />, onTrigger: () => onDelete(item) } : undefined}
             >
               {/* The whole card is the open target, not just a chevron — a 44px row beats a 24px icon. */}

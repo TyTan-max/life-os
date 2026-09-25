@@ -9,6 +9,8 @@ import { useStore, newRecord } from '../store';
 import type { CollectionName, CollectionRecord } from '../types';
 import { Card, EmptyState, Modal, MoneyInput, PageHeader, formatDate } from './UI';
 import { DatePicker } from './DatePicker';
+import { useIsMobile } from '../hooks/useIsMobile';
+import { useFabAction } from '../hooks/useFabAction';
 import { RichTextEditor } from './RichTextEditor';
 
 export type FieldType = 'text' | 'textarea' | 'richtext' | 'number' | 'money' | 'date' | 'select' | 'checkbox' | 'tags' | 'image' | 'multiselect' | 'color';
@@ -97,6 +99,9 @@ interface CollectionPageProps<T extends CollectionRecord> {
   // Extra action(s) rendered in the header next to Bulk import/Add — e.g. a "Discover" button
   // that owns its own open/close state and modal, fully controlled by the calling page.
   headerExtra?: ReactNode;
+  // Nav page this collection is the whole of (e.g. 'Movies'). When set, the mobile center FAB
+  // becomes this page's Add, and the header's own Add button steps aside for it.
+  fabPage?: string;
   // Field the Oldest/Newest sort button uses instead of createdAt (when set) — e.g. a game's
   // actual release date rather than when it was added to your list. Records missing a value
   // for this field always sort to the end, regardless of direction.
@@ -702,9 +707,10 @@ function GenreDropdown({
 }
 
 export function CollectionPage<T extends CollectionRecord>({
-  collection, title, subtitle, itemLabel, fields, defaults, renderTitle, renderSubtitle, sortBy, gallery, statusFilter, genreFilter, autofill, leading, table, embedded, onFieldChange, needsReviewKey, headerExtra, dateSortKey, dateSortLabel, numberSortKey, numberSortLabel
+  collection, title, subtitle, itemLabel, fields, defaults, renderTitle, renderSubtitle, sortBy, gallery, statusFilter, genreFilter, autofill, leading, table, embedded, onFieldChange, needsReviewKey, headerExtra, fabPage, dateSortKey, dateSortLabel, numberSortKey, numberSortLabel
 }: CollectionPageProps<T>) {
   const { data, upsert: rawUpsert, remove } = useStore();
+  const isMobile = useIsMobile();
   // upsert is typed per-collection at the call site (K extends CollectionName); this generic page
   // works across every collection, so the boundary here is intentionally loosened once.
   const upsert = rawUpsert as unknown as (collection: CollectionName, record: CollectionRecord) => Promise<void>;
@@ -926,6 +932,8 @@ export function CollectionPage<T extends CollectionRecord>({
   };
 
   const noun = itemLabel ?? title;
+  useFabAction(embedded ? null : fabPage ?? null, `Add ${noun.toLowerCase()}`, startAdd);
+  const fabOwnsAdd = isMobile && !embedded && Boolean(fabPage);
 
   const visibleCount = view === 'review' ? reviewRecords.length : orderedRecords.length;
 
@@ -1138,9 +1146,11 @@ export function CollectionPage<T extends CollectionRecord>({
             <div className="bucket-header-actions">
               {headerExtra}
               {autofill && (
-                <button type="button" className="btn ghost" onClick={() => setShowBulkImport(true)}><Upload size={16} /> Bulk import</button>
+                <button type="button" className="btn ghost" onClick={() => setShowBulkImport(true)} aria-label="Bulk import">
+                  <Upload size={16} /><span className="header-action-label">Bulk import</span>
+                </button>
               )}
-              <button className="btn primary" onClick={startAdd}><Plus size={16} /> Add</button>
+              {!fabOwnsAdd && <button className="btn primary" onClick={startAdd}><Plus size={16} /> Add</button>}
             </div>
           ) : undefined
         } />
@@ -1190,6 +1200,13 @@ export function CollectionPage<T extends CollectionRecord>({
           title={renderTitle(infoRecord)}
           onClose={() => setInfoRecord(null)}
           footer={<>
+            {/* The poster's hover-only delete overlay never appears on a touch screen, so on a
+                phone delete lives here (the Undo toast still covers a mistap). */}
+            {isMobile && (
+              <button type="button" className="btn ghost danger collection-info-delete" onClick={() => { const r = infoRecord; setInfoRecord(null); void remove(collection, r.id); }}>
+                <Trash2 size={15} /> Delete
+              </button>
+            )}
             <button type="button" className="btn ghost" onClick={() => setInfoRecord(null)}>Close</button>
             <button type="button" className="btn teal" onClick={() => { const r = infoRecord; setInfoRecord(null); startEdit(r); }}>Edit</button>
           </>}

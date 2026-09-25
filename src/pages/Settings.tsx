@@ -1,9 +1,11 @@
-import { useRef } from 'react';
-import { Download, RotateCcw, Upload } from 'lucide-react';
+import { useRef, useState } from 'react';
+import { ChevronRight, Download, RotateCcw, Upload } from 'lucide-react';
 import { useStore } from '../store';
 import type { PhotoQuality, Theme } from '../types';
 import { DEFAULT_PHOTO_QUALITY, PHOTO_QUALITY_PRESETS } from '../lib/photoQuality';
 import { Card, PageHeader } from '../components/UI';
+import { Sheet } from '../components/Sheet';
+import { useIsMobile } from '../hooks/useIsMobile';
 
 const THEMES: Theme[] = ['light', 'dark', 'system'];
 
@@ -49,6 +51,9 @@ function detectTimezone(): { name: string; abbreviation: string; offset: string 
 export function Settings() {
   const { data, updateSettings, exportBackup, importBackup, reset } = useStore();
   const fileRef = useRef<HTMLInputElement>(null);
+  const isMobile = useIsMobile();
+  const [resetOpen, setResetOpen] = useState(false);
+  const [resetText, setResetText] = useState('');
   const settings = data.settings;
   const timezone = detectTimezone();
 
@@ -66,6 +71,126 @@ export function Settings() {
       await reset();
     }
   };
+
+  if (isMobile) {
+    // Grouped-list layout: label left, value right, 52px rows. The desktop two-column form
+    // squeezed into one column read as a wall of identical boxes, and "Reset to sample data"
+    // sat right above the tab bar — the easiest spot on the screen to hit by accident. It's now
+    // alone at the bottom behind a type-to-confirm sheet.
+    const quality = settings.photoQuality ?? DEFAULT_PHOTO_QUALITY;
+    return (
+      <>
+        <PageHeader title="Settings" />
+        <div className="settings-m">
+          <section className="settings-m-group">
+            <h2>Profile</h2>
+            <label className="settings-m-row">
+              <span>Name</span>
+              <input value={settings.userName} onChange={e => void updateSettings({ userName: e.target.value })} />
+            </label>
+          </section>
+
+          <section className="settings-m-group">
+            <h2>Appearance</h2>
+            <label className="settings-m-row">
+              <span>Theme</span>
+              <select value={settings.theme} onChange={e => void updateSettings({ theme: e.target.value as Theme })}>
+                {THEMES.map(t => <option key={t} value={t}>{t[0].toUpperCase() + t.slice(1)}</option>)}
+              </select>
+            </label>
+            <label className="settings-m-row settings-m-row-tall">
+              <span>Photo quality<small>{PHOTO_QUALITY_PRESETS[quality].hint}</small></span>
+              <select value={quality} onChange={e => void updateSettings({ photoQuality: e.target.value as PhotoQuality })}>
+                {(Object.keys(PHOTO_QUALITY_PRESETS) as PhotoQuality[]).map(q => (
+                  <option key={q} value={q}>{PHOTO_QUALITY_PRESETS[q].label}</option>
+                ))}
+              </select>
+            </label>
+          </section>
+
+          <section className="settings-m-group">
+            <h2>Region</h2>
+            <label className="settings-m-row">
+              <span>Currency</span>
+              <select value={settings.currency} onChange={e => void updateSettings({ currency: e.target.value })}>
+                {!CURRENCIES.some(c => c.code === settings.currency) && (
+                  <option value={settings.currency}>{settings.currency}</option>
+                )}
+                {CURRENCIES.map(c => <option key={c.code} value={c.code}>{c.code} — {c.label}</option>)}
+              </select>
+            </label>
+            <div className="settings-m-row settings-m-row-tall">
+              <span>Time zone<small>Detected from your device</small></span>
+              <b className="settings-m-value">{timezone.abbreviation} ({timezone.offset})</b>
+            </div>
+          </section>
+
+          <section className="settings-m-group">
+            <h2>Notifications</h2>
+            <label className="settings-m-row">
+              <span>Browser notifications</span>
+              <input
+                type="checkbox"
+                role="switch"
+                className="settings-m-switch"
+                checked={settings.notificationsEnabled}
+                onChange={e => void updateSettings({ notificationsEnabled: e.target.checked })}
+              />
+            </label>
+            <label className={`settings-m-row ${settings.notificationsEnabled ? '' : 'is-disabled'}`}>
+              <span>Daily brief time</span>
+              <input type="time" value={settings.dailyBriefTime} onChange={e => void updateSettings({ dailyBriefTime: e.target.value })} />
+            </label>
+          </section>
+
+          <section className="settings-m-group">
+            <h2>Data</h2>
+            <p className="settings-m-note">Your data lives in this browser's local storage. Export a backup regularly.</p>
+            <button type="button" className="settings-m-row settings-m-action" onClick={exportBackup}>
+              <span><Download size={17} /> Export backup</span><ChevronRight size={17} />
+            </button>
+            <button type="button" className="settings-m-row settings-m-action" onClick={() => fileRef.current?.click()}>
+              <span><Upload size={17} /> Import backup</span><ChevronRight size={17} />
+            </button>
+            <input ref={fileRef} type="file" accept="application/json" hidden onChange={e => void onImport(e.target.files?.[0])} />
+          </section>
+
+          <section className="settings-m-group settings-m-danger">
+            <h2>Danger zone</h2>
+            <button type="button" className="settings-m-row settings-m-action" onClick={() => { setResetText(''); setResetOpen(true); }}>
+              <span><RotateCcw size={17} /> Reset to sample data</span><ChevronRight size={17} />
+            </button>
+          </section>
+        </div>
+
+        {resetOpen && (
+          <Sheet
+            title="Reset all data?"
+            onClose={() => setResetOpen(false)}
+            footer={<>
+              <button type="button" className="btn ghost" onClick={() => setResetOpen(false)}>Cancel</button>
+              <button
+                type="button"
+                className="btn danger"
+                disabled={resetText.trim().toUpperCase() !== 'RESET'}
+                onClick={() => { setResetOpen(false); void reset(); }}
+              >
+                Reset everything
+              </button>
+            </>}
+          >
+            <div className="sheet-form">
+              <p className="muted">Every habit, note, transaction and log goes back to the sample data. This can't be undone — export a backup first if you might want it back.</p>
+              <label>
+                <span>Type RESET to confirm</span>
+                <input type="text" value={resetText} onChange={e => setResetText(e.target.value)} autoCapitalize="characters" autoComplete="off" />
+              </label>
+            </div>
+          </Sheet>
+        )}
+      </>
+    );
+  }
 
   return (
     <>

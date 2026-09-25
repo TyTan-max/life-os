@@ -94,6 +94,7 @@ export function Videogames() {
         needsReviewKey="needsReview"
         dateSortKey="releaseDate"
         dateSortLabel="release date"
+        fabPage="Videogames"
         headerExtra={
           <button type="button" className="btn ghost" onClick={() => setDeckOpen(true)}><Sparkles size={16} /> Discover</button>
         }

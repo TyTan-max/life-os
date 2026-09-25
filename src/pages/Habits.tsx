@@ -1,12 +1,15 @@
 import { useMemo, useRef, useState } from 'react';
 import {
-  Calendar, Check, ChevronLeft, ChevronRight, CircleSlash, Clock, GripVertical, Pencil, Plus, Quote as QuoteIcon, RotateCcw, Settings2, Trash2, X
+  Calendar, Check, ChevronLeft, ChevronRight, CircleSlash, Clock, Flame, GripVertical, Pencil, Plus, Quote as QuoteIcon, RotateCcw, Settings2, Trash2, Undo2, X
 } from 'lucide-react';
 import { useStore, newRecord } from '../store';
 import type { Habit, HabitFrequency, HabitRoutine, RoutineDateAssignment } from '../types';
 import { Card, Modal } from '../components/UI';
 import { DatePicker } from '../components/DatePicker';
 import { TimeWheelPicker } from '../components/TimeWheelPicker';
+import { SwipeRow } from '../components/SwipeRow';
+import { useIsMobile } from '../hooks/useIsMobile';
+import { useFabAction } from '../hooks/useFabAction';
 import { getSessionQuote } from '../lib/quotes';
 import { getEffectiveRoutineFilter, loadSavedRoutineFilter, matchesRoutineFilter, saveRoutineFilter, sortRoutines } from '../lib/habitRoutines';
 
@@ -132,6 +135,42 @@ function computeBestStreak(habits: Habit[], today: string, currentRoutineId: str
   return streak;
 }
 
+// One habit's own run of kept days, counting back from `today` over the days it was actually
+// due (excused days are skipped, not streak-breaking). An unchecked today doesn't break it yet —
+// the day isn't over.
+function computeHabitStreak(habit: Habit, today: string): number {
+  const days = scheduledDays(habit);
+  let streak = 0;
+  const cursor = new Date(`${today}T12:00:00`);
+  for (let i = 0; i < 400; i++) {
+    const dateStr = localIso(cursor);
+    if (days.includes(cursor.getDay()) && !isExcused(habit, dateStr)) {
+      if (habit.checkins.includes(dateStr)) streak++;
+      else if (dateStr !== today) break;
+    }
+    cursor.setDate(cursor.getDate() - 1);
+  }
+  return streak;
+}
+
+// Completion ring for the phone layout's progress card and week strip. Pure SVG so it scales
+// crisply at both sizes and inherits its color from CSS.
+function ProgressRing({ value, size, stroke }: { value: number; size: number; stroke: number }) {
+  const r = (size - stroke) / 2;
+  const c = 2 * Math.PI * r;
+  return (
+    <svg className="habit-ring" width={size} height={size} viewBox={`0 0 ${size} ${size}`} aria-hidden="true">
+      <circle className="habit-ring-track" cx={size / 2} cy={size / 2} r={r} strokeWidth={stroke} fill="none" />
+      <circle
+        className="habit-ring-fill"
+        cx={size / 2} cy={size / 2} r={r} strokeWidth={stroke} fill="none"
+        strokeDasharray={c} strokeDashoffset={c * (1 - Math.max(0, Math.min(1, value)))}
+        strokeLinecap="round" transform={`rotate(-90 ${size / 2} ${size / 2})`}
+      />
+    </svg>
+  );
+}
+
 function blankHabit(routineId?: string): Partial<Habit> {
   return {
     name: '', description: '', frequency: 'Daily', checkins: [], active: true,
@@ -141,7 +180,11 @@ function blankHabit(routineId?: string): Partial<Habit> {
 
 export function Habits() {
   const { data, upsert, remove } = useStore();
+  const isMobile = useIsMobile();
   const today = localIso();
+  // The phone layout's selected day — the week strip picks it, the checklist shows it.
+  const [selectedDate, setSelectedDate] = useState(today);
+  const topRef = useRef<HTMLDivElement>(null);
 
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -282,6 +325,7 @@ export function Habits() {
   const yearOptions = useMemo(() => Array.from({ length: 75 }, (_, i) => 2026 + i), []);
 
   const startAdd = () => { setForm(blankHabit(effectiveRoutineFilter || undefined)); setEditingId(null); setShowForm(true); };
+  useFabAction('Habits', 'New habit', startAdd);
   const startEdit = (habit: Habit) => { setForm({ ...habit, scheduledDays: scheduledDays(habit) }); setEditingId(habit.id); setShowForm(true); };
   const cancel = () => { setShowForm(false); setEditingId(null); setForm(blankHabit()); };
 
@@ -412,6 +456,22 @@ export function Habits() {
     await Promise.all([...updates, applyRoutineLabel(dateStr, anyChecked)]);
   };
 
+  // Excuse (or un-excuse) a single habit for a single day — voidDay's per-row counterpart, for the
+  // phone checklist's swipe-left. Excusing clears that day's checkin, same as voidDay does.
+  const toggleExcuse = async (habit: Habit, dateStr: string) => {
+    if (isForeignDay(dateStr, effectiveRoutineFilter, routineByDate)) return;
+    const wasExcused = isExcused(habit, dateStr);
+    const nextCheckins = wasExcused ? habit.checkins : habit.checkins.filter(d => d !== dateStr);
+    const nextExcused = wasExcused
+      ? (habit.excusedDates ?? []).filter(d => d !== dateStr)
+      : [...(habit.excusedDates ?? []), dateStr];
+    const anyChecked = computeAnyChecked(habitsInView, dateStr, new Map([[habit.id, nextCheckins]]));
+    await Promise.all([
+      upsert('habits', { ...habit, checkins: nextCheckins, excusedDates: nextExcused }),
+      applyRoutineLabel(dateStr, anyChecked)
+    ]);
+  };
+
   const toggleScheduledDay = (day: number) => {
     const current = form.scheduledDays ?? [];
     setField('scheduledDays', current.includes(day) ? current.filter(d => d !== day) : [...current, day].sort((a, b) => a - b));
@@ -461,6 +521,12 @@ export function Habits() {
 
   const jumpToWeekOf = (date: Date) => {
     setWeekStart(startOfWeek(date));
+    if (isMobile) {
+      // No weekly table on a phone — the calendar tap selects that day in the checklist instead.
+      setSelectedDate(localIso(date));
+      topRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      return;
+    }
     weeklyHistoryRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
 
@@ -471,8 +537,171 @@ export function Habits() {
 
   const isCurrentWeek = localIso(weekStart) === localIso(startOfWeek(new Date()));
 
+  // ---- Phone layout: a single day's checklist, picked from a week strip ----
+  // Same data and mutations as the weekly table below; only the shape changes. A 9-column grid
+  // can't fit 375px — its checkboxes measured 24px and the day columns ran off-screen — so the
+  // phone shows one day at a time with thumb-sized targets instead.
+  const dayStats = (dateStr: string, dayIndex: number) => {
+    const foreign = isForeignDay(dateStr, effectiveRoutineFilter, routineByDate);
+    const scheduled = foreign ? [] : activeHabits.filter(h => scheduledDays(h).includes(dayIndex));
+    const due = scheduled.filter(h => !isExcused(h, dateStr));
+    const done = due.filter(h => h.checkins.includes(dateStr)).length;
+    return { foreign, scheduled, due, done };
+  };
+  const selDate = new Date(`${selectedDate}T12:00:00`);
+  const sel = dayStats(selectedDate, selDate.getDay());
+  const selLabel = selectedDate === today
+    ? 'Today'
+    : selDate.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
+  const selForeignRoutine = sel.foreign ? routines.find(r => r.id === routineByDate.get(selectedDate))?.name : undefined;
+  const shiftSelectedWeek = (delta: number) => {
+    setWeekStart(addDays(weekStart, delta * 7));
+    setSelectedDate(localIso(addDays(selDate, delta * 7)));
+  };
+  const checkHabit = (habit: Habit) => {
+    if (!habit.checkins.includes(selectedDate)) navigator.vibrate?.(10);
+    void toggleDay(habit, selectedDate);
+  };
+
+  const mobileTop = (
+    <div ref={topRef} className="habits-m">
+      <div className="habits-m-header">
+        <h1>Habits</h1>
+        <button type="button" className="icon-btn habits-m-routines" onClick={() => setManageRoutinesOpen(true)} aria-label="Manage routines">
+          <Settings2 size={18} />
+        </button>
+      </div>
+
+      <div className="habits-m-progress">
+        <div className="habits-m-ring">
+          <ProgressRing value={sel.due.length ? sel.done / sel.due.length : 0} size={56} stroke={6} />
+          <span>{sel.done}/{sel.due.length}</span>
+        </div>
+        <div className="habits-m-progress-stat"><b>{selectedDate === today ? 'Today' : selDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</b><small>{sel.due.length ? `${Math.round((sel.done / sel.due.length) * 100)}% done` : 'Nothing due'}</small></div>
+        <div className="habits-m-progress-stat"><b>{weekPct}%</b><small>This week</small></div>
+        <div className="habits-m-progress-stat"><b><Flame size={14} /> {bestStreak}</b><small>Best streak</small></div>
+      </div>
+
+      <div className="habits-m-week">
+        <button type="button" className="habits-m-week-nav" onClick={() => shiftSelectedWeek(-1)} aria-label="Previous week"><ChevronLeft size={18} /></button>
+        <div className="habits-m-week-days">
+          {weekDates.map(d => {
+            const dateStr = localIso(d);
+            const s = dayStats(dateStr, d.getDay());
+            const ratio = s.due.length ? s.done / s.due.length : 0;
+            return (
+              <button
+                type="button"
+                key={dateStr}
+                className={`habits-m-day ${dateStr === selectedDate ? 'on' : ''} ${dateStr === today ? 'is-today' : ''} ${ratio === 1 ? 'complete' : ''}`}
+                onClick={() => setSelectedDate(dateStr)}
+                aria-pressed={dateStr === selectedDate}
+                aria-label={`${d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}: ${s.done} of ${s.due.length} done`}
+              >
+                <small>{DAY_LABELS[d.getDay()].slice(0, 3)}</small>
+                <span className="habits-m-day-circle">
+                  <ProgressRing value={ratio} size={40} stroke={3} />
+                  <b>{d.getDate()}</b>
+                </span>
+              </button>
+            );
+          })}
+        </div>
+        <button type="button" className="habits-m-week-nav" onClick={() => shiftSelectedWeek(1)} aria-label="Next week"><ChevronRight size={18} /></button>
+      </div>
+      {!isCurrentWeek || selectedDate !== today ? (
+        <button type="button" className="habits-m-back-today" onClick={() => { returnToCurrentWeek(); setSelectedDate(today); }}>
+          <RotateCcw size={13} /> Back to today
+        </button>
+      ) : null}
+
+      {routines.length > 0 && (
+        <div className="habits-m-routines-row" role="tablist" aria-label="Routine">
+          {routines.map(r => (
+            <button
+              type="button"
+              key={r.id}
+              role="tab"
+              aria-selected={effectiveRoutineFilter === r.id}
+              className={`habits-m-routine-chip ${effectiveRoutineFilter === r.id ? 'on' : ''}`}
+              onClick={() => setRoutineFilter(r.id)}
+            >
+              <span className="routine-legend-dot" style={{ background: routineColorId(r.id) }} />{r.name}
+            </button>
+          ))}
+        </div>
+      )}
+
+      <div className="habits-m-list-head">
+        <h2>{selLabel}</h2>
+        {sel.scheduled.length > 0 && (
+          <div className="habits-m-day-actions">
+            <button type="button" className="btn ghost small" onClick={() => void voidDay(selectedDate, selDate.getDay())}>
+              <CircleSlash size={14} /> Skip day
+            </button>
+            <button type="button" className="btn ghost small" onClick={() => void checkAllForDay(selectedDate, selDate.getDay())}>
+              <Check size={14} /> Check all
+            </button>
+          </div>
+        )}
+      </div>
+
+      {sel.foreign ? (
+        <p className="habits-m-empty">This day is logged under {selForeignRoutine ?? 'another routine'}. Switch routine above to see it.</p>
+      ) : sel.scheduled.length === 0 ? (
+        <p className="habits-m-empty">
+          {activeHabits.length === 0
+            ? (routines.length === 0 ? 'No habits yet — tap + to add your first one.' : 'No habits tagged with this routine yet.')
+            : 'Nothing scheduled for this day.'}
+        </p>
+      ) : (
+        <div className="habits-m-list">
+          {sel.scheduled.map(habit => {
+            const done = habit.checkins.includes(selectedDate);
+            const excused = isExcused(habit, selectedDate);
+            const streak = computeHabitStreak(habit, today);
+            return (
+              <SwipeRow
+                key={habit.id}
+                leading={excused ? undefined : { label: done ? 'Undo' : 'Done', icon: done ? <Undo2 size={18} /> : <Check size={18} />, onTrigger: () => checkHabit(habit) }}
+                trailing={{ label: excused ? 'Restore' : 'Skip', icon: excused ? <RotateCcw size={18} /> : <CircleSlash size={18} />, onTrigger: () => void toggleExcuse(habit, selectedDate) }}
+              >
+                <div className={`habits-m-row ${done ? 'done' : ''} ${excused ? 'excused' : ''}`}>
+                  <button type="button" className="habits-m-row-main" onClick={() => startEdit(habit)} aria-label={`Edit ${habit.name}`}>
+                    <span className="habits-m-row-time">{formatTime(habit.reminderAt)}</span>
+                    <b>{habit.name}</b>
+                    <span className="habits-m-row-meta">
+                      {excused ? 'Skipped' : streak > 0 ? <><Flame size={12} /> {streak}-day streak</> : 'No streak yet'}
+                    </span>
+                  </button>
+                  {excused ? (
+                    <button type="button" className="habits-m-check excused" onClick={() => void toggleExcuse(habit, selectedDate)} aria-label={`Restore ${habit.name} for this day`}>
+                      <CircleSlash size={20} />
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      className={`habits-m-check ${done ? 'done' : ''}`}
+                      onClick={() => checkHabit(habit)}
+                      aria-pressed={done}
+                      aria-label={`${done ? 'Uncheck' : 'Check off'} ${habit.name}`}
+                    >
+                      <Check size={22} strokeWidth={3} />
+                    </button>
+                  )}
+                </div>
+              </SwipeRow>
+            );
+          })}
+          <p className="habits-m-hint">Swipe right to check off · left to skip for the day</p>
+        </div>
+      )}
+    </div>
+  );
+
   return (
     <>
+      {isMobile ? mobileTop : <>
       <div className="habits-header">
         <div>
           <h1>Habits</h1>
@@ -511,6 +740,7 @@ export function Habits() {
           <small>consecutive days kept</small>
         </div>
       </div>
+      </>}
 
       {showForm && (
         <Modal
@@ -518,6 +748,12 @@ export function Habits() {
           title={editingId ? 'Edit habit' : 'New habit'}
           onClose={cancel}
           footer={<>
+            {/* The phone checklist has no per-row trash icon, so delete lives here instead. */}
+            {isMobile && editingId && (
+              <button type="button" className="btn ghost danger habits-m-delete" onClick={() => { void deleteHabit(editingId); cancel(); }}>
+                <Trash2 size={15} /> Delete
+              </button>
+            )}
             <button type="button" className="btn ghost" onClick={cancel}>Cancel</button>
             <button type="button" className="btn teal" onClick={() => void save()}>Save</button>
           </>}
@@ -608,7 +844,7 @@ export function Habits() {
         </Modal>
       )}
 
-      <Card className="week-card">
+      {!isMobile && <Card className="week-card">
         <div className="week-card-header">
           <div className="week-card-title"><Calendar size={17} /><h2 ref={weeklyHistoryRef}>Weekly History</h2></div>
           <div className="week-nav">
@@ -740,7 +976,7 @@ export function Habits() {
             </div>
           )}
         </div>
-      </Card>
+      </Card>}
 
       <Card className="habit-calendar-card">
         <div className="week-card-header">

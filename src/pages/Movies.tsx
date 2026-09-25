@@ -93,6 +93,7 @@ export function Movies() {
           disabledReason: tmdbConfigured ? undefined : 'Add a free TMDb API key in .env.local to autofill from a title'
         }}
         needsReviewKey="needsReview"
+        fabPage="Movies"
         headerExtra={
           <button type="button" className="btn ghost" onClick={() => setDeckOpen(true)}><Sparkles size={16} /> Discover</button>
         }

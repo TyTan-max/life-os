@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ListChecks, Pencil, Plus, Search, Trash2, Upload, X } from 'lucide-react';
+import { ListChecks, Pencil, Plus, Search, SlidersHorizontal, Trash2, Upload, X } from 'lucide-react';
 import { useStore, newRecord } from '../store';
 import { DatePicker } from '../components/DatePicker';
 import { NumberCell, NotesCell } from '../components/GridCells';
@@ -7,7 +7,7 @@ import { ListManagerModal } from '../components/ListManagerModal';
 import { ImportTransactionsModal } from '../components/ImportTransactionsModal';
 import { SortableTh, SortableThLabel, toggleSort } from '../components/SortableTh';
 import type { SortState } from '../components/SortableTh';
-import { MobileRecordList } from '../components/MobileRecordList';
+import { SwipeRow } from '../components/SwipeRow';
 import { Sheet } from '../components/Sheet';
 import { useIsMobile } from '../hooks/useIsMobile';
 import { useFabAction } from '../hooks/useFabAction';
@@ -23,7 +23,13 @@ type TxSortKey = 'date' | 'merchant' | 'amount' | 'type' | 'account' | 'category
 
 const UNCATEGORIZED_FILTER = '__uncategorized__';
 
-export function FinanceTransactions({ typeFilter }: { typeFilter?: TransactionType } = {}) {
+export function FinanceTransactions({ typeFilter, autoAdd, onAutoAdded }: {
+  typeFilter?: TransactionType;
+  // Set by Finance's phone layout when the FAB was tapped on another tab: open a new
+  // transaction as soon as this mounts, then report back so it only happens once.
+  autoAdd?: boolean;
+  onAutoAdded?: () => void;
+} = {}) {
   const { data, upsert, remove, updateSettings } = useStore();
   const isMobile = useIsMobile();
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -59,6 +65,11 @@ export function FinanceTransactions({ typeFilter }: { typeFilter?: TransactionTy
   const [dateTo, setDateTo] = useState('');
   // Category filter: '' = all categories, UNCATEGORIZED_FILTER = rows with no category set, else a categoryId.
   const [categoryFilter, setCategoryFilter] = useState('');
+  // Phone-only: the filter sheet, and ids of rows the FAB created in this session — adding a
+  // transaction saves a blank row immediately so the edit sheet has something to edit, and one
+  // that's still blank when the sheet closes is discarded rather than left as a $0 orphan.
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const createdHere = useRef(new Set<string>());
   const filteredTransactions = useMemo(() => {
     return transactions.filter(t => {
       if (dateFrom && t.date < dateFrom) return false;
@@ -255,12 +266,21 @@ export function FinanceTransactions({ typeFilter }: { typeFilter?: TransactionTy
     // Desktop edits inline in the grid, so there's nothing to open there — this only matters
     // on mobile, where "add" would otherwise create a blank row and strand it in the list with
     // no indication which one is new.
-    if (isMobile) setEditingId(record.id);
+    if (isMobile) { createdHere.current.add(record.id); setEditingId(record.id); }
   };
   // Only meaningful while this is actually the transactions (not "Income") sub-view — the FAB
   // falls back to Capture when it isn't, since neither ledger sub-tab nor Finance's own tab is
   // reachable from here to redirect into.
   useFabAction('Finance', typeFilter === 'Income' ? 'Add income' : 'Add transaction', addTransaction);
+  // Ref-guarded: StrictMode runs mount effects twice in development, which would add two rows.
+  const autoAddedRef = useRef(false);
+  useEffect(() => {
+    if (!autoAdd || autoAddedRef.current) return;
+    autoAddedRef.current = true;
+    addTransaction();
+    onAutoAdded?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoAdd]);
 
   const addAccount = (name: string) => {
     void upsert('financeAccounts', newRecord<FinanceAccount>({ name, type: 'Checking', balance: 0, status: 'Active' }));
@@ -299,6 +319,14 @@ export function FinanceTransactions({ typeFilter }: { typeFilter?: TransactionTy
   };
 
   const editing = sortedTransactions.find(t => t.id === editingId) ?? null;
+  const closeEditor = () => {
+    if (editing && createdHere.current.has(editing.id)) {
+      createdHere.current.delete(editing.id);
+      const blank = !editing.merchant.trim() && !editing.amount && !editing.categoryId && !editing.notes?.trim();
+      if (blank) deleteTransaction(editing);
+    }
+    setEditingId(null);
+  };
 
   // Windowed rendering for the desktop grid: with a history that can run into the thousands of
   // rows (e.g. after a few bank CSV imports), mounting every row's inputs at once measurably slows
@@ -389,33 +417,126 @@ export function FinanceTransactions({ typeFilter }: { typeFilter?: TransactionTy
   );
 
   if (isMobile) {
+    // Rows grouped under sticky day headers (the list is date-sorted, so a group is just a run
+    // of equal dates). Each row is one 60px line — merchant, category · account, amount — where
+    // the old card spent ~120px on labelled CATEGORY/ACCOUNT fields.
+    const groups: { date: string; items: Transaction[] }[] = [];
+    for (const t of sortedTransactions) {
+      const last = groups[groups.length - 1];
+      if (last && last.date === t.date) last.items.push(t);
+      else groups.push({ date: t.date, items: [t] });
+    }
+    const yesterday = (() => {
+      const d = new Date(`${today}T12:00:00`);
+      d.setDate(d.getDate() - 1);
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    })();
+    const dayLabel = (date: string) => date === today ? 'Today'
+      : date === yesterday ? 'Yesterday'
+      : new Date(`${date}T12:00:00`).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+    const toneOf = (t: Transaction) => isIncomeView ? 'positive' : t.type === 'Transfer' ? '' : 'negative';
+    const activeFilterCount = (dateFrom || dateTo ? 1 : 0) + (categoryFilter ? 1 : 0);
+
     return (
       <>
-        {searchBox}
-        {dateRangeFilter}
-        {categoryFilterSelect}
-        <MobileRecordList
-          items={sortedTransactions}
-          primary={t => t.merchant || `(no ${noun === 'income' ? 'source' : 'merchant'})`}
-          secondary={t => formatDate(t.date)}
-          trailing={t => formatCurrency(t.amount)}
-          trailingTone={() => (isIncomeView ? 'positive' : 'negative')}
-          fields={[
-            { label: 'Category', value: t => categoryName(t.categoryId) || '—' },
-            { label: 'Account', value: t => accountName(t.accountId) || '—' }
-          ]}
-          onOpen={t => setEditingId(t.id)}
-          onDelete={deleteTransaction}
-          deleteLabel={t => `Delete ${t.merchant || noun}`}
-          empty={search ? 'No matches for your search.' : `No ${noun === 'income' ? 'income logged' : 'transactions'} yet — add your first one below.`}
-        />
-        <button type="button" className="btn teal grid-add-row" onClick={addTransaction}>
-          <Plus size={16} /> Add {noun}
-        </button>
-        {accounts.length > 0 && (
-          <button type="button" className="btn ghost grid-add-row" onClick={() => setShowImport(true)}>
-            <Upload size={16} /> Import CSV
+        <div className="tx-m-toolbar">
+          {searchBox}
+          <button
+            type="button"
+            className={`tx-m-tool ${activeFilterCount ? 'on' : ''}`}
+            onClick={() => setFiltersOpen(true)}
+            aria-label={activeFilterCount ? `Filters (${activeFilterCount} active)` : 'Filters'}
+          >
+            <SlidersHorizontal size={17} />
+            {activeFilterCount > 0 && <span className="tx-m-badge">{activeFilterCount}</span>}
           </button>
+          {accounts.length > 0 && (
+            <button type="button" className="tx-m-tool" onClick={() => setShowImport(true)} aria-label="Import CSV">
+              <Upload size={17} />
+            </button>
+          )}
+        </div>
+        {activeFilterCount > 0 && (
+          <button type="button" className="tx-m-filter-summary" onClick={() => { setDateFrom(''); setDateTo(''); setCategoryFilter(''); }}>
+            {[
+              dateFrom || dateTo ? `${dateFrom ? formatDate(dateFrom) : '…'} – ${dateTo ? formatDate(dateTo) : '…'}` : null,
+              categoryFilter ? (categoryFilter === UNCATEGORIZED_FILTER ? 'Uncategorized' : categoryName(categoryFilter)) : null
+            ].filter(Boolean).join(' · ')}
+            <X size={13} />
+          </button>
+        )}
+
+        {groups.length === 0 ? (
+          <p className="muted mrl-empty">
+            {search || activeFilterCount ? 'No matches for your search or filters.' : `No ${noun === 'income' ? 'income logged' : 'transactions'} yet — tap + to add one.`}
+          </p>
+        ) : (
+          <div className="tx-m-list">
+            {groups.map(group => {
+              const dayTotal = group.items.filter(t => t.type !== 'Transfer').reduce((s, t) => s + t.amount, 0);
+              return (
+                <section key={group.date} className="tx-m-day">
+                  <h3 className="tx-m-day-head">
+                    <span>{dayLabel(group.date)}</span>
+                    <span className="tx-m-day-total">{formatCurrency(dayTotal)}</span>
+                  </h3>
+                  <div className="tx-m-day-rows">
+                    {group.items.map(t => {
+                      const category = categories.find(c => c.id === t.categoryId);
+                      const title = t.merchant || `(no ${noun === 'income' ? 'source' : 'merchant'})`;
+                      const tone = toneOf(t);
+                      return (
+                        <SwipeRow key={t.id} trailing={{ label: 'Delete', icon: <Trash2 size={16} />, onTrigger: () => deleteTransaction(t) }}>
+                          <button type="button" className="tx-m-row" onClick={() => setEditingId(t.id)}>
+                            <span
+                              className="tx-m-avatar"
+                              style={category?.color ? { color: category.color, background: `color-mix(in srgb, ${category.color} 18%, transparent)` } : undefined}
+                              aria-hidden="true"
+                            >
+                              {(category?.name || title).trim().charAt(0).toUpperCase() || '?'}
+                            </span>
+                            <span className="tx-m-text">
+                              <b>{title}</b>
+                              <small>{[category?.name ?? 'Uncategorized', accountName(t.accountId)].filter(Boolean).join(' · ')}</small>
+                            </span>
+                            <span className={`tx-m-amount ${tone}`}>
+                              {tone === 'positive' ? '+' : tone === 'negative' ? '−' : ''}{formatCurrency(t.amount)}
+                            </span>
+                          </button>
+                        </SwipeRow>
+                      );
+                    })}
+                  </div>
+                </section>
+              );
+            })}
+          </div>
+        )}
+
+        {filtersOpen && (
+          <Sheet
+            title="Filters"
+            onClose={() => setFiltersOpen(false)}
+            footer={<>
+              <button type="button" className="btn ghost" onClick={() => { setDateFrom(''); setDateTo(''); setCategoryFilter(''); }} disabled={!activeFilterCount}>Clear all</button>
+              <button type="button" className="btn teal" onClick={() => setFiltersOpen(false)}>
+                Show {sortedTransactions.length} {noun === 'income' ? 'entries' : `transaction${sortedTransactions.length === 1 ? '' : 's'}`}
+              </button>
+            </>}
+          >
+            <div className="sheet-form">
+              <label><span>From</span><DatePicker value={dateFrom} onChange={setDateFrom} placeholder="Any date" /></label>
+              <label><span>To</span><DatePicker value={dateTo} onChange={setDateTo} placeholder="Any date" /></label>
+              <label>
+                <span>Category</span>
+                <select value={categoryFilter} onChange={e => setCategoryFilter(e.target.value)}>
+                  <option value="">All categories</option>
+                  <option value={UNCATEGORIZED_FILTER}>Uncategorized</option>
+                  {relevantCategories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+              </label>
+            </div>
+          </Sheet>
         )}
 
         {showImport && (
@@ -430,7 +551,16 @@ export function FinanceTransactions({ typeFilter }: { typeFilter?: TransactionTy
         )}
 
         {editing && (
-          <Sheet title={editing.merchant || `Edit ${noun}`} onClose={() => setEditingId(null)}>
+          <Sheet
+            title={editing.merchant || `Edit ${noun}`}
+            onClose={closeEditor}
+            footer={<>
+              <button type="button" className="btn ghost danger" onClick={() => { createdHere.current.delete(editing.id); deleteTransaction(editing); setEditingId(null); }}>
+                <Trash2 size={15} /> Delete
+              </button>
+              <button type="button" className="btn teal" onClick={closeEditor}>Done</button>
+            </>}
+          >
             <div className="sheet-form">
               <label><span>Date</span><DatePicker value={editing.date} onChange={v => patch(editing, { date: v })} /></label>
               <label>

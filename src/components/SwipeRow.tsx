@@ -27,6 +27,7 @@ export function SwipeRow({
   const draggingRef = useRef(false);
   const widthRef = useRef(1);
   const wrapRef = useRef<HTMLDivElement>(null);
+  const suppressClickRef = useRef(false);
 
   if (disabled || (!leading && !trailing)) return <>{children}</>;
 
@@ -69,6 +70,11 @@ export function SwipeRow({
 
   const finish = () => {
     if (!draggingRef.current) { startRef.current = null; return; }
+    // A drag that ends over the row still produces a click (always with a mouse or trackpad,
+    // sometimes on touch), which would also fire whatever the row's tap does — e.g. open an
+    // editor on top of the swipe action that just ran. Swallow exactly that one click.
+    suppressClickRef.current = true;
+    window.setTimeout(() => { suppressClickRef.current = false; }, 0);
     const ratio = Math.abs(dx) / widthRef.current;
     if (ratio >= COMMIT_RATIO) {
       if (dx < 0 && trailing) trailing.onTrigger();
@@ -103,6 +109,12 @@ export function SwipeRow({
         onPointerMove={onPointerMove}
         onPointerUp={finish}
         onPointerCancel={reset}
+        onClickCapture={e => {
+          if (!suppressClickRef.current) return;
+          suppressClickRef.current = false;
+          e.stopPropagation();
+          e.preventDefault();
+        }}
       >
         {children}
       </div>

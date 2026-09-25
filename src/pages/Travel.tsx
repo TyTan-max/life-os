@@ -10,6 +10,8 @@ import { Card, EmptyState, Modal, PageHeader, ProgressBar, formatDate } from '..
 import { DatePicker } from '../components/DatePicker';
 import { RichTextEditor } from '../components/RichTextEditor';
 import { generateId } from '../utils/id';
+import { useIsMobile } from '../hooks/useIsMobile';
+import { useFabAction } from '../hooks/useFabAction';
 import { DISCOVERY_DECK, buildDeckPrompt, DECK_SYSTEM_PROMPT, parseDeckIdeas, type DeckIdea } from '../lib/bucketListDeck';
 import { complete, loadSavedEngine, ENGINE_LABELS, ENGINE_STORAGE_KEY, type Engine } from '../lib/aiEngine';
 import { coverQuery, isUnsplashConfigured, resolveCover, searchPhotos, type PhotoOption } from '../lib/unsplash';
@@ -442,6 +444,7 @@ function DiscoveryDeck({
 
 export function Travel() {
   const { data, upsert, remove } = useStore();
+  const isMobile = useIsMobile();
   const items = data.bucketList;
 
   const [statusTab, setStatusTab] = useState<StatusTab>('All');
@@ -564,6 +567,7 @@ export function Travel() {
   };
 
   const startAdd = () => { setFormItem(null); setShowForm(true); };
+  useFabAction('Travel & Bucket List', 'Add goal', startAdd);
   const startEdit = (item: BucketListItem) => { setFormItem(item); setShowForm(true); };
   const closeForm = () => { setShowForm(false); setFormItem(null); };
 
@@ -599,7 +603,7 @@ export function Travel() {
         action={
           <div className="bucket-header-actions">
             <button className="btn ghost" onClick={() => setDeckOpen(true)}><Sparkles size={16} /> Discover</button>
-            <button className="btn primary" onClick={startAdd}><Plus size={16} /> Add goal</button>
+            {!isMobile && <button className="btn primary" onClick={startAdd}><Plus size={16} /> Add goal</button>}
           </div>
         }
       />

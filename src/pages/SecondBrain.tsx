@@ -10,7 +10,7 @@ import type { BookActionItem, BookNoteRow, BookNoteStatus, BookQuoteRow, Frequen
 import { DEFAULT_WORKSPACE_ID } from '../storage';
 import { photoQualityPreset } from '../lib/photoQuality';
 import { generateId } from '../utils/id';
-import { Badge, Card, EmptyState, Kpi, Modal, PageHeader, formatDate } from '../components/UI';
+import { Badge, Card, EmptyState, Kpi, Modal, PageHeader, ProgressBar, formatDate } from '../components/UI';
 import { SortableTh, toggleSort } from '../components/SortableTh';
 import type { SortState } from '../components/SortableTh';
 import { ListManagerModal } from '../components/ListManagerModal';
@@ -1173,6 +1173,36 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
     return notes.some(n => n.id !== note.id && n.title.trim().toLowerCase() === t);
   }, [notes, note]);
 
+  // Notes are persisted the moment they're created (so typing autosaves), which means tapping
+  // New note and backing out used to leave an "Untitled — No content yet" row behind every
+  // time. Anything created in this session that's still untouched when it stops being the open
+  // note — or when the page unmounts — is discarded. Scoped to this session's creations so a
+  // pre-existing note is never deleted just for being opened; the removal goes through the
+  // normal store path, so the Undo toast can still bring it back.
+  const createdThisSession = useRef(new Set<string>());
+  const latestNotesRef = useRef(notes);
+  latestNotesRef.current = notes;
+  const discardIfBlank = (id: string | null) => {
+    if (!id || !createdThisSession.current.has(id)) return;
+    const n = latestNotesRef.current.find(x => x.id === id);
+    if (!n || n.locked) return;
+    const text = n.body.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').trim();
+    const template = n.paraType ? PARA_TEMPLATES[n.paraType] ?? '' : '';
+    const bodyUntouched = !text || n.body === template;
+    const blank = !n.title.trim() && bodyUntouched && !n.images?.length && !n.tags?.length && !n.subtasks?.length;
+    createdThisSession.current.delete(id);
+    if (blank) void remove('notes', id);
+  };
+  const prevSelectedId = useRef<string | null>(null);
+  useEffect(() => {
+    if (prevSelectedId.current && prevSelectedId.current !== selectedId) discardIfBlank(prevSelectedId.current);
+    prevSelectedId.current = selectedId;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedId]);
+  useEffect(() => () => discardIfBlank(prevSelectedId.current),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    []);
+
   const createNote = async (typeOverride?: ParaType) => {
     const scopePatch: Partial<Note> = areaScopeId
       ? { paraType: 'Project', areaId: areaScopeId }
@@ -1183,6 +1213,7 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
           : { paraType: typeOverride ?? TAB_PARA_TYPE[paraTab] };
     const body = scopePatch.paraType ? (PARA_TEMPLATES[scopePatch.paraType] ?? '') : '';
     const record = newRecord<Note>({ title: '', body, tags: [], pinned: false, workspaceId: activeWorkspaceId, ...scopePatch });
+    createdThisSession.current.add(record.id);
     await upsert('notes', record);
     openNote(record);
   };
@@ -1624,7 +1655,41 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
   // All is the table tab: a full-width sortable grid replaces the sidebar+editor split until a
   // row is clicked, at which point `note` becomes truthy and the normal split takes back over.
   const showAllTable = isAllTab && !note;
-  useFabAction('Second Brain', 'New note', () => void createNote());
+  // Follows the tab, same as the header's primary button it replaces on a phone.
+  // createNote already creates the right *kind* of note for the current tab/scope (a Project on
+  // Projects, a Book Note on Books, …) — the button just never said so. Same label on the header
+  // button and the phone FAB.
+  const newNoteLabel = areaScopeId || paraTab === 'Projects' ? 'New project'
+    : resourceScope ? 'New resource'
+    : paraTab === 'Areas' ? 'New area'
+    : paraTab === 'Books' ? 'New book note'
+    : 'New note';
+  const fab = paraTab === 'Tasks' ? { label: 'Add task', run: startAddTask }
+    : paraTab === 'Goals' ? { label: 'Add goal', run: startAddGoal }
+    : paraTab === 'Flashcards' ? {
+      label: 'New deck',
+      // Decks are created from the name field at the top of the Flashcards view; the FAB just
+      // takes you there rather than duplicating that flow.
+      run: () => {
+        const input = document.querySelector<HTMLInputElement>('.fc-new-deck input');
+        input?.focus();
+        input?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      }
+    }
+    : { label: newNoteLabel, run: () => void createNote() };
+  useFabAction('Second Brain', fab.label, fab.run);
+  // "No notes match." was the only empty state, shown even when nothing was being searched for.
+  const emptyNotesMessage = query.trim() || tagFilter || languageFilter ? 'No notes match your search.'
+    : !notes.length ? `No notes yet — ${isMobile ? 'tap +' : 'use New note'} to create your first one.`
+    : areaScopeId ? 'No active projects in this area yet.'
+    : resourceScope ? 'Nothing saved here yet.'
+    : paraTab === 'Inbox' ? 'Inbox zero — nothing waiting to be sorted.'
+    : paraTab === 'Projects' ? `No projects yet — ${isMobile ? 'tap +' : 'use New project'} to start one.`
+    : paraTab === 'Areas' ? 'No areas yet.'
+    : paraTab === 'Archive' ? 'Nothing archived. Archived notes land here and can be restored any time.'
+    : paraTab === 'Books' ? `No book notes yet — ${isMobile ? 'tap +' : 'use New book note'} to add one.`
+    : paraTab === 'Tasks' || paraTab === 'Goals' ? 'Notes live under All, Inbox and Projects.'
+    : 'No notes here yet.';
   const mobileNoteOpen = isMobile && !!note;
   const mobileHubActive = isMobile && hubTabActive;
   // Landscape has the width to spare for the desktop-style two-pane layout, just narrower — so
@@ -1651,15 +1716,15 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
         subtitle="Notes, ideas, and knowledge — organized with PARA, linked together with [[Note Title]]."
         action={
           <div className="sb-header-actions">
-            <button type="button" className="btn ghost" onClick={() => setPaletteOpen(true)} title="Jump to note (Ctrl+K)">
-              <Command size={15} /> Jump to…
+            <button type="button" className="btn ghost" onClick={() => setPaletteOpen(true)} title="Jump to note (Ctrl+K)" aria-label="Jump to note">
+              {isMobile ? <Search size={17} /> : <><Command size={15} /> Jump to…</>}
             </button>
-            {paraTab === 'Tasks' ? (
+            {isMobile ? null : paraTab === 'Tasks' ? (
               <button className="btn primary" onClick={startAddTask}><Plus size={16} /> Add task</button>
             ) : paraTab === 'Goals' ? (
               <button className="btn primary" onClick={startAddGoal}><Plus size={16} /> Add goal</button>
             ) : paraTab === 'Flashcards' ? null : (
-              <button className="btn primary" onClick={() => void createNote()}><Plus size={16} /> New note</button>
+              <button className="btn primary" onClick={() => void createNote()}><Plus size={16} /> {newNoteLabel}</button>
             )}
           </div>
         }
@@ -1748,13 +1813,14 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
               <MobileRecordList
                 items={sortedTableNotes}
                 primary={n => <>{n.pinned && <Pin size={12} className="mrl-pin-icon" />} {n.title || 'Untitled'}</>}
-                secondary={n => noteTypeLabel(n)}
+                // Tags ride along on the secondary line rather than a labelled field, which
+                // printed an empty "TAGS —" block on every untagged note.
+                secondary={n => [noteTypeLabel(n), ...(n.tags ?? []).map(t => `#${t}`)].join(' · ')}
                 trailing={n => formatDate(n.updatedAt)}
-                fields={[{ label: 'Tags', value: n => ((n.tags ?? []).length ? (n.tags ?? []).join(', ') : '—') }]}
                 onOpen={n => openNote(n)}
                 onDelete={n => void deleteNoteInstantly(n.id)}
                 deleteLabel={n => `Delete ${n.title || 'Untitled'}`}
-                empty={notes.length ? 'No notes match.' : 'No notes yet — create your first one.'}
+                empty={emptyNotesMessage}
               />
             ) : sortedTableNotes.length ? (
               <div className="grid-table-wrap grid-table-scroll">
@@ -1802,7 +1868,7 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                   </tbody>
                 </table>
               </div>
-            ) : <EmptyState>{notes.length ? 'No notes match.' : 'No notes yet — create your first one.'}</EmptyState>}
+            ) : <EmptyState>{emptyNotesMessage}</EmptyState>}
           </div>
         </div>
       ) : (
@@ -1947,7 +2013,7 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                   </button>
                 )}
               </div>
-            )) : <EmptyState>{notes.length ? 'No notes match.' : 'No notes yet — create your first one.'}</EmptyState>}
+            )) : <EmptyState>{emptyNotesMessage}</EmptyState>}
           </div>
         </aside>
 
@@ -2102,6 +2168,19 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                       const rangeValue = g.rangeValue ?? rangeStart;
                       const sliderSpan = goalSliderSpan(rangeStart, rangeTarget);
                       const sliderNativeValue = goalSliderNativeValue(rangeStart, rangeTarget, rangeValue);
+                      // Phone: a read-only bar that opens Goals. A live slider in a scrolling list
+                      // is one drag away from changing a goal's progress while just scrolling past.
+                      if (isMobile) {
+                        return (
+                          <button type="button" key={g.id} className="sb-overview-goal-row sb-overview-goal-link" onClick={() => changeTab('Goals')}>
+                            <div className="sb-overview-goal-head">
+                              <b>{g.title}</b>
+                              <span>{isRange ? `${rangeValue}${g.rangeUnit ?? ''}` : `${g.progress}%`}</span>
+                            </div>
+                            <ProgressBar value={g.progress} />
+                          </button>
+                        );
+                      }
                       return (
                         <div key={g.id} className="sb-overview-goal-row">
                           <div className="sb-overview-goal-head">
@@ -2158,7 +2237,7 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                       <span className="sb-hub-card-count">{count} active project{count === 1 ? '' : 's'}{isReviewDue(area) ? ' · review due' : ''}</span>
                     </button>
                   );
-                }) : <EmptyState>No areas yet — set a note's type to "Area" to create one.</EmptyState>}
+                }) : <EmptyState>No areas yet — {isMobile ? 'tap +' : 'use New area'} to add one, or set any note's type to Area.</EmptyState>}
               </div>
             </div>
           ) : paraTab === 'Tasks' ? (

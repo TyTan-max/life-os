@@ -79,6 +79,7 @@ export function Books() {
         numberSortLabel="page count"
         autofill={{ titleKey: 'title', search: searchBooks }}
         needsReviewKey="needsReview"
+        fabPage="Books"
         headerExtra={
           <button type="button" className="btn ghost" onClick={() => setDeckOpen(true)}><Sparkles size={16} /> Discover</button>
         }

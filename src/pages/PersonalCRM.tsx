@@ -348,6 +348,8 @@ export function PersonalCRM() {
   const [showContactForm, setShowContactForm] = useState(false);
   const [editingContactId, setEditingContactId] = useState<string | null>(null);
   const [contactForm, setContactForm] = useState<Partial<Contact>>(blankContact());
+  // The photo-URL field is a fallback to Upload, so it stays tucked behind a link until asked for.
+  const [photoUrlOpen, setPhotoUrlOpen] = useState(false);
   const [locationDraft, setLocationDraft] = useState('');
   const [showLocationSuggest, setShowLocationSuggest] = useState(false);
   const [tagDraft, setTagDraft] = useState('');
@@ -571,6 +573,7 @@ export function PersonalCRM() {
   const cancelContactForm = () => {
     setShowContactForm(false);
     setEditingContactId(null);
+    setPhotoUrlOpen(false);
     setContactForm(blankContact());
     setLocationDraft('');
     setTagDraft('');
@@ -852,6 +855,7 @@ export function PersonalCRM() {
                     { label: 'Reach', value: c => c.email || c.phone || '—' }
                   ]}
                   onOpen={c => setSelectedContactId(c.id)}
+                  leadingAction={c => ({ label: 'Log', icon: <MessageCircle size={16} />, onTrigger: () => openQuickLog(c.id) })}
                   onDelete={requestDeleteContact}
                   deleteLabel={c => `Delete ${c.name}`}
                   empty={contacts.length ? 'No contacts match your filters.' : 'No contacts yet — add your first one.'}
@@ -1108,71 +1112,115 @@ export function PersonalCRM() {
           onClose={cancelContactForm}
           size="wide"
           footer={<>
+            {/* saveContact quietly ignored a blank name, so Save looked broken. Say why instead. */}
+            {!contactForm.name?.trim() && <span className="cf-footer-hint">Add a name to save</span>}
             <button type="button" className="btn ghost" onClick={cancelContactForm}>Cancel</button>
-            <button type="button" className="btn teal" onClick={() => void saveContact()}>Save</button>
+            <button type="button" className="btn teal" onClick={() => void saveContact()} disabled={!contactForm.name?.trim()}>
+              {editingContactId ? 'Save' : 'Add contact'}
+            </button>
           </>}
         >
-          <div className="contact-form-layout">
-            <nav className="contact-category-nav">
-              <div className="contact-category-nav-title">Category</div>
+          <div className="contact-form">
+            {/* Identity first: who this is, with a live preview of how they'll appear. */}
+            <div className="cf-identity">
               <button
                 type="button"
-                className={`contact-category-nav-item ${!contactForm.category ? 'active' : ''}`}
-                onClick={() => setContactField('category', undefined)}
+                className="cf-avatar"
+                onClick={() => contactPhotoFileRef.current?.click()}
+                aria-label={contactForm.photoUrl ? 'Change photo' : 'Add a photo'}
+                title={contactForm.photoUrl ? 'Change photo' : 'Add a photo'}
               >
-                <CircleSlash size={14} />
-                <span className="ccn-label">Uncategorized</span>
+                <ContactAvatar contact={{ id: contactForm.id ?? 'new-contact', name: contactForm.name || '?', photoUrl: contactForm.photoUrl }} size="large" />
+                <span className="crm-contact-avatar-edit-badge"><Camera size={11} /></span>
               </button>
-              {tagCounts.map(([cat, count]) => {
-                const Icon = categoryIcon(cat);
-                const active = contactForm.category === cat;
-                return (
-                  <button
-                    type="button"
-                    key={cat}
-                    className={`contact-category-nav-item ${active ? 'active' : ''}`}
-                    onClick={() => setContactField('category', (active ? undefined : cat) as ContactCategory | undefined)}
-                  >
-                    <Icon size={14} />
-                    <span className="ccn-label">{cat}</span>
-                    <span className="ccn-count">{count}</span>
-                  </button>
-                );
-              })}
-            </nav>
-
-            <div className="form-grid">
-              <label className="field-full"><span>Name</span><input value={contactForm.name ?? ''} onChange={e => setContactField('name', e.target.value)} /></label>
-              <label className="field-full">
-                <span>Photo URL</span>
-                <div className="crm-photo-field-row">
-                  <input value={contactForm.photoUrl ?? ''} onChange={e => setContactField('photoUrl', e.target.value)} placeholder="https://…" />
+              <input
+                ref={contactPhotoFileRef} type="file" accept="image/*" hidden
+                onChange={e => { const file = e.target.files?.[0]; if (file) void uploadContactPhoto(file); e.target.value = ''; }}
+              />
+              <div className="cf-identity-fields">
+                <label className="cf-name">
+                  <span>Name</span>
                   <input
-                    ref={contactPhotoFileRef} type="file" accept="image/*" hidden
-                    onChange={e => { const file = e.target.files?.[0]; if (file) void uploadContactPhoto(file); e.target.value = ''; }}
+                    value={contactForm.name ?? ''}
+                    placeholder="Full name"
+                    autoFocus={!editingContactId}
+                    autoComplete="off"
+                    onChange={e => setContactField('name', e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter' && contactForm.name?.trim()) { e.preventDefault(); void saveContact(); } }}
                   />
-                  <button type="button" className="btn ghost small" onClick={() => contactPhotoFileRef.current?.click()}>
-                    <Upload size={13} /> Upload
+                </label>
+                <div className="cf-photo-actions">
+                  <button type="button" className="text-btn" onClick={() => contactPhotoFileRef.current?.click()}>
+                    <Upload size={13} /> {contactForm.photoUrl ? 'Replace photo' : 'Upload photo'}
                   </button>
-                  {contactForm.photoUrl && (
-                    <button type="button" className="btn ghost small" onClick={() => setContactCropSrc(contactForm.photoUrl!)}>
-                      Adjust crop
-                    </button>
-                  )}
+                  <button type="button" className="text-btn" onClick={() => setPhotoUrlOpen(open => !open)} aria-expanded={photoUrlOpen}>
+                    <Link2 size={13} /> Photo URL
+                  </button>
+                  {contactForm.photoUrl && <>
+                    <button type="button" className="text-btn" onClick={() => setContactCropSrc(contactForm.photoUrl!)}>Adjust crop</button>
+                    <button type="button" className="text-btn danger" onClick={() => setContactField('photoUrl', undefined)}>Remove</button>
+                  </>}
                 </div>
+              </div>
+            </div>
+            {photoUrlOpen && (
+              <label className="cf-photo-url">
+                <span>Photo URL</span>
+                <input type="url" value={contactForm.photoUrl ?? ''} onChange={e => setContactField('photoUrl', e.target.value || undefined)} placeholder="https://…" />
               </label>
+            )}
 
+            <div className="cf-section">
+              <div className="form-section-title">Category</div>
+              <div className="cf-category-chips" role="radiogroup" aria-label="Category">
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={!contactForm.category}
+                  className={`cf-chip ${!contactForm.category ? 'on' : ''}`}
+                  onClick={() => setContactField('category', undefined)}
+                >
+                  <CircleSlash size={14} /> None
+                </button>
+                {tagCounts.map(([cat]) => {
+                  const Icon = categoryIcon(cat);
+                  const active = contactForm.category === cat;
+                  return (
+                    <button
+                      type="button"
+                      key={cat}
+                      role="radio"
+                      aria-checked={active}
+                      className={`cf-chip ${active ? 'on' : ''}`}
+                      onClick={() => setContactField('category', (active ? undefined : cat) as ContactCategory | undefined)}
+                    >
+                      <Icon size={14} /> {cat}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="form-grid cf-grid">
+              <div className="field-full form-section-title">Work</div>
+              <label><span>Company</span><input value={contactForm.company ?? ''} onChange={e => setContactField('company', e.target.value)} placeholder="Where they work" /></label>
+              <label><span>Role</span><input value={contactForm.role ?? ''} onChange={e => setContactField('role', e.target.value)} placeholder="What they do" /></label>
+
+              <div className="field-full form-section-title">Reach</div>
+              <label><span>Email</span><input type="email" inputMode="email" autoComplete="off" value={contactForm.email ?? ''} onChange={e => setContactField('email', e.target.value)} placeholder="name@example.com" /></label>
+              <label><span>Phone</span><input type="tel" inputMode="tel" autoComplete="off" value={contactForm.phone ?? ''} onChange={e => setContactField('phone', formatPhoneInput(e.target.value))} placeholder="(555) 123-4567" /></label>
+
+              <div className="field-full form-section-title">Dates</div>
               <label>
-                <span>Check up</span>
+                <span>Next check-up</span>
                 <DatePicker
                   value={contactForm.nextCheckup}
                   onChange={v => setContactField('nextCheckup', v)}
                   placeholder="Pick a date"
                 />
               </label>
-              <label><span>Company</span><input value={contactForm.company ?? ''} onChange={e => setContactField('company', e.target.value)} /></label>
               <label>
-                <span>Date of birth</span>
+                <span>Birthday</span>
                 <DatePicker
                   value={contactForm.birthday ? `${contactForm.birthYear ?? 2000}-${contactForm.birthday}` : undefined}
                   onChange={iso => {
@@ -1183,21 +1231,12 @@ export function PersonalCRM() {
                   displayLabel={contactForm.birthday && !contactForm.birthYear ? formatBirthdayOnly(contactForm.birthday) : undefined}
                 />
               </label>
-              <label><span>Role</span><input value={contactForm.role ?? ''} onChange={e => setContactField('role', e.target.value)} /></label>
 
-              <div className="field-full form-section-title">Contact &amp; Social Channels</div>
-              <label><span>Email</span><input type="email" value={contactForm.email ?? ''} onChange={e => setContactField('email', e.target.value)} /></label>
-              <label><span>Phone</span><input type="tel" value={contactForm.phone ?? ''} onChange={e => setContactField('phone', formatPhoneInput(e.target.value))} /></label>
-              <label><span>LinkedIn URL</span><input value={contactForm.linkedin ?? ''} onChange={e => setContactField('linkedin', e.target.value)} /></label>
-              <label><span>Instagram URL</span><input value={contactForm.instagram ?? ''} onChange={e => setContactField('instagram', e.target.value)} /></label>
-              <label className="field-full"><span>Facebook URL</span><input value={contactForm.facebook ?? ''} onChange={e => setContactField('facebook', e.target.value)} /></label>
-
-              <div className="field-full form-section-title">Location</div>
               <label className="field-full crm-location-field">
-                <span>Address, city, region</span>
+                <span>Location</span>
                 <input
                   value={locationDraft}
-                  placeholder="e.g. 221B Baker St, London, UK"
+                  placeholder="City or full address"
                   onChange={e => { setLocationDraft(e.target.value); setShowLocationSuggest(true); }}
                   onFocus={() => setShowLocationSuggest(true)}
                   onBlur={() => window.setTimeout(() => setShowLocationSuggest(false), 120)}
@@ -1212,57 +1251,84 @@ export function PersonalCRM() {
                   </div>
                 )}
               </label>
-
-              <div className="field-full form-section-title">Tags</div>
-              <label className="field-full">
-                <span>Specific context — not another category</span>
-                <div className="tag-pill-input">
-                  {(contactForm.tags ?? []).map(tag => (
-                    <span className="tag-pill" key={tag}>
-                      {tag}
-                      <button type="button" onClick={() => removeTagFromForm(tag)} aria-label={`Remove ${tag}`}><X size={11} /></button>
-                    </span>
-                  ))}
-                  <input
-                    value={tagDraft}
-                    placeholder={(contactForm.tags ?? []).length ? 'Add another…' : 'e.g. AI-Engineering, Chess, Local…'}
-                    onChange={e => setTagDraft(e.target.value)}
-                    onKeyDown={e => {
-                      if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); addTagToForm(tagDraft); }
-                      else if (e.key === 'Backspace' && !tagDraft && (contactForm.tags ?? []).length) removeTagFromForm((contactForm.tags ?? [])[(contactForm.tags ?? []).length - 1]);
-                    }}
-                  />
-                </div>
-                <div className="tag-example-groups">
-                  {TAG_EXAMPLE_GROUPS.map(group => (
-                    <div className="tag-example-group" key={group.label}>
-                      <span className="tag-example-group-label">{group.label}</span>
-                      {group.examples.filter(t => !(contactForm.tags ?? []).includes(t)).map(t => (
-                        <button type="button" key={t} onClick={() => addTagToForm(t)}>+ {t}</button>
-                      ))}
-                    </div>
-                  ))}
-                </div>
-              </label>
-
-              <div className="field-full form-section-title">Notes</div>
-              <label className="field-full">
-                <span>Personal</span>
-                <RichTextEditor
-                  value={contactForm.personalNotes ?? ''}
-                  onChange={v => setContactField('personalNotes', v)}
-                  placeholder="Likes, dislikes, family details, anything personal…"
-                />
-              </label>
-              <label className="field-full">
-                <span>Business</span>
-                <RichTextEditor
-                  value={contactForm.businessNotes ?? ''}
-                  onChange={v => setContactField('businessNotes', v)}
-                  placeholder="Deals, work history, professional context…"
-                />
-              </label>
             </div>
+
+            {/* Optional detail folds away so a new contact is just a name plus a way to reach
+                them. Each section starts open when it already holds something (editing). */}
+            <details className="cf-more" open={Boolean(contactForm.linkedin || contactForm.instagram || contactForm.facebook) || undefined}>
+              <summary>
+                <span>Social links</span>
+                <small>{[contactForm.linkedin && 'LinkedIn', contactForm.instagram && 'Instagram', contactForm.facebook && 'Facebook'].filter(Boolean).join(' · ') || 'LinkedIn, Instagram, Facebook'}</small>
+                <ChevronDown size={16} />
+              </summary>
+              <div className="form-grid cf-grid">
+                <label><span>LinkedIn</span><input type="url" value={contactForm.linkedin ?? ''} onChange={e => setContactField('linkedin', e.target.value)} placeholder="https://linkedin.com/in/…" /></label>
+                <label><span>Instagram</span><input type="url" value={contactForm.instagram ?? ''} onChange={e => setContactField('instagram', e.target.value)} placeholder="https://instagram.com/…" /></label>
+                <label className="field-full"><span>Facebook</span><input type="url" value={contactForm.facebook ?? ''} onChange={e => setContactField('facebook', e.target.value)} placeholder="https://facebook.com/…" /></label>
+              </div>
+            </details>
+
+            <details className="cf-more" open={(contactForm.tags ?? []).length > 0 || undefined}>
+              <summary>
+                <span>Tags</span>
+                <small>{(contactForm.tags ?? []).length ? (contactForm.tags ?? []).join(' · ') : 'Specific context — not another category'}</small>
+                <ChevronDown size={16} />
+              </summary>
+              <div className="tag-pill-input">
+                {(contactForm.tags ?? []).map(tag => (
+                  <span className="tag-pill" key={tag}>
+                    {tag}
+                    <button type="button" onClick={() => removeTagFromForm(tag)} aria-label={`Remove ${tag}`}><X size={11} /></button>
+                  </span>
+                ))}
+                <input
+                  value={tagDraft}
+                  aria-label="Add a tag"
+                  placeholder={(contactForm.tags ?? []).length ? 'Add another…' : 'e.g. AI-Engineering, Chess, Local…'}
+                  onChange={e => setTagDraft(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); addTagToForm(tagDraft); }
+                    else if (e.key === 'Backspace' && !tagDraft && (contactForm.tags ?? []).length) removeTagFromForm((contactForm.tags ?? [])[(contactForm.tags ?? []).length - 1]);
+                  }}
+                />
+              </div>
+              <div className="tag-example-groups">
+                {TAG_EXAMPLE_GROUPS.map(group => (
+                  <div className="tag-example-group" key={group.label}>
+                    <span className="tag-example-group-label">{group.label}</span>
+                    {group.examples.filter(t => !(contactForm.tags ?? []).includes(t)).map(t => (
+                      <button type="button" key={t} onClick={() => addTagToForm(t)}>+ {t}</button>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            </details>
+
+            <details className="cf-more" open={!isEmptyHtml(contactForm.personalNotes ?? '') || !isEmptyHtml(contactForm.businessNotes ?? '') || undefined}>
+              <summary>
+                <span>Notes</span>
+                <small>Personal and business</small>
+                <ChevronDown size={16} />
+              </summary>
+              <div className="form-grid cf-grid">
+                <label className="field-full">
+                  <span>Personal</span>
+                  <RichTextEditor
+                    value={contactForm.personalNotes ?? ''}
+                    onChange={v => setContactField('personalNotes', v)}
+                    placeholder="Likes, dislikes, family details, anything personal…"
+                  />
+                </label>
+                <label className="field-full">
+                  <span>Business</span>
+                  <RichTextEditor
+                    value={contactForm.businessNotes ?? ''}
+                    onChange={v => setContactField('businessNotes', v)}
+                    placeholder="Deals, work history, professional context…"
+                  />
+                </label>
+              </div>
+            </details>
           </div>
         </Modal>
       )}
@@ -1411,6 +1477,9 @@ function PersonPageModal({
   onDeleteInteraction: (id: string) => void;
   onEdit: () => void;
 }) {
+  const isMobile = useIsMobile();
+  // tel:/sms: want digits (and a leading +); stored numbers are free text like "(555) 123-4567".
+  const dialable = contact.phone ? contact.phone.replace(/[^\d+]/g, '') : '';
   const [logForm, setLogForm] = useState<Partial<ContactInteraction>>(blankInteraction());
   const [photoPromptOpen, setPhotoPromptOpen] = useState(false);
   const [photoDraft, setPhotoDraft] = useState('');
@@ -1482,6 +1551,16 @@ function PersonPageModal({
           )}
         </div>
       </div>
+
+      {/* On a phone the point of opening a contact is usually to reach them — one tap into the
+          dialer / messages / mail app, the same way the native Contacts app leads with these. */}
+      {isMobile && (contact.phone || contact.email) && (
+        <div className="crm-quick-actions">
+          {dialable && <a className="crm-quick-action" href={`tel:${dialable}`}><Phone size={20} /><span>Call</span></a>}
+          {dialable && <a className="crm-quick-action" href={`sms:${dialable}`}><MessageCircle size={20} /><span>Text</span></a>}
+          {contact.email && <a className="crm-quick-action" href={`mailto:${contact.email}`}><Mail size={20} /><span>Email</span></a>}
+        </div>
+      )}
 
       {contact.howWeMet && (
         <div className="crm-person-section">

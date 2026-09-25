@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronLeft, ChevronRight, Clock, Plus, RotateCcw, Trash2 } from 'lucide-react';
+import { Check, ChevronLeft, ChevronRight, Clock, Plus, RotateCcw, Trash2 } from 'lucide-react';
 import { useStore, newRecord } from '../store';
 import type { CalendarEvent } from '../types';
 import { Modal, PageHeader, formatDate } from '../components/UI';
@@ -9,6 +9,7 @@ import { TimeWheelPicker } from '../components/TimeWheelPicker';
 import { MonthYearPicker } from '../components/MonthYearPicker';
 import { RichTextEditor } from '../components/RichTextEditor';
 import { Sheet } from '../components/Sheet';
+import { SwipeRow } from '../components/SwipeRow';
 import { useIsMobile } from '../hooks/useIsMobile';
 import { useFabAction } from '../hooks/useFabAction';
 import { getHolidays } from '../data/holidays';
@@ -65,7 +66,7 @@ const KIND_COLLECTION: Record<Exclude<ImportantKind, 'Holiday'>, 'events' | 'tas
 };
 
 export function Calendar({ navigate }: { navigate: (page: string, tab?: string) => void }) {
-  const { data, upsert, remove } = useStore();
+  const { data, upsert, remove, toggleTask } = useStore();
   const [anchor, setAnchor] = useState(() => new Date());
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -77,6 +78,7 @@ export function Calendar({ navigate }: { navigate: (page: string, tab?: string) 
   // Agenda first on a phone: a 7-column grid yields ~46px cells, enough for a date and nothing
   // else. The grid stays one tap away for the genuinely spatial "how busy is this month" read.
   const [mobileView, setMobileView] = useState<'Agenda' | 'Month'>('Agenda');
+  const [stripStart, setStripStart] = useState(() => { const d = new Date(); d.setHours(12, 0, 0, 0); return addDays(d, -d.getDay()); });
   const [daySheet, setDaySheet] = useState<string | null>(null);
   // Widening past the breakpoint (rotate to landscape, or a resized window) would otherwise
   // strand the sheet as a blocking overlay with no control left on screen to dismiss it.
@@ -144,15 +146,28 @@ export function Calendar({ navigate }: { navigate: (page: string, tab?: string) 
     return items.sort((a, b) => a.date.localeCompare(b.date) || (a.time ?? '').localeCompare(b.time ?? ''));
   }, [events, data.tasks, data.goals, anchor]);
 
+  // Phone-only kind filters (the legend doubles as the toggle row). Holidays start hidden: the
+  // agenda runs ~60 days ahead and most of that was holiday rows, burying the user's own items.
+  const [hiddenKinds, setHiddenKinds] = useState<Set<ImportantKind>>(() => new Set<ImportantKind>(['Holiday']));
+  const toggleKind = (kind: ImportantKind) => setHiddenKinds(prev => {
+    const next = new Set(prev);
+    if (next.has(kind)) next.delete(kind); else next.add(kind);
+    return next;
+  });
+  const shownDates = useMemo(
+    () => (isMobile ? importantDates.filter(item => !hiddenKinds.has(item.kind)) : importantDates),
+    [importantDates, isMobile, hiddenKinds]
+  );
+
   const itemsByDate = useMemo(() => {
     const map = new Map<string, ImportantDate[]>();
-    importantDates.forEach(item => {
+    shownDates.forEach(item => {
       const list = map.get(item.date) ?? [];
       list.push(item);
       map.set(item.date, list);
     });
     return map;
-  }, [importantDates]);
+  }, [shownDates]);
 
   const todayIso = toIsoDate(new Date());
   const year = anchor.getFullYear();
@@ -171,12 +186,12 @@ export function Calendar({ navigate }: { navigate: (page: string, tab?: string) 
 
   const upcoming = importantDates.filter(item => item.date >= todayIso && item.kind !== 'Holiday').slice(0, 15);
 
-  // Agenda groups everything still ahead by day, holidays included — on a phone "what's next"
-  // is the question being asked, and a holiday is part of that answer even though it isn't
-  // something you can open or delete.
+  // Agenda groups everything still ahead by day — on a phone "what's next" is the question being
+  // asked. Holidays are part of that answer when their filter chip is on, even though they
+  // aren't something you can open or delete.
   const agendaDays = useMemo(() => {
     const byDay = new Map<string, ImportantDate[]>();
-    for (const item of importantDates) {
+    for (const item of shownDates) {
       if (item.date < todayIso) continue;
       if (!byDay.has(item.date)) byDay.set(item.date, []);
       byDay.get(item.date)!.push(item);
@@ -188,7 +203,14 @@ export function Calendar({ navigate }: { navigate: (page: string, tab?: string) 
         date,
         items: items.slice().sort((a, b) => (a.time ?? '').localeCompare(b.time ?? ''))
       }));
-  }, [importantDates, todayIso]);
+  }, [shownDates, todayIso]);
+  // Still-open tasks/goals whose date has passed. The agenda only looks forward, so these used to
+  // vanish from it entirely the day after they were due — while the Dashboard kept counting them
+  // as overdue. Pinned above Today instead, oldest first.
+  const overdueItems = useMemo(
+    () => shownDates.filter(item => item.date < todayIso && (item.kind === 'Task' || item.kind === 'Goal')),
+    [shownDates, todayIso]
+  );
 
   const startAdd = (date?: string) => { setForm(blankEvent(date)); setEditingId(null); setShowForm(true); };
   useFabAction('Calendar', 'New event', () => startAdd(todayIso));
@@ -208,6 +230,33 @@ export function Calendar({ navigate }: { navigate: (page: string, tab?: string) 
   const deleteItem = async (item: ImportantDate) => {
     if (item.kind === 'Holiday') return;
     await remove(KIND_COLLECTION[item.kind], item.id);
+  };
+
+  // Phone agenda row. Swipe replaces the per-row trash icon (25px, and one mistap from deleting
+  // something): left deletes, right completes a task. Neither is the only route — tapping opens
+  // the event's editor (which has Delete) or the task/goal in Second Brain.
+  const renderAgendaRow = (item: ImportantDate, sub: string) => {
+    const key = `${item.kind}-${item.id}`;
+    const row = (
+      <div className="cal-agenda-row" onClick={() => item.kind !== 'Holiday' && openItem(item)}>
+        <i className={`cal-dot kind-${item.kind.toLowerCase()}`} />
+        <div className="cal-agenda-text">
+          <b>{item.title}</b>
+          <small>{sub}</small>
+        </div>
+      </div>
+    );
+    if (item.kind === 'Holiday') return <Fragment key={key}>{row}</Fragment>;
+    const task = item.kind === 'Task' ? data.tasks.find(t => t.id === item.id) : undefined;
+    return (
+      <SwipeRow
+        key={key}
+        leading={task ? { label: 'Done', icon: <Check size={16} />, onTrigger: () => void toggleTask(task) } : undefined}
+        trailing={{ label: 'Delete', icon: <Trash2 size={16} />, onTrigger: () => void deleteItem(item) }}
+      >
+        {row}
+      </SwipeRow>
+    );
   };
 
   const save = async () => {
@@ -234,7 +283,7 @@ export function Calendar({ navigate }: { navigate: (page: string, tab?: string) 
       <PageHeader
         title="Calendar"
         subtitle="Events, appointments, birthdays and deadlines."
-        action={<button className="btn primary" onClick={() => startAdd()}><Plus size={16} /> New event</button>}
+        action={isMobile ? undefined : <button className="btn primary" onClick={() => startAdd()}><Plus size={16} /> New event</button>}
       />
       {showForm && (
         <Modal
@@ -266,12 +315,29 @@ export function Calendar({ navigate }: { navigate: (page: string, tab?: string) 
         </Modal>
       )}
 
-      <div className="cal-legend">
-        <span className="cal-legend-item"><i className="cal-dot kind-event" />Event</span>
-        <span className="cal-legend-item"><i className="cal-dot kind-task" />Task</span>
-        <span className="cal-legend-item"><i className="cal-dot kind-goal" />Goal</span>
-        <span className="cal-legend-item"><i className="cal-dot kind-holiday" />Holiday</span>
-      </div>
+      {isMobile ? (
+        // Doubles as the filter row on a phone — each kind toggles on/off.
+        <div className="cal-legend cal-legend-filters" role="group" aria-label="Show on calendar">
+          {(['Event', 'Task', 'Goal', 'Holiday'] as const).map(kind => (
+            <button
+              type="button"
+              key={kind}
+              className={`cal-legend-chip ${hiddenKinds.has(kind) ? '' : 'on'}`}
+              aria-pressed={!hiddenKinds.has(kind)}
+              onClick={() => toggleKind(kind)}
+            >
+              <i className={`cal-dot kind-${kind.toLowerCase()}`} />{kind}
+            </button>
+          ))}
+        </div>
+      ) : (
+        <div className="cal-legend">
+          <span className="cal-legend-item"><i className="cal-dot kind-event" />Event</span>
+          <span className="cal-legend-item"><i className="cal-dot kind-task" />Task</span>
+          <span className="cal-legend-item"><i className="cal-dot kind-goal" />Goal</span>
+          <span className="cal-legend-item"><i className="cal-dot kind-holiday" />Holiday</span>
+        </div>
+      )}
 
       {isMobile && (
         <div className="filter-row">
@@ -285,40 +351,54 @@ export function Calendar({ navigate }: { navigate: (page: string, tab?: string) 
 
       {isMobile && mobileView === 'Agenda' ? (
         <div className="cal-agenda">
+          {/* This week at a glance: dots per day, tap for that day's sheet. */}
+          <div className="cal-week-strip">
+            <button type="button" className="cal-week-nav" onClick={() => setStripStart(addDays(stripStart, -7))} aria-label="Previous week"><ChevronLeft size={18} /></button>
+            <div className="cal-week-days">
+              {Array.from({ length: 7 }, (_, i) => addDays(stripStart, i)).map(day => {
+                const iso = toIsoDate(day);
+                const dayItems = itemsByDate.get(iso) ?? [];
+                return (
+                  <button
+                    type="button"
+                    key={iso}
+                    className={`cal-week-day ${iso === todayIso ? 'is-today' : ''}`}
+                    onClick={() => setDaySheet(iso)}
+                    aria-label={`${formatFullDate(iso)}: ${dayItems.length} item${dayItems.length === 1 ? '' : 's'}`}
+                  >
+                    <small>{day.toLocaleDateString('en-US', { weekday: 'short' })}</small>
+                    <b>{day.getDate()}</b>
+                    <span className="cal-week-dots">
+                      {dayItems.slice(0, 3).map(item => <i className={`cal-dot kind-${item.kind.toLowerCase()}`} key={`${item.kind}-${item.id}`} />)}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+            <button type="button" className="cal-week-nav" onClick={() => setStripStart(addDays(stripStart, 7))} aria-label="Next week"><ChevronRight size={18} /></button>
+          </div>
+
+          {overdueItems.length > 0 && (
+            <section className="cal-agenda-day">
+              <h3 className="is-overdue">Overdue</h3>
+              {overdueItems.map(item => renderAgendaRow(item, `Due ${formatDate(item.date)} · ${item.kind}`))}
+            </section>
+          )}
           {agendaDays.length ? agendaDays.map(({ date, items }) => (
             <section className="cal-agenda-day" key={date}>
               <h3 className={date === todayIso ? 'is-today' : ''}>
                 {date === todayIso ? 'Today' : formatDate(date)}
               </h3>
-              {items.map(item => (
-                <div
-                  className="cal-agenda-row"
-                  key={`${item.kind}-${item.id}`}
-                  onClick={() => item.kind !== 'Holiday' && openItem(item)}
-                >
-                  <i className={`cal-dot kind-${item.kind.toLowerCase()}`} />
-                  <div className="cal-agenda-text">
-                    <b>{item.title}</b>
-                    <small>{item.time ? `${item.time} · ` : ''}{item.kind}</small>
-                  </div>
-                  {item.kind !== 'Holiday' && (
-                    <button
-                      type="button"
-                      className="icon-btn danger"
-                      onClick={ev => { ev.stopPropagation(); void deleteItem(item); }}
-                      aria-label={`Delete ${item.title}`}
-                    >
-                      <Trash2 size={13} />
-                    </button>
-                  )}
-                </div>
-              ))}
+              {items.map(item => renderAgendaRow(item, `${item.time ? `${item.time} · ` : ''}${item.kind}`))}
             </section>
           )) : (
             <div className="cal-upcoming-empty">
               <b>Nothing scheduled</b>
               <span>Add an event or appointment.</span>
             </div>
+          )}
+          {overdueItems.length + agendaDays.length > 0 && (
+            <p className="cal-agenda-hint">Swipe left to delete{shownDates.some(i => i.kind === 'Task') ? ' · right to complete a task' : ''}</p>
           )}
         </div>
       ) : (

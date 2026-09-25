@@ -26,6 +26,8 @@ import {
 } from 'lucide-react';
 import { checkCloudConfigured, ENGINE_STORAGE_KEY, GEMINI_API_KEY, GEMINI_MODEL, GEMINI_ORIGIN, OLLAMA_BASE_URL, OLLAMA_MODEL } from '../lib/aiEngine';
 import type { Engine as SharedEngine } from '../lib/aiEngine';
+import { useFabAction } from '../hooks/useFabAction';
+import { useIsMobile } from '../hooks/useIsMobile';
 
 /* ============================================================================
  * 1. CONFIGURATION
@@ -366,6 +368,23 @@ const C = {
 
 const COLUMN_MAX_WIDTH = 760;
 
+// Phone overrides, merged over S by `st()` inside the component. On a 375px screen the pill put
+// the engine select and three icons in front of the textarea, squeezing it into a ~70px column
+// that wrapped its placeholder over four lines; here the textarea takes a full-width first line
+// and the controls drop to a row beneath it, every one at a 44px touch size.
+const MOBILE_S: Record<string, CSSProperties> = {
+  shell: { borderRadius: 12 },
+  dockOuter: { padding: '10px 10px 12px' },
+  chip: { minHeight: 40, padding: '0 14px', fontSize: 13 },
+  pill: { flexWrap: 'wrap', alignItems: 'center', borderRadius: 20, padding: '4px 6px 6px 8px' },
+  pillTextarea: { flexBasis: '100%', order: -1, fontSize: 16, padding: '10px 6px 6px' },
+  pillEngineSelect: { minHeight: 44, fontSize: 14, maxWidth: 80 },
+  pillIconBtn: { width: 44, height: 44 },
+  pillSend: { width: 44, height: 44, marginLeft: 'auto' },
+  footerRow: { justifyContent: 'flex-end' },
+  clearBtn: { minHeight: 40, fontSize: 12.5, padding: '0 8px' }
+};
+
 const S: Record<string, CSSProperties> = {
   shell: {
     display: 'flex',
@@ -662,6 +681,14 @@ export function ResearchChat({
 
   const streamRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const isMobile = useIsMobile();
+  const st = (key: string): CSSProperties => (isMobile && MOBILE_S[key] ? { ...S[key], ...MOBILE_S[key] } : S[key]);
+  // The FAB focuses the composer rather than starting a new chat: clearing wipes the saved
+  // history with no undo, which is too much for a one-tap button that's always under the thumb.
+  useFabAction('Research', 'Ask a question', () => {
+    textareaRef.current?.focus();
+    textareaRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  });
   const fileInputRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
@@ -904,7 +931,7 @@ export function ResearchChat({
   const statusLabel = isStreaming ? 'Thinking…' : cloudUnconfigured ? 'Needs API key' : 'Ready';
 
   return (
-    <div style={{ ...S.shell, height }}>
+    <div style={{ ...st('shell'), height: isMobile ? 'calc(100dvh - 144px - env(safe-area-inset-bottom))' : height, minHeight: isMobile ? 360 : undefined }}>
       {/* Blink keyframes for the streaming caret — scoped by a unique name. */}
       <style>{'@keyframes lifeosBlink { 0%,100% { opacity: 1 } 50% { opacity: 0 } }'}</style>
 
@@ -923,10 +950,12 @@ export function ResearchChat({
           {messages.length === 0 ? (
             <p style={S.empty}>
               Ask anything to start researching.
-              <br />
-              <span style={{ color: C.faint, fontSize: 12 }}>
-                Enter sends · Shift+Enter for a new line
-              </span>
+              {!isMobile && <>
+                <br />
+                <span style={{ color: C.faint, fontSize: 12 }}>
+                  Enter sends · Shift+Enter for a new line
+                </span>
+              </>}
             </p>
           ) : (
             messages.map(m => {
@@ -1015,15 +1044,15 @@ export function ResearchChat({
       )}
 
       {/* ---- floating input dock ---- */}
-      <div style={S.dockOuter}>
+      <div style={st('dockOuter')}>
         <div style={S.dockInner}>
-          <div style={S.chipsRow}>
+          {(!isMobile || messages.length === 0) && <div style={st('chipsRow')}>
             {QUICK_PROMPTS.map(prompt => (
-              <button key={prompt} type="button" style={S.chip} onClick={() => applyChip(prompt)}>
+              <button key={prompt} type="button" style={st('chip')} onClick={() => applyChip(prompt)}>
                 {prompt}
               </button>
             ))}
-          </div>
+          </div>}
 
           {pendingImages.length > 0 && (
             <div style={S.pendingTray}>
@@ -1044,9 +1073,9 @@ export function ResearchChat({
             </div>
           )}
 
-          <div style={S.pill}>
+          <div style={st('pill')}>
             <select
-              style={S.pillEngineSelect}
+              style={st('pillEngineSelect')}
               value={engine}
               disabled={isStreaming}
               onChange={e => setEngine(e.target.value as Engine)}
@@ -1059,14 +1088,14 @@ export function ResearchChat({
             {engine === 'local' ? <Cpu size={14} color={C.faint} /> : <Cloud size={14} color={C.faint} />}
 
             <input ref={fileInputRef} type="file" accept=".txt,.md,.csv,.json,.log,image/*" hidden onChange={onFileSelected} />
-            <button type="button" style={S.pillIconBtn} onClick={onAttachClick} title="Attach a text file or image" aria-label="Attach a text file or image">
+            <button type="button" style={st('pillIconBtn')} onClick={onAttachClick} title="Attach a text file or image" aria-label="Attach a text file or image">
               <Paperclip size={16} />
             </button>
 
             {voiceSupported && (
               <button
                 type="button"
-                style={{ ...S.pillIconBtn, color: listening ? C.danger : C.dim }}
+                style={{ ...st('pillIconBtn'), color: listening ? C.danger : C.dim }}
                 onClick={toggleVoice}
                 title={listening ? 'Stop voice input' : 'Voice input'}
                 aria-label={listening ? 'Stop voice input' : 'Start voice input'}
@@ -1077,7 +1106,7 @@ export function ResearchChat({
 
             <textarea
               ref={textareaRef}
-              style={S.pillTextarea}
+              style={st('pillTextarea')}
               rows={1}
               value={input}
               placeholder={isStreaming ? 'Generating…' : 'Ask a research question, or paste an image…'}
@@ -1087,13 +1116,13 @@ export function ResearchChat({
             />
 
             {isStreaming ? (
-              <button type="button" style={{ ...S.pillSend, background: C.raised2, color: C.text }} onClick={stop} title="Stop" aria-label="Stop generating">
+              <button type="button" style={{ ...st('pillSend'), background: C.raised2, color: C.text }} onClick={stop} title="Stop" aria-label="Stop generating">
                 <Square size={13} fill="currentColor" />
               </button>
             ) : (
               <button
                 type="button"
-                style={{ ...S.pillSend, opacity: input.trim() || pendingImages.length ? 1 : 0.4 }}
+                style={{ ...st('pillSend'), opacity: input.trim() || pendingImages.length ? 1 : 0.4 }}
                 onClick={() => void send()}
                 disabled={!input.trim() && !pendingImages.length}
                 title="Send"
@@ -1104,9 +1133,9 @@ export function ResearchChat({
             )}
           </div>
 
-          <div style={S.footerRow}>
-            <span style={S.footerHint}>Enter to send · Shift+Enter for a new line</span>
-            <button type="button" style={S.clearBtn} onClick={clearChat} disabled={!messages.length} title="Reset library history">
+          <div style={st('footerRow')}>
+            {!isMobile && <span style={S.footerHint}>Enter to send · Shift+Enter for a new line</span>}
+            <button type="button" style={st('clearBtn')} onClick={clearChat} disabled={!messages.length} title="Reset library history">
               <Trash2 size={12} /> Clear
             </button>
           </div>

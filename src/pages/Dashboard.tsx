@@ -59,8 +59,11 @@ function DashCard({
   summary: ReactNode; action?: ReactNode; children: ReactNode;
 }) {
   const collapsible = isMobile && quiet;
+  // Collapsed quiet cards render as half-width tiles on a phone (see .dash-tile) — two per row
+  // instead of one full-width strip each; expanding one widens it back to full width.
+  const tile = collapsible && !expanded;
   return (
-    <Card className={className} style={orderStyle}>
+    <Card className={`${className ?? ''} ${tile ? 'dash-tile' : ''}`.trim() || undefined} style={orderStyle}>
       <div
         className={`card-title ${collapsible ? 'dash-card-title-tap' : ''}`}
         onClick={collapsible ? onToggle : undefined}
@@ -187,6 +190,18 @@ export function Dashboard({navigate}:{navigate:(page:string, tab?: string)=>void
   // Not persisted between visits, by design — per the earlier spec: reopening the dashboard
   // should read as "what's true right now," not restore whatever was left expanded last time.
   const [expandedCards, setExpandedCards] = useState<Set<string>>(new Set());
+  // The phone "Now" card's tab — a per-device convenience, so localStorage (guarded: private
+  // windows and blocked storage throw) rather than synced settings.
+  const [nowTab, setNowTab] = useState<'Habits' | 'Tasks' | 'Brief'>(() => {
+    try {
+      const saved = window.localStorage.getItem('lifeos.dashNowTab');
+      return saved === 'Tasks' || saved === 'Brief' ? saved : 'Habits';
+    } catch { return 'Habits'; }
+  });
+  const chooseNowTab = (tab: 'Habits' | 'Tasks' | 'Brief') => {
+    setNowTab(tab);
+    try { window.localStorage.setItem('lifeos.dashNowTab', tab); } catch { /* storage unavailable — just don't remember */ }
+  };
   const toggleCard = (id: string) => setExpandedCards(prev => {
     const next = new Set(prev);
     if (next.has(id)) next.delete(id); else next.add(id);
@@ -217,10 +232,36 @@ export function Dashboard({navigate}:{navigate:(page:string, tab?: string)=>void
         <button type="button" className="btn primary small full" onClick={()=>void capture()} disabled={!captureText.trim()}>Capture to Second Brain</button>
       </Card>
       )}
-      <Card className="span-2 smart-brief" style={isMobile ? { order: -200 } : undefined}><div className="card-title"><div><Sparkles size={19}/><h2>Smart daily brief</h2></div><Badge>Rule-based v0.4</Badge></div><div className="brief-list">{brief.map((line,i)=><div key={line}><span>{i+1}</span><p>{line}</p></div>)}</div></Card>
+      {isMobile && (
+        // Phone: the brief, today's tasks and the habit checklist were three stacked cards
+        // (~900px, with the habit list scrolling inside the page scroll). One card, three tabs.
+        <Card className="dash-now" style={{ order: -200 }}>
+          <div className="segmented dash-now-tabs" role="tablist" aria-label="Now">
+            {([
+              ['Habits', `Habits ${todayDone}/${habitsDueToday.length}`],
+              ['Tasks', "Today's Focus"],
+              ['Brief', 'Brief']
+            ] as const).map(([key, label]) => (
+              <button type="button" key={key} role="tab" aria-selected={nowTab === key} className={nowTab === key ? 'on' : ''} onClick={() => chooseNowTab(key)}>{label}</button>
+            ))}
+          </div>
+          {nowTab === 'Habits' && <>
+            <div className="dash-now-meta"><span>{habitPct}% today · {weekHabitPct}% this week{currentRoutineName ? ` · ${currentRoutineName}` : ''}</span><button className="text-btn" onClick={()=>navigate('Habits')}>Open <ArrowRight size={15}/></button></div>
+            <ProgressBar value={habitPct}/>
+            {habitsDueToday.length ? <div className="dashboard-habit-list dash-now-habits">{habitsDueToday.map(habit=>{const done=habit.checkins.includes(today);return <button type="button" className={`dashboard-habit-row ${done?'done':''}`} key={habit.id} onClick={()=>void toggleHabitToday(habit)} aria-pressed={done}><span className="dashboard-habit-check"><Check size={13}/></span><span><b>{habit.name}</b><small>{habit.reminderAt||'Any time'}</small></span></button>})}</div> : <p className="muted dashboard-habit-empty">No active habits are scheduled today.</p>}
+          </>}
+          {nowTab === 'Tasks' && <>
+            <div className="dash-now-meta"><span>{overdue.length} overdue · {dueToday.length} due today</span><button className="text-btn" onClick={()=>navigate('Second Brain','Tasks')}>Open <ArrowRight size={15}/></button></div>
+            {focus.length ? <div className="dash-now-tasks">{focus.slice(0, 6).map(task=><div className="task-focus" key={task.id}><span className={`priority-dot ${task.priority.toLowerCase()}`}/><div><b>{task.title}</b><small>{task.project||task.category}</small></div><div className="focus-date"><Badge tone={task.dueDate<today?'danger':task.dueDate===today?'warning':''}>{task.dueDate<today?'Overdue':task.dueDate===today?'Today':formatDate(task.dueDate)}</Badge></div></div>)}</div> : <p className="muted">Nothing urgent. Add a task or plan ahead.</p>}
+            {focus.length > 6 && <button className="text-btn dash-now-more" onClick={()=>navigate('Second Brain','Tasks')}>+{focus.length - 6} more <ArrowRight size={15}/></button>}
+          </>}
+          {nowTab === 'Brief' && <div className="brief-list">{brief.map((line,i)=><div key={line}><span>{i+1}</span><p>{line}</p></div>)}</div>}
+        </Card>
+      )}
+      {!isMobile && <Card className="span-2 smart-brief"><div className="card-title"><div><Sparkles size={19}/><h2>Smart daily brief</h2></div><Badge>Rule-based v0.4</Badge></div><div className="brief-list">{brief.map((line,i)=><div key={line}><span>{i+1}</span><p>{line}</p></div>)}</div></Card>}
       <Card style={slot(2, nextReminders.length)}><div className="card-title"><div><Bell size={19}/><h2>Next reminders</h2></div></div>{nextReminders.length?<div className="scroll-list">{nextReminders.map(r=><div className="list-row" key={`${r.type}-${r.at}-${r.title}`}><div><b>{r.title}</b><small>{r.type}</small></div><span>{new Date(r.at).toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})}</span></div>)}</div>:<p className="muted">No upcoming reminders yet.</p>}</Card>
-      <Card className="span-2" style={slot(3, overdue.length + dueToday.length)}><div className="card-title"><div><CheckCircle2 size={19}/><h2>Today's focus</h2></div><button className="text-btn" onClick={()=>navigate('Second Brain','Tasks')}>Open tasks <ArrowRight size={15}/></button></div>{focus.length?<div className="scroll-list">{focus.map(task=><div className="task-focus" key={task.id}><span className={`priority-dot ${task.priority.toLowerCase()}`}/><div><b>{task.title}</b><small>{task.project||task.category}</small></div><div className="focus-date"><Badge tone={task.dueDate<today?'danger':task.dueDate===today?'warning':''}>{task.dueDate<today?'Overdue':task.dueDate===today?'Today':formatDate(task.dueDate)}</Badge></div></div>)}</div>:<p className="muted">Nothing urgent. Add a task or plan ahead.</p>}</Card>
-      <Card className="span-2 dashboard-habit-card" style={slot(4, habitsDueToday.length - todayDone)}><div className="card-title"><div><Flame size={19}/><h2>Habit tracker</h2>{currentRoutineName && <Badge>{currentRoutineName}</Badge>}</div><button className="text-btn" onClick={()=>navigate('Habits')}>Open habits <ArrowRight size={15}/></button></div><div className="dashboard-habit-summary"><div><span>Today</span><b>{todayDone}/{habitsDueToday.length}</b></div><div><span>This week</span><b>{weekHabitPct}%</b></div></div><ProgressBar value={habitPct}/>{habitsDueToday.length?<div className="dashboard-habit-list scroll-list">{habitsDueToday.map(habit=>{const done=habit.checkins.includes(today);return <button type="button" className={`dashboard-habit-row ${done?'done':''}`} key={habit.id} onClick={()=>void toggleHabitToday(habit)}><span className="dashboard-habit-check"><Check size={13}/></span><span><b>{habit.name}</b><small>{habit.reminderAt||'Any time'}</small></span></button>})}</div>:<p className="muted dashboard-habit-empty">No active habits are scheduled today. Open Habits to adjust your schedule.</p>}</Card>
+      {!isMobile && <Card className="span-2" style={slot(3, overdue.length + dueToday.length)}><div className="card-title"><div><CheckCircle2 size={19}/><h2>Today's focus</h2></div><button className="text-btn" onClick={()=>navigate('Second Brain','Tasks')}>Open tasks <ArrowRight size={15}/></button></div>{focus.length?<div className="scroll-list">{focus.map(task=><div className="task-focus" key={task.id}><span className={`priority-dot ${task.priority.toLowerCase()}`}/><div><b>{task.title}</b><small>{task.project||task.category}</small></div><div className="focus-date"><Badge tone={task.dueDate<today?'danger':task.dueDate===today?'warning':''}>{task.dueDate<today?'Overdue':task.dueDate===today?'Today':formatDate(task.dueDate)}</Badge></div></div>)}</div>:<p className="muted">Nothing urgent. Add a task or plan ahead.</p>}</Card>}
+      {!isMobile && <Card className="span-2 dashboard-habit-card" style={slot(4, habitsDueToday.length - todayDone)}><div className="card-title"><div><Flame size={19}/><h2>Habit tracker</h2>{currentRoutineName && <Badge>{currentRoutineName}</Badge>}</div><button className="text-btn" onClick={()=>navigate('Habits')}>Open habits <ArrowRight size={15}/></button></div><div className="dashboard-habit-summary"><div><span>Today</span><b>{todayDone}/{habitsDueToday.length}</b></div><div><span>This week</span><b>{weekHabitPct}%</b></div></div><ProgressBar value={habitPct}/>{habitsDueToday.length?<div className="dashboard-habit-list scroll-list">{habitsDueToday.map(habit=>{const done=habit.checkins.includes(today);return <button type="button" className={`dashboard-habit-row ${done?'done':''}`} key={habit.id} onClick={()=>void toggleHabitToday(habit)}><span className="dashboard-habit-check"><Check size={13}/></span><span><b>{habit.name}</b><small>{habit.reminderAt||'Any time'}</small></span></button>})}</div>:<p className="muted dashboard-habit-empty">No active habits are scheduled today. Open Habits to adjust your schedule.</p>}</Card>}
       <DashCard
         icon={<HeartPulse size={19}/>} title="Health" isMobile={isMobile}
         quiet={lowMeds === 0} expanded={expandedCards.has('health')} onToggle={()=>toggleCard('health')}
