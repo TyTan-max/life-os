@@ -1893,12 +1893,40 @@ input, select, textarea { font-family: inherit; }
 .routine-name-scroll.routine-day-name-strip { padding: 0; cursor: pointer; }
 .routine-name-placeholder { color: var(--text-faint); }
 /* Notes column after Last Rep — wide enough for a short cue; longer notes expand on focus. */
-.health-routine-notes-cell { min-width: 100px; width: 100px; }
-/* The shared notes textarea floors at 140px; here it fits the narrower column instead, and a long
-   note still opens to three lines on focus. */
-.health-routine-notes-cell .grid-notes-wrap { width: 100px; }
+/* Exercise column is locked at a fixed width (sized to "B2. Dumbbell Romanian Deadlift"): it
+   doesn't grow with longer names or take the table's spare width (`width: 1%` shrink-wraps the
+   column to the fixed box). A longer name ends in "…"; hovering shows it in full. */
+.health-routine-day .grid-table th:first-child,
+.health-routine-day .grid-table td:first-child { width: 1%; white-space: nowrap; }
+.health-routine-day .grid-cell-input.input-wide {
+  width: 198px; min-width: 198px; max-width: 198px; box-sizing: border-box; text-overflow: ellipsis;
+}
+/* Delete column: just wide enough for the trash icon. `width: 1%` stops the table handing it
+   spare width (it was 79px around a 25px button). */
+.health-routine-day .grid-table th:last-child,
+.health-routine-day .grid-table td:last-child { width: 1%; }
+@media (min-width: 501px) and (min-height: 501px) {
+  /* Desktop only — on a phone the button keeps its 44px touch size. */
+  .health-routine-day .grid-table th:last-child,
+  .health-routine-day .grid-table td:last-child { padding: 2px 3px; }
+  .health-routine-day .grid-table td:last-child .icon-btn { padding: 4px; }
+}
+/* Sets and Reps hold a fixed width. Without it, spare table width (few sets) got spread across
+   them and they'd change size from day to day. */
+.health-routine-day .grid-table th:nth-child(2), .health-routine-day .grid-table td:nth-child(2) { width: 73px; min-width: 73px; max-width: 73px; }
+.health-routine-day .grid-table th:nth-child(3), .health-routine-day .grid-table td:nth-child(3) { width: 85px; min-width: 85px; max-width: 85px; }
+.health-routine-day .grid-table td:nth-child(2) .grid-cell-input,
+.health-routine-day .grid-table td:nth-child(3) .grid-cell-input { width: 100%; min-width: 0; box-sizing: border-box; }
+/* Notes auto-sizes: at least 100px, grows with the note's length up to 360px (field-sizing), and
+   still fills the cell when the table has spare room. A long note opens to three lines on focus. */
+.health-routine-notes-cell { min-width: 100px; }
+.health-routine-notes-cell .grid-notes-wrap { width: auto; }
 .health-routine-notes-cell .grid-cell-input.grid-notes-input,
-.health-routine-notes-cell .grid-cell-input.grid-notes-input.expanded { min-width: 0; width: 100%; }
+.health-routine-notes-cell .grid-cell-input.grid-notes-input.expanded {
+  /* --notes-max is measured per day (WorkoutRoutineSection): the room left before the table would
+     need to scroll sideways. */
+  field-sizing: content; width: auto; min-width: max(100px, 100%); max-width: var(--notes-max, 360px); box-sizing: border-box;
+}
 .health-routine-day-toggle svg { transition: transform 160ms ease; }
 .health-routine-day-toggle svg.is-open { transform: rotate(180deg); }
 .health-routine-day.is-collapsed .health-routine-day-head { margin-bottom: 0; }

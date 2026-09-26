@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Check, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, Circle, Plus, RotateCcw, Trash2 } from 'lucide-react';
 import { useStore, newRecord } from '../store';
@@ -345,6 +345,33 @@ function RoutineDayCard({
   const [open, setOpen] = useState(false);
   const collapsed = isMobile && !open;
 
+  // Notes grows with its text, but only until the table fills the card — never so far that it's
+  // the thing that brings in a horizontal scrollbar. The cap is the card's width minus every
+  // other column at its narrowest (measured by briefly laying the table out at min-content),
+  // passed to CSS as --notes-max. Re-measured when the card resizes or the day's rows change.
+  const tableWrapRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const wrap = tableWrapRef.current;
+    if (!wrap) return;
+    const measure = () => {
+      const table = wrap.querySelector('table');
+      const notesTh = wrap.querySelector<HTMLElement>('.health-routine-notes-th');
+      if (!table || !notesTh) return;
+      wrap.style.setProperty('--notes-max', '100px');
+      const prevWidth = table.style.width;
+      table.style.width = '0';
+      const otherColumns = table.offsetWidth - notesTh.offsetWidth;
+      const notesChrome = notesTh.offsetWidth - 100; // the column's own padding + border
+      table.style.width = prevWidth;
+      const room = wrap.clientWidth - otherColumns - notesChrome;
+      wrap.style.setProperty('--notes-max', `${Math.max(100, Math.floor(room))}px`);
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(wrap);
+    return () => ro.disconnect();
+  }, [day, entryByExerciseId, collapsed]);
+
   return (
     <Card className={`health-routine-day accent-${accent} ${collapsed ? 'is-collapsed' : ''}`}>
       <div className="health-routine-day-head">
@@ -378,7 +405,7 @@ function RoutineDayCard({
         <span>Warm-up</span>
         <input type="text" className="grid-cell-input" value={day.warmup ?? ''} placeholder="e.g. 5 min light cardio" onChange={e => onEditDay({ warmup: e.target.value || undefined })} />
       </label>
-      <div className="grid-table-wrap grid-table-scroll">
+      <div className="grid-table-wrap grid-table-scroll" ref={tableWrapRef}>
         <table className="grid-table">
           <thead>
             <tr>
@@ -387,7 +414,7 @@ function RoutineDayCard({
               <th>Reps</th>
               {Array.from({ length: maxSets }, (_, i) => <th key={i}>Weight</th>)}
               <th>Last Rep</th>
-              <th>Notes</th>
+              <th className="health-routine-notes-th">Notes</th>
               <th />
             </tr>
           </thead>
