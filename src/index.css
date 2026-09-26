@@ -1892,6 +1892,13 @@ input, select, textarea { font-family: inherit; }
 .routine-name-scroll.routine-day-name-strip { font-size: 14px; font-weight: 650; }
 .routine-name-scroll.routine-day-name-strip { padding: 0; cursor: pointer; }
 .routine-name-placeholder { color: var(--text-faint); }
+/* Notes column after Last Rep — wide enough for a short cue; longer notes expand on focus. */
+.health-routine-notes-cell { min-width: 100px; width: 100px; }
+/* The shared notes textarea floors at 140px; here it fits the narrower column instead, and a long
+   note still opens to three lines on focus. */
+.health-routine-notes-cell .grid-notes-wrap { width: 100px; }
+.health-routine-notes-cell .grid-cell-input.grid-notes-input,
+.health-routine-notes-cell .grid-cell-input.grid-notes-input.expanded { min-width: 0; width: 100%; }
 .health-routine-day-toggle svg { transition: transform 160ms ease; }
 .health-routine-day-toggle svg.is-open { transform: rotate(180deg); }
 .health-routine-day.is-collapsed .health-routine-day-head { margin-bottom: 0; }

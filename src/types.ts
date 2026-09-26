@@ -379,6 +379,9 @@ export interface RoutineExercise {
   // Free text rather than a number — reps targets are often a range ("10-12") or a
   // duration ("45 sec"), not always a plain rep count.
   targetReps: string;
+  // Standing notes for the exercise (form cues, machine settings, "go up next time") — kept on
+  // the exercise rather than a dated log so they carry over from session to session.
+  notes?: string;
 }
 
 export interface RoutineDay {

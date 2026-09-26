@@ -5,7 +5,7 @@ import { useStore, newRecord } from '../store';
 import { Card } from './UI';
 import { DatePicker } from './DatePicker';
 import { RichTextEditor } from './RichTextEditor';
-import { NumberCell, OptionalNumberCell } from './GridCells';
+import { NotesCell, NumberCell, OptionalNumberCell } from './GridCells';
 import { buildStarterRoutine, ROUTINE_EPOCH } from '../lib/starterRoutine';
 import { generateId } from '../utils/id';
 import { useIsMobile } from '../hooks/useIsMobile';
@@ -315,6 +315,9 @@ function RoutineExerciseRow({
       <td className="grid-td-compact">
         {activeEntry && <OptionalNumberCell value={activeEntry.lastReps} onChange={onEditLastReps} placeholder="reps" />}
       </td>
+      <td className="health-routine-notes-cell">
+        <NotesCell value={exercise.notes ?? ''} onChange={notes => onEditField({ notes: notes || undefined })} />
+      </td>
       <td><button type="button" className="icon-btn danger" onClick={onDelete} aria-label={`Delete ${exercise.name}`}><Trash2 size={13} /></button></td>
     </tr>
   );
@@ -384,6 +387,7 @@ function RoutineDayCard({
               <th>Reps</th>
               {Array.from({ length: maxSets }, (_, i) => <th key={i}>Weight</th>)}
               <th>Last Rep</th>
+              <th>Notes</th>
               <th />
             </tr>
           </thead>
