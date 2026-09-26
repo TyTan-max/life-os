@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, ReactNode } from 'react';
 import {
   Archive, ArchiveRestore, BookMarked, Check, ChevronDown, ChevronLeft, Clock, Code2, Command,
-  Layers, Lightbulb, Link2, ListChecks, Lock, LockOpen, Maximize2, Minimize2, Pencil, Pin, PinOff, Plus, Quote, Search, SquareStack, StickyNote, Trash2, TrendingUp,
+  CopyPlus, Layers, Lightbulb, Link2, ListChecks, Lock, LockOpen, Maximize2, Minimize2, Pencil, Pin, PinOff, Plus, Quote, Search, SquareStack, StickyNote, Trash2, TrendingUp,
   Vault as VaultIcon, X
 } from 'lucide-react';
 import { useStore, newRecord } from '../store';
@@ -1219,6 +1219,23 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
     openNote(record);
   };
 
+  // A full copy of a note — body, tags, type, project fields (status, subtasks, board columns),
+  // photos — opened straight away to edit. Deep-cloned so editing the copy's subtasks or photos
+  // never touches the original's. Ids inside the note (subtasks, columns) are kept as-is since
+  // they're only scoped to the note itself and subtasks reference their column by id.
+  // Deliberately not carried over: pinned and locked (the copy starts as an ordinary, deletable
+  // note), archived (a copy of an archived note is live), and manual sort order.
+  const duplicateNote = async (source: Note) => {
+    const { id: _id, createdAt: _c, updatedAt: _u, pinned: _p, locked: _l, archived: _a, archivedAt: _aa, order: _o, ...rest } = source;
+    const base = (source.title || 'Untitled').trim();
+    const taken = new Set(notes.map(n => n.title.trim().toLowerCase()));
+    let title = `${base} (copy)`;
+    for (let i = 2; taken.has(title.toLowerCase()); i++) title = `${base} (copy ${i})`;
+    const record = newRecord<Note>({ ...structuredClone(rest), title, pinned: false });
+    await upsert('notes', record);
+    openNote(record);
+  };
+
   // window.confirm() never returns true inside this app's embedded preview browser (it
   // auto-dismisses native dialogs), which silently ate every delete click — the trash icon
   // looked broken because the confirmation it was waiting on could never be granted. An
@@ -1820,6 +1837,7 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                 secondary={n => [noteTypeLabel(n), ...(n.tags ?? []).map(t => `#${t}`)].join(' · ')}
                 trailing={n => formatDate(n.updatedAt)}
                 onOpen={n => openNote(n)}
+                leadingAction={n => ({ label: 'Duplicate', icon: <CopyPlus size={16} />, onTrigger: () => void duplicateNote(n) })}
                 onDelete={n => void deleteNoteInstantly(n.id)}
                 deleteLabel={n => `Delete ${n.title || 'Untitled'}`}
                 empty={emptyNotesMessage}
@@ -1944,6 +1962,7 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
               <div className="sb-list-item-wrap" key={n.id}>
                 <SwipeRow
                   disabled={!isMobile}
+                  leading={{ label: 'Duplicate', icon: <CopyPlus size={16} />, onTrigger: () => void duplicateNote(n) }}
                   trailing={n.locked ? undefined : { label: 'Delete', icon: <Trash2 size={16} />, onTrigger: () => deleteNote(n.id) }}
                 >
                   <button
@@ -2347,6 +2366,9 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                 <button type="button" className="icon-btn" onClick={() => patchNote({ locked: !note.locked })} title={note.locked ? 'Unlock (allow deleting)' : 'Lock (prevent deleting)'}>
                   {note.locked ? <Lock size={15} /> : <LockOpen size={15} />}
                 </button>
+                <button type="button" className="icon-btn" onClick={() => void duplicateNote(note)} title="Duplicate note" aria-label="Duplicate note">
+                  <CopyPlus size={15} />
+                </button>
                 <span className="sb-editor-meta">
                   {note.archived ? `Archived ${formatDate(note.archivedAt)}` : `Updated ${formatDate(note.updatedAt)}`}
                 </span>
@@ -2514,6 +2536,9 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                 </button>
                 <button type="button" className="icon-btn" onClick={() => patchNote({ locked: !note.locked })} title={note.locked ? 'Unlock (allow deleting)' : 'Lock (prevent deleting)'}>
                   {note.locked ? <Lock size={15} /> : <LockOpen size={15} />}
+                </button>
+                <button type="button" className="icon-btn" onClick={() => void duplicateNote(note)} title="Duplicate note" aria-label="Duplicate note">
+                  <CopyPlus size={15} />
                 </button>
                 <span className="sb-editor-meta">
                   {note.archived ? `Archived ${formatDate(note.archivedAt)}` : `Updated ${formatDate(note.updatedAt)}`}
