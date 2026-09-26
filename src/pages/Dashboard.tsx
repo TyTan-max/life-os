@@ -141,7 +141,7 @@ export function Dashboard({navigate}:{navigate:(page:string, tab?: string)=>void
     return status==='Overdue' || status==='Never contacted';
   }).length;
   const upcomingCheckups = activeContacts.filter(c=>c.nextCheckup && c.nextCheckup>=today && c.nextCheckup<=in7Iso).length;
-  const latestWeight = data.weightEntries.slice().sort((a,b)=>b.date.localeCompare(a.date))[0];
+  const latestWeight = data.weightEntries.filter(e=>e.weight>0).sort((a,b)=>b.date.localeCompare(a.date))[0];
   const latestSleep = data.sleepEntries.slice().sort((a,b)=>b.date.localeCompare(a.date))[0];
   const lowMeds = data.medications.filter(m=>m.active && m.pillsRemaining!=null && m.refillThreshold!=null && m.pillsRemaining<=m.refillThreshold).length;
   const thisYear = today.slice(0,4);

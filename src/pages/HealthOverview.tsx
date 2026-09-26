@@ -5,7 +5,7 @@ import { Card, formatDate } from '../components/UI';
 import { HealthInsightList } from '../components/HealthInsights';
 import { computeHealthInsights } from '../lib/healthInsights';
 import { isMilestone, loggingStreak, medicationAdherenceStreak, nextMilestone } from '../lib/healthStreaks';
-import { inRange } from '../lib/healthPeriod';
+import { inRange, sleepRecencyLabel } from '../lib/healthPeriod';
 import type { HealthPeriodProps, HealthTab } from './HealthWellness';
 
 // Local date, not `.toISOString()` — that converts to UTC, which reads as "tomorrow" late
@@ -40,7 +40,7 @@ export function HealthOverview({
   const activeMinutes = periodWorkouts.reduce((sum, w) => sum + w.durationMin, 0);
   const lastWorkout = data.workouts.slice().sort((a, b) => b.date.localeCompare(a.date))[0];
 
-  const sortedWeights = data.weightEntries.slice().sort((a, b) => a.date.localeCompare(b.date));
+  const sortedWeights = data.weightEntries.filter(e => e.weight > 0).sort((a, b) => a.date.localeCompare(b.date));
   const latestWeight = sortedWeights[sortedWeights.length - 1];
   const weightUnit = data.settings.weightUnit ?? 'lb';
   const periodWeights = sortedWeights.filter(e => inRange(e.date, range));
@@ -81,9 +81,9 @@ export function HealthOverview({
           <button type="button" className="icon-btn" onClick={() => onNavigate('Fitness')} aria-label="View Fitness"><ArrowRight size={14} /></button>
         </div>
         <strong className="health-quadrant-hero">{periodWorkouts.length}</strong>
-        <span className="health-quadrant-hero-label">workouts {periodLabel}</span>
+        <span className="health-quadrant-hero-label">workout{periodWorkouts.length === 1 ? '' : 's'} · {periodLabel}</span>
         <small className="health-quadrant-meta">
-          {activeMinutes} active min {periodLabel}{lastWorkout ? ` · last: ${lastWorkout.type} on ${formatDate(lastWorkout.date)}` : ''}
+          {activeMinutes} active min{lastWorkout ? ` · last: ${lastWorkout.type}, ${formatDate(lastWorkout.date)}` : ''}
         </small>
       </Card>
     ),
@@ -109,9 +109,11 @@ export function HealthOverview({
           <button type="button" className="icon-btn" onClick={() => onNavigate('Sleep')} aria-label="View Sleep"><ArrowRight size={14} /></button>
         </div>
         <strong className="health-quadrant-hero">{lastNight ? `${lastNight.durationHours}h` : '—'}</strong>
-        <span className="health-quadrant-hero-label">last night</span>
+        {/* Only "last night" when it actually was — the newest entry was labelled that way even
+            when it was two weeks old, right above a "no entries yet" caption. */}
+        <span className="health-quadrant-hero-label">{sleepRecencyLabel(lastNight?.date)}</span>
         <small className="health-quadrant-meta">
-          {avgSleep != null ? `${avgSleep.toFixed(1)}h avg ${periodLabel}` : 'no entries yet'}
+          {avgSleep != null ? `${avgSleep.toFixed(1)}h avg · ${periodLabel}` : `no nights logged · ${periodLabel}`}
         </small>
       </Card>
     ),

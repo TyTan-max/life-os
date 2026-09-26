@@ -9,8 +9,9 @@ import { SortableTh, toggleSort } from '../components/SortableTh';
 import type { SortState } from '../components/SortableTh';
 import { MobileRecordList } from '../components/MobileRecordList';
 import { Sheet } from '../components/Sheet';
+import { EntrySheetFooter, useAutoAdd } from '../components/EntrySheetFooter';
 import { useIsMobile } from '../hooks/useIsMobile';
-import { inRange } from '../lib/healthPeriod';
+import { inRange, sleepRecencyLabel } from '../lib/healthPeriod';
 import type { HealthPeriodProps } from './HealthWellness';
 import type { SleepEntry } from '../types';
 
@@ -28,10 +29,13 @@ function computeSleepDuration(bedTime?: string, wakeTime?: string): number | und
 
 type SleepSortKey = 'date' | 'duration' | 'quality';
 
-export function HealthSleep({ period, range, periodLabel, activeDate }: HealthPeriodProps) {
+export function HealthSleep({ period, range, periodLabel, activeDate, autoAdd, onAutoAdded }: HealthPeriodProps & { autoAdd?: boolean; onAutoAdded?: () => void }) {
   const { data, upsert, remove } = useStore();
   const isMobile = useIsMobile();
   const [editingId, setEditingId] = useState<string | null>(null);
+  // The entry Add just created, while its sheet is still open for the first time.
+  const [newId, setNewId] = useState<string | null>(null);
+  const closeSheet = () => { setEditingId(null); setNewId(null); };
   const entries = data.sleepEntries;
   const target = data.settings.sleepTargetHours ?? 8;
   const inPeriod = entries.filter(e => inRange(e.date, range));
@@ -68,12 +72,24 @@ export function HealthSleep({ period, range, periodLabel, activeDate }: HealthPe
   // Defaults to whatever day is currently being viewed, not always "today" — otherwise adding
   // a row while browsing a past day/week silently creates a today-dated entry that's invisible
   // in the view you're looking at, and the button looks like it did nothing.
-  const addEntry = () => void upsert('sleepEntries', newRecord<SleepEntry>({ date: activeDate, durationHours: target }));
+  // On a phone the new entry opens straight into its sheet — otherwise it silently logged an
+  // 8h night (the target) that you then had to find and correct.
+  const addEntry = () => {
+    const record = newRecord<SleepEntry>({ date: activeDate, durationHours: target });
+    void upsert('sleepEntries', record);
+    if (isMobile) { setNewId(record.id); setEditingId(record.id); }
+  };
+  useAutoAdd(autoAdd, addEntry, onAutoAdded);
 
   return (
     <>
       <div className="kpi-grid four">
-        <Kpi label="Last Night" value={lastNight ? `${lastNight.durationHours}h` : '—'} caption={lastNight ? formatDate(lastNight.date) : 'no entries yet'} tone="default" />
+        <Kpi
+          label={sleepRecencyLabel(lastNight?.date) === 'last night' ? 'Last Night' : 'Latest Night'}
+          value={lastNight ? `${lastNight.durationHours}h` : '—'}
+          caption={lastNight ? formatDate(lastNight.date) : 'no entries yet'}
+          tone="default"
+        />
         <Kpi label="Avg Duration" value={avgDuration != null ? `${avgDuration.toFixed(1)}h` : '—'} caption={`target ${target}h · ${periodLabel}`} tone={avgDuration != null && avgDuration >= target ? 'green' : 'amber'} />
         <Kpi label="Sleep Debt" value={sleepDebt != null ? `${sleepDebt}h` : '—'} caption={`deficit, ${periodLabel}`} tone={sleepDebt != null && sleepDebt > 3 ? 'red' : 'default'} />
         <Kpi label="Avg Quality" value={avgQuality != null ? avgQuality.toFixed(1) : '—'} caption={`out of 10, ${periodLabel}`} tone="blue" />
@@ -100,7 +116,15 @@ export function HealthSleep({ period, range, periodLabel, activeDate }: HealthPe
             empty="No nights logged in this period."
           />
           {editing && (
-            <Sheet title={formatDate(editing.date)} onClose={() => setEditingId(null)}>
+            <Sheet
+              title={editing.id === newId ? 'Log a night' : formatDate(editing.date)}
+              onClose={closeSheet}
+              footer={<EntrySheetFooter
+                isNew={editing.id === newId}
+                onRemove={() => { void remove('sleepEntries', editing.id); closeSheet(); }}
+                onDone={closeSheet}
+              />}
+            >
               <div className="sheet-form">
                 <label><span>Date</span><DatePicker value={editing.date} onChange={v => patch(editing, { date: v })} /></label>
                 <label><span>Bed time</span><TimeWheelPicker value={editing.bedTime} onChange={v => patchTime(editing, 'bedTime', v)} placeholder="Bed time" /></label>

@@ -1872,6 +1872,36 @@ input, select, textarea { font-family: inherit; }
 .health-routine-day.accent-purple { border-left-color: var(--purple); }
 .health-routine-day-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
 .health-routine-day-name { flex: 1; font-size: 14px; font-weight: 650; padding: 4px 8px; }
+/* Phone name strip (ScrollableName): the full name on one line, swiped sideways to read the rest.
+   The right edge fades while more text is hidden past it. */
+.routine-name-scroll {
+  display: block; min-width: 0; overflow-x: auto; overflow-y: hidden; white-space: nowrap;
+  scrollbar-width: none; -webkit-overflow-scrolling: touch; overscroll-behavior-x: contain;
+  padding: 6px 8px; border: 1px solid transparent; border-radius: 8px;
+  color: var(--text); font-size: 13.5px; cursor: text;
+}
+.routine-name-scroll::-webkit-scrollbar { display: none; }
+.routine-name-scroll.has-more {
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
+  mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
+}
+.routine-name-scroll:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.routine-name-scroll.input-wide { width: 147px; }
+.routine-name-scroll.health-routine-name-field { font-size: 15px; font-weight: 650; }
+.routine-name-scroll.health-routine-day-name,
+.routine-name-scroll.routine-day-name-strip { font-size: 14px; font-weight: 650; }
+.routine-name-scroll.routine-day-name-strip { padding: 0; cursor: pointer; }
+.routine-name-placeholder { color: var(--text-faint); }
+.health-routine-day-toggle svg { transition: transform 160ms ease; }
+.health-routine-day-toggle svg.is-open { transform: rotate(180deg); }
+.health-routine-day.is-collapsed .health-routine-day-head { margin-bottom: 0; }
+.health-routine-day-summary {
+  flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; padding: 4px 0;
+  border: none; background: none; color: var(--text); font-family: inherit; text-align: left; cursor: pointer;
+}
+.health-routine-day-summary b { font-size: 14px; font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.health-routine-day-summary small { font-size: 12px; color: var(--text-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (prefers-reduced-motion: reduce) { .health-routine-day-toggle svg { transition: none; } }
 .health-routine-warmup-field { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; font-size: 12px; color: var(--text-faint); font-weight: 600; }
 .health-routine-warmup-field input { flex: 1; font-size: 12px; }
 .health-routine-blank-cell { background: repeating-linear-gradient(135deg, var(--bg) 0 6px, var(--surface) 6px 12px); }
@@ -4838,6 +4868,12 @@ input, select, textarea { font-family: inherit; }
 .health-goal-row { display: flex; gap: 16px; flex-wrap: wrap; }
 .health-inline-field { display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; font-weight: 600; color: var(--text-muted); }
 .health-inline-field input, .health-inline-field select { width: 160px; }
+/* These had no field styling at all, so they rendered as the browser's grey default boxes. */
+.health-inline-field input:not([type="checkbox"]), .health-inline-field select {
+  border: 1px solid var(--border); border-radius: 9px; padding: 8px 10px;
+  background: var(--surface); color: var(--text); font-family: inherit; font-size: 13.5px; font-weight: 400;
+}
+.health-inline-field select option { background: var(--surface); color: var(--text); }
 .health-inline-field.health-checkbox-field { flex-direction: row; align-items: center; gap: 8px; justify-content: flex-start; }
 .health-inline-field.health-checkbox-field input { width: auto; }
 
@@ -5427,6 +5463,48 @@ input, select, textarea { font-family: inherit; }
      truncating to "Never contact…". */
   .crm-main > .card:has(> .mrl) { padding: 0; border: none; background: none; box-shadow: none; }
   .crm-main .mrl-text small { white-space: normal; }
+  /* ---- Health ---- */
+  /* Period controls: select + date share one full-width row under the tab strip. */
+  .health-period-controls { width: 100%; justify-content: space-between; }
+  .health-period-controls .tj-period-nav { flex: 1; min-width: 0; justify-content: flex-end; }
+  /* Streaks and the four pillar cards pair up two-across instead of one card per row. */
+  .health-streak-row { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-bottom: 12px; }
+  .health-streak-badge { padding: 12px; gap: 10px; align-items: flex-start; }
+  .health-streak-icon { width: 32px; height: 32px; border-radius: 9px; }
+  .health-streak-top { flex-wrap: wrap; row-gap: 2px; }
+  .health-streak-top span { font-size: 12px; }
+  .health-streak-body small { font-size: 11px; line-height: 1.35; }
+  .health-quadrant-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .health-quadrant { padding: 14px; min-width: 0; }
+  .health-quadrant-head h3 { font-size: 13px; }
+  .health-quadrant-hero { font-size: 24px; }
+  .health-quadrant-hero-label, .health-quadrant-meta { overflow-wrap: anywhere; }
+  .health-quadrant-meta { font-size: 11.5px; line-height: 1.35; }
+  /* Medication: every row stacks the same way — name, then its dose chips full width — instead
+     of some chips sitting beside the name and others dropping below depending on name length. */
+  .med-today-row { flex-direction: column; align-items: stretch; gap: 10px; }
+  .med-today-doses { width: 100%; }
+  .med-dose-chip { flex: 1 1 auto; padding-left: 14px; }
+  .med-dose-chip span { margin-right: auto; }
+  .med-export-long { display: none; }
+  /* Weight: the collapsed Goals & targets panel stacks its fields full width. */
+  .health-goal-details .health-goal-row { flex-direction: column; gap: 12px; }
+  .health-goal-details .health-inline-field input:not([type="checkbox"]),
+  .health-goal-details .health-inline-field select { width: 100%; min-height: 44px; font-size: 16px; }
+  .health-goal-details { margin-bottom: 16px; }
+  /* Fitness routine: the "Logging for" row wraps instead of pushing its Logged button off-screen,
+     and the exercise column stays pinned while the weight columns scroll sideways. */
+  .health-routine-log-date-row { flex-wrap: wrap; row-gap: 6px; }
+  .health-routine-log-date-row > .muted { flex-basis: 100%; }
+  .health-routine-day { padding: 12px; margin-bottom: 10px; }
+  .health-routine-day .grid-table th:first-child,
+  .health-routine-day .grid-table td:first-child {
+    position: sticky; left: 0; z-index: 1; background: var(--surface);
+    box-shadow: 1px 0 0 var(--border);
+  }
+  /* The other header cells are themselves sticky (top) and layered above z-index 1, so they slid
+     over the pinned "Exercise" header while scrolling. */
+  .health-routine-day .grid-table th:first-child { z-index: 4; }
   /* Contact form: 14 category chips wrapped to ~5 rows; one swipeable row costs 40px instead. */
   .cf-category-chips {
     flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none;

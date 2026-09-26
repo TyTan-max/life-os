@@ -120,7 +120,7 @@ export function HealthMedication({ range, periodLabel }: HealthPeriodProps) {
           <div><h2>Today's Doses</h2></div>
           {active.length > 0 && (
             <button type="button" className="btn ghost small" onClick={exportAdherenceReport}>
-              <Download size={14} /> Export Adherence Report
+              <Download size={14} /> Export<span className="med-export-long"> Adherence Report</span>
             </button>
           )}
         </div>

@@ -5,6 +5,7 @@ import { Kpi, formatDate } from '../components/UI';
 import { DatePicker } from '../components/DatePicker';
 import { MobileRecordList } from '../components/MobileRecordList';
 import { Sheet } from '../components/Sheet';
+import { EntrySheetFooter, useAutoAdd } from '../components/EntrySheetFooter';
 import { useIsMobile } from '../hooks/useIsMobile';
 import { NumberCell, NotesCell, OptionalNumberCell } from '../components/GridCells';
 import { SortableTh, SortableThLabel, toggleSort } from '../components/SortableTh';
@@ -39,7 +40,7 @@ function currentStreak(workouts: WorkoutEntry[]): number {
 
 type WorkoutSortKey = 'date' | 'type' | 'duration';
 
-export function HealthFitness({ period, range, periodLabel, activeDate, onActiveDateChange }: HealthPeriodProps) {
+export function HealthFitness({ period, range, periodLabel, activeDate, onActiveDateChange, autoAdd, onAutoAdded }: HealthPeriodProps & { autoAdd?: boolean; onAutoAdded?: () => void }) {
   const { data, upsert, remove, updateSettings } = useStore();
   const workouts = data.workouts;
   // Undefined settings.workoutTypes means "still on the default list" — only forked into
@@ -73,7 +74,16 @@ export function HealthFitness({ period, range, periodLabel, activeDate, onActive
   // Defaults to whatever day is currently being viewed, not always "today" — otherwise adding
   // a row while browsing a past day/week silently creates a today-dated entry that's invisible
   // in the view you're looking at, and the button looks like it did nothing.
-  const addWorkout = () => void upsert('workouts', newRecord<WorkoutEntry>({ date: activeDate, type: workoutTypes[0] ?? 'Run', durationMin: 30 }));
+  // On a phone the new workout opens straight into its sheet rather than silently logging a
+  // default 30-minute run.
+  const [newId, setNewId] = useState<string | null>(null);
+  const closeSheet = () => { setEditingId(null); setNewId(null); };
+  const addWorkout = () => {
+    const record = newRecord<WorkoutEntry>({ date: activeDate, type: workoutTypes[0] ?? 'Run', durationMin: 30 });
+    void upsert('workouts', record);
+    if (isMobile) { setNewId(record.id); setEditingId(record.id); }
+  };
+  useAutoAdd(autoAdd, addWorkout, onAutoAdded);
 
   const addWorkoutType = (name: string) => {
     if (workoutTypes.some(t => t.toLowerCase() === name.toLowerCase())) return;
@@ -122,7 +132,15 @@ export function HealthFitness({ period, range, periodLabel, activeDate, onActive
             empty="No workouts logged in this period."
           />
           {editing && (
-            <Sheet title={editing.type} onClose={() => setEditingId(null)}>
+            <Sheet
+              title={editing.id === newId ? 'Log a workout' : editing.type}
+              onClose={closeSheet}
+              footer={<EntrySheetFooter
+                isNew={editing.id === newId}
+                onRemove={() => { void remove('workouts', editing.id); closeSheet(); }}
+                onDone={closeSheet}
+              />}
+            >
               <div className="sheet-form">
                 <label><span>Date</span><DatePicker value={editing.date} onChange={v => patch(editing, { date: v })} /></label>
                 <label>

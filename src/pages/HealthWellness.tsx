@@ -4,9 +4,6 @@ import { PageHeader } from '../components/UI';
 import { DatePicker } from '../components/DatePicker';
 import { Sheet } from '../components/Sheet';
 import { useFabAction } from '../hooks/useFabAction';
-import { useStore, newRecord } from '../store';
-import type { MealEntry, SleepEntry, WeightEntry, WorkoutEntry } from '../types';
-import { WORKOUT_TYPES } from '../types';
 import {
   HEALTH_PERIODS, formatPeriodLabel, isCurrentPeriod, periodRangeFor, shiftAnchor, toIsoDate
 } from '../lib/healthPeriod';
@@ -32,7 +29,6 @@ export interface HealthPeriodProps {
 type QuickLogKind = 'Weight' | 'Sleep' | 'Meal' | 'Workout';
 
 export function HealthWellness() {
-  const { data, upsert } = useStore();
   const [tab, setTab] = useState<HealthTab>('Overview');
   const [period, setPeriod] = useState<HealthPeriod>('Day');
   const [anchorDate, setAnchorDate] = useState(new Date());
@@ -47,28 +43,16 @@ export function HealthWellness() {
   const shiftPeriod = (delta: number) => setAnchorDate(d => shiftAnchor(period, d, delta));
   const returnToCurrentPeriod = () => setAnchorDate(new Date());
 
-  // Each sub-page owns its own add-entry form and its own "which row is being edited" state,
-  // so a quick log from here can create the entry and land on the right tab, but can't jump
-  // straight into that sub-page's edit sheet without threading an id through props all four
-  // sub-pages would need to accept. Landing on the tab with the new (blank, today-dated) entry
-  // visible in the list is the honest stopping point for this pass.
+  // Quick log hands off to the tab that owns that kind of entry, which adds it and opens its
+  // edit sheet (Discard / Save). It used to save the entry itself with defaults — an 8h night,
+  // yesterday's weight again, a 30-minute run — before you'd entered anything.
+  const [pendingAdd, setPendingAdd] = useState<QuickLogKind | null>(null);
+  const clearPendingAdd = () => setPendingAdd(null);
   const quickLog = (kind: QuickLogKind) => {
-    const today = toIsoDate(new Date());
-    if (kind === 'Weight') {
-      const latest = data.weightEntries.slice().sort((a, b) => a.date.localeCompare(b.date)).pop();
-      void upsert('weightEntries', newRecord<WeightEntry>({ date: today, weight: latest?.weight ?? 0 }));
-      setTab('Weight');
-    } else if (kind === 'Sleep') {
-      void upsert('sleepEntries', newRecord<SleepEntry>({ date: today, durationHours: data.settings.sleepTargetHours ?? 8 }));
-      setTab('Sleep');
-    } else if (kind === 'Meal') {
-      void upsert('meals', newRecord<MealEntry>({ date: today, mealType: 'Breakfast', description: '' }));
-      setTab('Weight');
-    } else {
-      const workoutTypes = data.settings.workoutTypes ?? WORKOUT_TYPES;
-      void upsert('workouts', newRecord<WorkoutEntry>({ date: today, type: workoutTypes[0] ?? 'Run', durationMin: 30 }));
-      setTab('Fitness');
-    }
+    // Log against today, even if a past day is being browsed.
+    setAnchorDate(new Date());
+    setTab(kind === 'Sleep' ? 'Sleep' : kind === 'Workout' ? 'Fitness' : 'Weight');
+    setPendingAdd(kind);
     setQuickLogOpen(false);
   };
   useFabAction('Health', 'Quick log', () => setQuickLogOpen(true));
@@ -117,9 +101,15 @@ export function HealthWellness() {
       </div>
 
       {tab === 'Overview' && <HealthOverview onNavigate={setTab} {...periodProps} />}
-      {tab === 'Fitness' && <HealthFitness {...periodProps} />}
-      {tab === 'Weight' && <HealthWeight {...periodProps} />}
-      {tab === 'Sleep' && <HealthSleep {...periodProps} />}
+      {tab === 'Fitness' && <HealthFitness {...periodProps} autoAdd={pendingAdd === 'Workout'} onAutoAdded={clearPendingAdd} />}
+      {tab === 'Weight' && (
+        <HealthWeight
+          {...periodProps}
+          autoAdd={pendingAdd === 'Weight' ? 'weight' : pendingAdd === 'Meal' ? 'meal' : undefined}
+          onAutoAdded={clearPendingAdd}
+        />
+      )}
+      {tab === 'Sleep' && <HealthSleep {...periodProps} autoAdd={pendingAdd === 'Sleep'} onAutoAdded={clearPendingAdd} />}
       {tab === 'Medication' && <HealthMedication {...periodProps} />}
 
       {quickLogOpen && (

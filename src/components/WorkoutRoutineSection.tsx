@@ -8,6 +8,7 @@ import { RichTextEditor } from './RichTextEditor';
 import { NumberCell, OptionalNumberCell } from './GridCells';
 import { buildStarterRoutine, ROUTINE_EPOCH } from '../lib/starterRoutine';
 import { generateId } from '../utils/id';
+import { useIsMobile } from '../hooks/useIsMobile';
 import type { ExerciseSetLog, ProgramAssignment, RoutineDay, RoutineExercise, RoutineVersion, WorkoutRoutine } from '../types';
 
 // Formats in local time, not UTC — Date#toISOString() converts to UTC first, which rolls
@@ -116,6 +117,76 @@ function NameTooltip({ text, children }: { text: string; children: React.ReactNo
   );
 }
 
+// Phone stand-in for a name <input>. A text field can't be dragged to reveal text that runs past
+// its edge (a drag just scrolls the page) and there's no hover for the desktop tooltip, so long
+// exercise/day/program names were stuck showing "Seated Dumbbell Sho…". This shows the full name
+// as a strip you can swipe sideways, fading at the edge while there's more; a tap switches to
+// the real input for editing.
+function ScrollableName({ value, onChange, className, placeholder, onTap }: {
+  value: string;
+  onChange?: (v: string) => void;
+  className?: string;
+  placeholder?: string;
+  // When set, a tap runs this instead of switching to edit mode (e.g. opening a collapsed day).
+  onTap?: () => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [overflowing, setOverflowing] = useState(false);
+  const [atEnd, setAtEnd] = useState(false);
+  const stripRef = useRef<HTMLDivElement>(null);
+  // A drag that scrolled the strip ends in a click with a mouse (touch usually drops it); that
+  // click must not also open the editor or the day.
+  const lastScrollAt = useRef(0);
+  const activate = () => {
+    if (Date.now() - lastScrollAt.current < 250) return;
+    if (onTap) onTap(); else if (onChange) setEditing(true);
+  };
+
+  useEffect(() => {
+    const el = stripRef.current;
+    if (!el) return;
+    setOverflowing(el.scrollWidth > el.clientWidth + 1);
+    setAtEnd(el.scrollLeft + el.clientWidth >= el.scrollWidth - 1);
+  }, [value, editing]);
+
+  if (editing && onChange) {
+    return (
+      <input
+        type="text"
+        className={`grid-cell-input ${className ?? ''}`}
+        value={value}
+        placeholder={placeholder}
+        autoFocus
+        onChange={e => onChange(e.target.value)}
+        onBlur={() => setEditing(false)}
+        onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+      />
+    );
+  }
+  return (
+    <div
+      ref={stripRef}
+      role={onTap || onChange ? 'button' : undefined}
+      tabIndex={onTap || onChange ? 0 : undefined}
+      className={`routine-name-scroll ${className ?? ''} ${overflowing && !atEnd ? 'has-more' : ''}`}
+      onScroll={e => {
+        const el = e.currentTarget;
+        lastScrollAt.current = Date.now();
+        setAtEnd(el.scrollLeft + el.clientWidth >= el.scrollWidth - 1);
+      }}
+      onClick={e => {
+        // Also keeps a drag on a collapsed day's name from bubbling up and opening the day.
+        if (Date.now() - lastScrollAt.current < 250) { e.stopPropagation(); return; }
+        activate();
+      }}
+      onKeyDown={e => { if (e.key === 'Enter') activate(); }}
+      aria-label={onTap ? undefined : `Edit ${value || placeholder || 'name'}`}
+    >
+      {value || <span className="routine-name-placeholder">{placeholder}</span>}
+    </div>
+  );
+}
+
 // Icon-only trigger (the name is already shown right beside it in an editable field) that opens
 // a portal-based menu for switching, creating, and deleting programs.
 function ProgramMenu({
@@ -214,12 +285,17 @@ function RoutineExerciseRow({
   onEditField: (patch: Partial<RoutineExercise>) => void;
   onDelete: () => void;
 }) {
+  const isMobile = useIsMobile();
   return (
     <tr>
       <td>
-        <NameTooltip text={exercise.name}>
-          <input type="text" className="grid-cell-input input-wide" value={exercise.name} onChange={e => onEditField({ name: e.target.value })} />
-        </NameTooltip>
+        {isMobile ? (
+          <ScrollableName value={exercise.name} onChange={name => onEditField({ name })} className="input-wide" placeholder="Exercise" />
+        ) : (
+          <NameTooltip text={exercise.name}>
+            <input type="text" className="grid-cell-input input-wide" value={exercise.name} onChange={e => onEditField({ name: e.target.value })} />
+          </NameTooltip>
+        )}
       </td>
       <td className="grid-td-compact"><NumberCell value={exercise.targetSets} onChange={n => onEditField({ targetSets: n })} /></td>
       <td className="grid-td-compact"><input type="text" className="grid-cell-input" value={exercise.targetReps} placeholder="e.g. 12 or 10-12" onChange={e => onEditField({ targetReps: e.target.value })} /></td>
@@ -260,13 +336,41 @@ function RoutineDayCard({
   onDeleteDay: () => void;
 }) {
   const maxSets = Math.max(1, ...day.exercises.map(e => e.targetSets));
+  // Phone: each day folds to its header. Four fully expanded day tables ran the Fitness tab to
+  // ~3,400px; collapsed, the program reads as a list of days you open one at a time.
+  const isMobile = useIsMobile();
+  const [open, setOpen] = useState(false);
+  const collapsed = isMobile && !open;
 
   return (
-    <Card className={`health-routine-day accent-${accent}`}>
+    <Card className={`health-routine-day accent-${accent} ${collapsed ? 'is-collapsed' : ''}`}>
       <div className="health-routine-day-head">
-        <input type="text" className="grid-cell-input health-routine-day-name" value={day.name} onChange={e => onEditDay({ name: e.target.value })} />
+        {isMobile && (
+          <button
+            type="button"
+            className="icon-btn health-routine-day-toggle"
+            onClick={() => setOpen(o => !o)}
+            aria-expanded={open}
+            aria-label={open ? `Collapse ${day.name}` : `Expand ${day.name}`}
+          >
+            <ChevronDown size={16} className={open ? 'is-open' : ''} />
+          </button>
+        )}
+        {collapsed ? (
+          // A div, not a button: the name strip inside scrolls sideways, and a drag there shouldn't
+          // count as a tap. A plain tap anywhere on it still opens the day.
+          <div className="health-routine-day-summary" onClick={() => setOpen(true)}>
+            <ScrollableName value={day.name} className="routine-day-name-strip" />
+            <small>{day.exercises.length} exercise{day.exercises.length === 1 ? '' : 's'}{day.warmup ? ` · ${day.warmup}` : ''}</small>
+          </div>
+        ) : isMobile ? (
+          <ScrollableName value={day.name} onChange={name => onEditDay({ name })} className="health-routine-day-name" placeholder="Day name" />
+        ) : (
+          <input type="text" className="grid-cell-input health-routine-day-name" value={day.name} onChange={e => onEditDay({ name: e.target.value })} />
+        )}
         <button type="button" className="icon-btn danger" onClick={onDeleteDay} aria-label={`Delete ${day.name}`}><Trash2 size={13} /></button>
       </div>
+      {!collapsed && <>
       <label className="health-routine-warmup-field">
         <span>Warm-up</span>
         <input type="text" className="grid-cell-input" value={day.warmup ?? ''} placeholder="e.g. 5 min light cardio" onChange={e => onEditDay({ warmup: e.target.value || undefined })} />
@@ -301,6 +405,7 @@ function RoutineDayCard({
         </table>
       </div>
       <button type="button" className="btn ghost small health-routine-add-exercise" onClick={onAddExercise}><Plus size={14} /> Add exercise</button>
+      </>}
     </Card>
   );
 }
@@ -312,6 +417,7 @@ export function WorkoutRoutineSection({
   onActiveDateChange: (iso: string) => void;
 }) {
   const { data, upsert, remove, updateSettings } = useStore();
+  const isMobile = useIsMobile();
   const routines = data.workoutRoutines;
   const routine = routines.find(r => r.id === data.settings.activeWorkoutRoutineId) ?? routines[0];
 
@@ -457,13 +563,22 @@ export function WorkoutRoutineSection({
           onCreate={createProgram}
           onDelete={deleteProgram}
         />
-        <input
-          type="text"
-          className="grid-cell-input health-routine-name-field"
-          value={routine.name}
-          onChange={e => void upsert('workoutRoutines', { ...routine, name: e.target.value })}
-          placeholder="Program name"
-        />
+        {isMobile ? (
+          <ScrollableName
+            value={routine.name}
+            onChange={name => void upsert('workoutRoutines', { ...routine, name })}
+            className="health-routine-name-field"
+            placeholder="Program name"
+          />
+        ) : (
+          <input
+            type="text"
+            className="grid-cell-input health-routine-name-field"
+            value={routine.name}
+            onChange={e => void upsert('workoutRoutines', { ...routine, name: e.target.value })}
+            placeholder="Program name"
+          />
+        )}
       </div>
 
       <div className="health-routine-log-date-row">

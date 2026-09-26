@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Plus, Trash2 } from 'lucide-react';
+import { ChevronDown, Plus, Trash2 } from 'lucide-react';
 import { useStore, newRecord } from '../store';
 import { Badge, Card, Kpi, ProgressBar, formatDate } from '../components/UI';
 import { DatePicker } from '../components/DatePicker';
@@ -8,6 +8,7 @@ import { SortableTh, toggleSort } from '../components/SortableTh';
 import type { SortState } from '../components/SortableTh';
 import { MobileRecordList } from '../components/MobileRecordList';
 import { Sheet } from '../components/Sheet';
+import { EntrySheetFooter, useAutoAdd } from '../components/EntrySheetFooter';
 import { useIsMobile } from '../hooks/useIsMobile';
 import { HealthInsightList } from '../components/HealthInsights';
 import { computeHealthInsights } from '../lib/healthInsights';
@@ -27,7 +28,8 @@ function iso(offsetDays = 0): string {
 }
 
 function WeightTrendChart({ entries }: { entries: WeightEntry[] }) {
-  const sorted = entries.slice().sort((a, b) => a.date.localeCompare(b.date)).slice(-30);
+  // A 0 weigh-in is an empty placeholder, not a reading — plotting it dragged the line to the floor.
+  const sorted = entries.filter(e => e.weight > 0).sort((a, b) => a.date.localeCompare(b.date)).slice(-30);
   if (sorted.length < 2) return <p className="muted empty-state">Log at least two weigh-ins to see a trend.</p>;
 
   const values = sorted.map(e => e.weight);
@@ -62,7 +64,7 @@ type WeightSortKey = 'date' | 'weight';
 type MealSortKey = 'date' | 'calories';
 type GlucoseSortKey = 'date' | 'value';
 
-export function HealthWeight({ period, range, periodLabel, activeDate }: HealthPeriodProps) {
+export function HealthWeight({ period, range, periodLabel, activeDate, autoAdd, onAutoAdded }: HealthPeriodProps & { autoAdd?: 'weight' | 'meal'; onAutoAdded?: () => void }) {
   const { data, updateSettings, upsert, remove } = useStore();
   const entries = data.weightEntries;
   const unit = data.settings.weightUnit ?? 'lb';
@@ -78,13 +80,17 @@ export function HealthWeight({ period, range, periodLabel, activeDate }: HealthP
   const editingWeight = entries.find(e => e.id === editingWeightId) ?? null;
 
   const sorted = useMemo(() => entries.slice().sort((a, b) => a.date.localeCompare(b.date)), [entries]);
-  const latest = sorted[sorted.length - 1];
+  // 0-weight entries are empty placeholders (never filled in), not readings: they stay in the list
+  // below so they can be deleted, but never count as "current weight" or anchor a change.
+  const readings = useMemo(() => sorted.filter(e => e.weight > 0), [sorted]);
+  const latest = readings[readings.length - 1];
   // "Current weight" and "body fat" are always the latest known reading regardless of which
   // period is being browsed — but the change figure is scoped to the period, so viewing a past
   // week/month shows what actually happened then rather than a fixed 30-day window.
   const inPeriodWeights = sorted.filter(e => inRange(e.date, range));
-  const periodFirst = inPeriodWeights[0];
-  const periodLast = inPeriodWeights[inPeriodWeights.length - 1];
+  const inPeriodReadings = inPeriodWeights.filter(e => e.weight > 0);
+  const periodFirst = inPeriodReadings[0];
+  const periodLast = inPeriodReadings[inPeriodReadings.length - 1];
   const change = periodFirst && periodLast && periodFirst.id !== periodLast.id
     ? Math.round((periodLast.weight - periodFirst.weight) * 10) / 10 : undefined;
   const target = data.settings.weightGoalTarget;
@@ -131,7 +137,11 @@ export function HealthWeight({ period, range, periodLabel, activeDate }: HealthP
     const record = newRecord<WeightEntry>({ date: activeDate, weight: latest?.weight ?? 0 });
     setLastAddedWeightId(record.id);
     void upsert('weightEntries', record);
+    // Phone: straight into the sheet, instead of silently re-logging yesterday's weight as today's.
+    if (isMobile) { setNewEntryId(record.id); setEditingWeightId(record.id); }
   };
+  // Id of the weigh-in or meal Add just created, while its sheet is open for the first time.
+  const [newEntryId, setNewEntryId] = useState<string | null>(null);
 
   const [mealSort, setMealSort] = useState<SortState<MealSortKey>>({ key: 'date', dir: 'desc' });
   const sortedMeals = mealsInPeriod.slice().sort((a, b) => {
@@ -139,7 +149,15 @@ export function HealthWeight({ period, range, periodLabel, activeDate }: HealthP
     return mealSort.dir === 'asc' ? cmp : -cmp;
   });
   const patchMeal = (m: MealEntry, p: Partial<MealEntry>) => void upsert('meals', { ...m, ...p });
-  const addMeal = () => void upsert('meals', newRecord<MealEntry>({ date: activeDate, mealType: 'Breakfast', description: '' }));
+  const addMeal = () => {
+    const record = newRecord<MealEntry>({ date: activeDate, mealType: 'Breakfast', description: '' });
+    void upsert('meals', record);
+    if (isMobile) { setNewEntryId(record.id); setEditingMealId(record.id); }
+  };
+  useAutoAdd(autoAdd === 'weight', addWeight, onAutoAdded);
+  useAutoAdd(autoAdd === 'meal', addMeal, onAutoAdded);
+  const closeWeightSheet = () => { setEditingWeightId(null); setNewEntryId(null); };
+  const closeMealSheet = () => { setEditingMealId(null); setNewEntryId(null); };
 
   const [glucoseSort, setGlucoseSort] = useState<SortState<GlucoseSortKey>>({ key: 'date', dir: 'desc' });
   const glucoseInPeriod = data.glucoseEntries.filter(g => inRange(g.date, range));
@@ -149,6 +167,65 @@ export function HealthWeight({ period, range, periodLabel, activeDate }: HealthP
   });
   const patchGlucose = (g: GlucoseEntry, p: Partial<GlucoseEntry>) => void upsert('glucoseEntries', { ...g, ...p });
   const addGlucose = () => void upsert('glucoseEntries', newRecord<GlucoseEntry>({ date: activeDate, value: 0 }));
+
+  const goalFields = (
+          <div className="health-goal-row">
+            <label className="health-inline-field">
+              <span>Target weight ({unit})</span>
+              <input
+                type="number"
+                value={targetInput}
+                onChange={e => setTargetInput(e.target.value)}
+                onBlur={() => void updateSettings({ weightGoalTarget: targetInput === '' ? undefined : Number(targetInput) })}
+                placeholder="e.g. 170"
+              />
+            </label>
+            <label className="health-inline-field">
+              <span>Unit</span>
+              <select value={unit} onChange={e => void updateSettings({ weightUnit: e.target.value as 'lb' | 'kg' })}>
+                <option value="lb">lb</option>
+                <option value="kg">kg</option>
+              </select>
+            </label>
+            <label className="health-inline-field">
+              <span>Daily calorie target</span>
+              <input
+                type="number"
+                value={calorieTargetInput}
+                onChange={e => setCalorieTargetInput(e.target.value)}
+                onBlur={() => void updateSettings({ dailyCalorieTarget: calorieTargetInput === '' ? undefined : Number(calorieTargetInput) })}
+                placeholder="e.g. 2200"
+              />
+            </label>
+            <label className="health-inline-field">
+              <span>Daily protein target (g)</span>
+              <input
+                type="number"
+                value={proteinTargetInput}
+                onChange={e => setProteinTargetInput(e.target.value)}
+                onBlur={() => void updateSettings({ proteinTargetG: proteinTargetInput === '' ? undefined : Number(proteinTargetInput) })}
+                placeholder="e.g. 150"
+              />
+            </label>
+            <label className="health-inline-field health-checkbox-field">
+              <span>Track glucose</span>
+              <input
+                type="checkbox"
+                checked={glucoseTrackingEnabled}
+                onChange={e => void updateSettings({ glucoseTrackingEnabled: e.target.checked })}
+              />
+            </label>
+            {glucoseTrackingEnabled && (
+              <label className="health-inline-field">
+                <span>Glucose unit</span>
+                <select value={glucoseUnit} onChange={e => void updateSettings({ glucoseUnit: e.target.value as 'mg/dL' | 'mmol/L' })}>
+                  <option value="mg/dL">mg/dL</option>
+                  <option value="mmol/L">mmol/L</option>
+                </select>
+              </label>
+            )}
+          </div>
+  );
 
   return (
     <>
@@ -177,67 +254,29 @@ export function HealthWeight({ period, range, periodLabel, activeDate }: HealthP
         <WeightTrendChart entries={period === 'Day' ? entries : inPeriodWeights} />
       </Card>
 
-      <Card>
-        <div className="card-title">
-          <div><h2>Goal & Units</h2></div>
-        </div>
-        <div className="health-goal-row">
-          <label className="health-inline-field">
-            <span>Target weight ({unit})</span>
-            <input
-              type="number"
-              value={targetInput}
-              onChange={e => setTargetInput(e.target.value)}
-              onBlur={() => void updateSettings({ weightGoalTarget: targetInput === '' ? undefined : Number(targetInput) })}
-              placeholder="e.g. 170"
-            />
-          </label>
-          <label className="health-inline-field">
-            <span>Unit</span>
-            <select value={unit} onChange={e => void updateSettings({ weightUnit: e.target.value as 'lb' | 'kg' })}>
-              <option value="lb">lb</option>
-              <option value="kg">kg</option>
-            </select>
-          </label>
-          <label className="health-inline-field">
-            <span>Daily calorie target</span>
-            <input
-              type="number"
-              value={calorieTargetInput}
-              onChange={e => setCalorieTargetInput(e.target.value)}
-              onBlur={() => void updateSettings({ dailyCalorieTarget: calorieTargetInput === '' ? undefined : Number(calorieTargetInput) })}
-              placeholder="e.g. 2200"
-            />
-          </label>
-          <label className="health-inline-field">
-            <span>Daily protein target (g)</span>
-            <input
-              type="number"
-              value={proteinTargetInput}
-              onChange={e => setProteinTargetInput(e.target.value)}
-              onBlur={() => void updateSettings({ proteinTargetG: proteinTargetInput === '' ? undefined : Number(proteinTargetInput) })}
-              placeholder="e.g. 150"
-            />
-          </label>
-          <label className="health-inline-field health-checkbox-field">
-            <span>Track glucose</span>
-            <input
-              type="checkbox"
-              checked={glucoseTrackingEnabled}
-              onChange={e => void updateSettings({ glucoseTrackingEnabled: e.target.checked })}
-            />
-          </label>
-          {glucoseTrackingEnabled && (
-            <label className="health-inline-field">
-              <span>Glucose unit</span>
-              <select value={glucoseUnit} onChange={e => void updateSettings({ glucoseUnit: e.target.value as 'mg/dL' | 'mmol/L' })}>
-                <option value="mg/dL">mg/dL</option>
-                <option value="mmol/L">mmol/L</option>
-              </select>
-            </label>
-          )}
-        </div>
-      </Card>
+      {/* On a phone these targets are set-and-forget settings, so they fold into one row that
+          summarises them instead of sitting as a form in the middle of the day's log. */}
+      {isMobile ? (
+        <details className="cf-more health-goal-details">
+          <summary>
+            <span>Goals &amp; targets</span>
+            <small>{[
+              target ? `${target} ${unit} goal` : null,
+              data.settings.dailyCalorieTarget ? `${data.settings.dailyCalorieTarget} kcal` : null,
+              proteinTarget ? `${proteinTarget} g protein` : null
+            ].filter(Boolean).join(' · ') || 'Weight goal, units, calorie & protein targets'}</small>
+            <ChevronDown size={16} />
+          </summary>
+          {goalFields}
+        </details>
+      ) : (
+        <Card>
+          <div className="card-title">
+            <div><h2>Goal & Units</h2></div>
+          </div>
+          {goalFields}
+        </Card>
+      )}
 
       <Card>
         <div className="card-title">
@@ -289,7 +328,15 @@ export function HealthWeight({ period, range, periodLabel, activeDate }: HealthP
             empty="No meals logged in this period."
           />
           {editingMeal && (
-            <Sheet title={editingMeal.description || editingMeal.mealType} onClose={() => setEditingMealId(null)}>
+            <Sheet
+              title={editingMeal.id === newEntryId ? 'Log a meal' : (editingMeal.description || editingMeal.mealType)}
+              onClose={closeMealSheet}
+              footer={<EntrySheetFooter
+                isNew={editingMeal.id === newEntryId}
+                onRemove={() => { void remove('meals', editingMeal.id); closeMealSheet(); }}
+                onDone={closeMealSheet}
+              />}
+            >
               <div className="sheet-form">
                 <label><span>Date</span><DatePicker value={editingMeal.date} onChange={v => patchMeal(editingMeal, { date: v })} /></label>
                 <label>
@@ -454,7 +501,15 @@ export function HealthWeight({ period, range, periodLabel, activeDate }: HealthP
             empty="No weigh-ins logged in this period."
           />
           {editingWeight && (
-            <Sheet title={formatDate(editingWeight.date)} onClose={() => setEditingWeightId(null)}>
+            <Sheet
+              title={editingWeight.id === newEntryId ? 'Log a weigh-in' : formatDate(editingWeight.date)}
+              onClose={closeWeightSheet}
+              footer={<EntrySheetFooter
+                isNew={editingWeight.id === newEntryId}
+                onRemove={() => { void remove('weightEntries', editingWeight.id); closeWeightSheet(); }}
+                onDone={closeWeightSheet}
+              />}
+            >
               <div className="sheet-form">
                 <label><span>Date</span><DatePicker value={editingWeight.date} onChange={v => patchWeight(editingWeight, { date: v })} /></label>
                 <label><span>Weight ({unit})</span><input type="number" inputMode="decimal" step="0.1" value={editingWeight.weight} onChange={e => patchWeight(editingWeight, { weight: Number(e.target.value) })} /></label>
