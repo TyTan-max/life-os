@@ -20,6 +20,7 @@ import { RichTextEditor } from '../components/RichTextEditor';
 import type { RichTextEditorHandle } from '../components/RichTextEditor';
 import { useIsMobile, useIsMobileLandscape } from '../hooks/useIsMobile';
 import { useFabAction } from '../hooks/useFabAction';
+import { TruncatedTitleTooltip } from '../components/TruncatedTitleTooltip';
 import { SwipeRow } from '../components/SwipeRow';
 import { MobileRecordList } from '../components/MobileRecordList';
 import { TitleAutofillField } from '../components/CollectionPage';
@@ -1711,6 +1712,7 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
 
   return (
     <>
+      <TruncatedTitleTooltip />
       <PageHeader
         title="Second Brain"
         subtitle="Notes, ideas, and knowledge — organized with PARA, linked together with [[Note Title]]."

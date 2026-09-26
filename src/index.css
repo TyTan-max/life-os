@@ -1906,6 +1906,13 @@ input, select, textarea { font-family: inherit; }
 .health-routine-warmup-field input { flex: 1; font-size: 12px; }
 .health-routine-blank-cell { background: repeating-linear-gradient(135deg, var(--bg) 0 6px, var(--surface) 6px 12px); }
 .health-routine-name-wrap { position: relative; }
+/* Full name of a truncated title on hover (TruncatedTitleTooltip) — same look as the routine one. */
+.truncated-title-tooltip {
+  position: fixed; z-index: 600; max-width: 360px; pointer-events: none;
+  background: var(--surface); border: 1px solid var(--border); color: var(--text);
+  padding: 5px 10px; border-radius: 7px; box-shadow: var(--shadow);
+  font-size: 12.5px; font-weight: 600; line-height: 1.4; white-space: normal; overflow-wrap: anywhere;
+}
 .health-routine-tooltip {
   position: fixed;
   background: var(--surface);
