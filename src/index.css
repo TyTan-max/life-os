@@ -528,7 +528,12 @@ input, select, textarea { font-family: inherit; }
 .date-picker-cell.other-month { color: var(--text-faint); background: var(--bg); opacity: 0.7; }
 .date-picker-cell.today { box-shadow: inset 0 0 0 1.5px var(--teal); font-weight: 650; }
 .date-picker-cell.selected { background: var(--teal); color: #fff; font-weight: 650; }
-.date-picker-cell.marked { background: var(--green-soft); color: var(--green); font-weight: 650; }
+/* --mark lets a caller tint marked days (the workout picker uses each program's colour); every
+   other picker keeps the default green. */
+.date-picker-cell.marked {
+  background: color-mix(in srgb, var(--mark, var(--green)) 18%, transparent);
+  color: var(--mark, var(--green)); font-weight: 650;
+}
 .date-picker-cell.marked::after {
   content: '';
   position: absolute;
@@ -538,10 +543,20 @@ input, select, textarea { font-family: inherit; }
   width: 4px;
   height: 4px;
   border-radius: 50%;
-  background: var(--green);
+  background: var(--mark, var(--green));
 }
-.date-picker-cell.marked.selected { background: var(--green); color: #fff; }
+.date-picker-cell.marked.selected { background: var(--mark, var(--green)); color: #fff; }
 .date-picker-cell.marked.selected::after { background: #fff; }
+/* Secondary markers: logged, but under something other than what's on screen (other programs) —
+   one dot per program in that program's colour. */
+/* Program colour key in the workout program menu. */
+.program-color-dot { flex: none; width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+.date-picker-dots {
+  position: absolute; bottom: 3px; left: 50%; transform: translateX(-50%);
+  display: flex; gap: 2px; pointer-events: none;
+}
+.date-picker-dots i { width: 4px; height: 4px; border-radius: 50%; }
+.date-picker-cell.selected .date-picker-dots i { box-shadow: 0 0 0 1px #fff; }
 
 /* Time wheel picker */
 .time-wheel-trigger {

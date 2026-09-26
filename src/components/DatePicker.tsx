@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import type { CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
 import { Calendar as CalendarIcon, ChevronLeft, ChevronRight } from 'lucide-react';
 
@@ -57,9 +58,15 @@ function formatDisplay(value?: string): string {
 }
 
 export function DatePicker({
-  value, onChange, placeholder, displayLabel, markedDates, allowClear
+  value, onChange, placeholder, displayLabel, markedDates, markedColor, markedLabel, otherMarkedDates, allowClear
 }: {
   value?: string; onChange: (value: string) => void; placeholder?: string; displayLabel?: string; markedDates?: string[];
+  // Colour (and hover label) for `markedDates` — defaults to the green fill + dot.
+  markedColor?: string;
+  markedLabel?: string;
+  // Secondary markers (e.g. workouts logged under other programs): up to three coloured dots per
+  // date plus a hover label. `markedDates` wins when a date is in both.
+  otherMarkedDates?: Record<string, { label: string; colors: string[] }>;
   // When true, clicking the already-selected day clears the field instead of just re-picking the
   // same date — only meaningful for genuinely optional dates (a required one, e.g. a bill's next
   // due date, should never resolve to empty).
@@ -157,10 +164,17 @@ export function DatePicker({
                 <button
                   type="button"
                   key={cell.iso}
-                  className={`date-picker-cell ${cell.inMonth ? '' : 'other-month'} ${cell.iso === value ? 'selected' : ''} ${cell.iso === todayIso ? 'today' : ''} ${markedDates?.includes(cell.iso) ? 'marked' : ''}`}
+                  className={`date-picker-cell ${cell.inMonth ? '' : 'other-month'} ${cell.iso === value ? 'selected' : ''} ${cell.iso === todayIso ? 'today' : ''} ${markedDates?.includes(cell.iso) ? 'marked' : otherMarkedDates?.[cell.iso] ? 'marked-other' : ''}`}
+                  style={markedColor && markedDates?.includes(cell.iso) ? { '--mark': markedColor } as CSSProperties : undefined}
+                  title={markedDates?.includes(cell.iso) ? markedLabel : otherMarkedDates?.[cell.iso]?.label}
                   onClick={() => pick(cell)}
                 >
                   {cell.date.getDate()}
+                  {!markedDates?.includes(cell.iso) && otherMarkedDates?.[cell.iso] && (
+                    <span className="date-picker-dots" aria-hidden="true">
+                      {otherMarkedDates[cell.iso].colors.slice(0, 3).map((c, i) => <i key={i} style={{ background: c }} />)}
+                    </span>
+                  )}
                 </button>
               ))}
             </div>

@@ -8,6 +8,7 @@ import { RichTextEditor } from './RichTextEditor';
 import { NotesCell, NumberCell, OptionalNumberCell } from './GridCells';
 import { buildStarterRoutine, ROUTINE_EPOCH } from '../lib/starterRoutine';
 import { generateId } from '../utils/id';
+import { assignProgramFrom, loggedDatesOf, programColor, resolveProgramForDate } from '../lib/routinePrograms';
 import { useIsMobile } from '../hooks/useIsMobile';
 import type { ExerciseSetLog, ProgramAssignment, RoutineDay, RoutineExercise, RoutineVersion, WorkoutRoutine } from '../types';
 
@@ -63,33 +64,6 @@ function withStructuralEdit(routine: WorkoutRoutine, date: string, mutate: (days
   const base = resolveVersion(routine, date);
   const branched: RoutineVersion = { effectiveFrom: date, days: mutate(cloneDays(base.days)) };
   return [...routine.versions, branched].sort((a, b) => a.effectiveFrom.localeCompare(b.effectiveFrom));
-}
-
-// Which program was in effect for a given date — the latest assignment on or before it. Dates
-// before the first-ever assignment (or before any switch has ever happened) resolve to
-// undefined, meaning "no opinion, leave whatever's currently showing alone" rather than
-// guessing at a program to jump to.
-function resolveProgramForDate(assignments: ProgramAssignment[] | undefined, date: string): string | undefined {
-  if (!assignments || assignments.length === 0) return undefined;
-  let best: ProgramAssignment | undefined;
-  for (const a of assignments) {
-    if (a.effectiveFrom <= date) best = a;
-    else break;
-  }
-  return best?.routineId;
-}
-
-// Records that `routineId` is the program in effect from `date` forward, coalescing into an
-// existing same-date assignment rather than branching a duplicate for repeated switches on
-// one date.
-function withProgramAssignment(assignments: ProgramAssignment[], date: string, routineId: string): ProgramAssignment[] {
-  const idx = assignments.findIndex(a => a.effectiveFrom === date);
-  if (idx >= 0) {
-    const updated = assignments.slice();
-    updated[idx] = { ...updated[idx], routineId };
-    return updated;
-  }
-  return [...assignments, { effectiveFrom: date, routineId }].sort((a, b) => a.effectiveFrom.localeCompare(b.effectiveFrom));
 }
 
 const DAY_ACCENTS = ['teal', 'amber', 'ember', 'purple'];
@@ -250,6 +224,8 @@ function ProgramMenu({
                 onClick={() => { onSwitch(r.id); setOpen(false); }}
               >
                 {r.id === activeId ? <Check size={14} /> : <span className="health-routine-program-row-spacer" />}
+                {/* Colour key — matches this program's dots on the date picker. */}
+                <i className="program-color-dot" style={{ background: programColor(routines, r.id) }} aria-hidden="true" />
                 <span>{r.name || 'Untitled Program'}</span>
               </button>
               <button
@@ -455,10 +431,20 @@ export function WorkoutRoutineSection({
   // Whichever program was assigned to a given date should reload when you come back to that
   // date, regardless of which program you last had open elsewhere. Dates the assignment
   // history doesn't cover leave the currently active program alone.
+  // A date that was logged always opens under a program it was logged with, even if the
+  // assignment history says otherwise (dates re-pointed by an older switch, before switching
+  // kept logged days pinned).
   useEffect(() => {
-    const resolvedId = resolveProgramForDate(data.settings.workoutRoutineAssignments, logDate);
-    if (resolvedId && resolvedId !== routine?.id && routines.some(r => r.id === resolvedId)) {
-      void updateSettings({ activeWorkoutRoutineId: resolvedId });
+    const assigned = resolveProgramForDate(data.settings.workoutRoutineAssignments, logDate);
+    let target = assigned && routines.some(r => r.id === assigned) ? assigned : undefined;
+    const owners = routines.filter(r => loggedDatesOf(r).includes(logDate)).map(r => r.id);
+    // A program picked on exactly this date is a deliberate choice and wins.
+    const pickedToday = (data.settings.workoutRoutineAssignments ?? []).some(a => a.effectiveFrom === logDate);
+    if (!pickedToday && owners.length && !(target && owners.includes(target))) {
+      target = routine && owners.includes(routine.id) ? routine.id : owners[0];
+    }
+    if (target && target !== routine?.id) {
+      void updateSettings({ activeWorkoutRoutineId: target });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [logDate]);
@@ -488,14 +474,14 @@ export function WorkoutRoutineSection({
   };
 
   const switchProgram = (id: string) => {
-    const assignments = withProgramAssignment(seedAssignments(), logDate, id);
+    const assignments = assignProgramFrom(seedAssignments(), logDate, id, routines);
     void updateSettings({ workoutRoutineAssignments: assignments, activeWorkoutRoutineId: id });
   };
 
   const createProgram = () => {
     const r = newRecord<WorkoutRoutine>({ name: 'New Program', versions: [{ effectiveFrom: ROUTINE_EPOCH, days: [] }], exerciseLogs: [] });
     void upsert('workoutRoutines', r);
-    const assignments = withProgramAssignment(seedAssignments(), logDate, r.id);
+    const assignments = assignProgramFrom(seedAssignments(), logDate, r.id, routines);
     void updateSettings({ workoutRoutineAssignments: assignments, activeWorkoutRoutineId: r.id });
   };
 
@@ -509,7 +495,21 @@ export function WorkoutRoutineSection({
 
   // Falls back to auto-detecting from exercise logs only until the user has ever toggled the
   // badge themselves — once they do, loggedDates becomes the sole source of truth.
-  const loggedDates = routine.loggedDates ?? [...new Set(routine.exerciseLogs.map(l => l.date))];
+  const loggedDates = loggedDatesOf(routine);
+  // Days logged under the other programs, marked separately on the date picker so switching
+  // programs doesn't make them look like they disappeared. Picking one opens it with its program.
+  const otherLoggedDates: Record<string, { label: string; colors: string[] }> = {};
+  for (const r of routines) {
+    if (r.id === routine.id) continue;
+    for (const d of loggedDatesOf(r)) {
+      if (loggedDates.includes(d)) continue;
+      const name = r.name || 'Untitled Program';
+      const entry = otherLoggedDates[d];
+      otherLoggedDates[d] = entry
+        ? { label: `${entry.label}, ${name}`, colors: [...entry.colors, programColor(routines, r.id)] }
+        : { label: `Logged with ${name}`, colors: [programColor(routines, r.id)] };
+    }
+  }
   const loggedOnActiveDate = loggedDates.includes(logDate);
 
   const toggleLogged = () => {
@@ -622,7 +622,14 @@ export function WorkoutRoutineSection({
         <button type="button" className="icon-btn" onClick={() => setLogDate(shiftIso(logDate, -1))} aria-label="Previous day">
           <ChevronLeft size={16} />
         </button>
-        <DatePicker value={logDate} onChange={setLogDate} markedDates={loggedDates} />
+        <DatePicker
+          value={logDate}
+          onChange={setLogDate}
+          markedDates={loggedDates}
+          markedColor={programColor(routines, routine.id)}
+          markedLabel={`Logged with ${routine.name || 'Untitled Program'}`}
+          otherMarkedDates={otherLoggedDates}
+        />
         <button type="button" className="icon-btn" onClick={() => setLogDate(shiftIso(logDate, 1))} aria-label="Next day">
           <ChevronRight size={16} />
         </button>
