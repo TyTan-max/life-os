@@ -9,11 +9,12 @@ import { useStore, newRecord } from '../store';
 import type { CollectionName, CollectionRecord } from '../types';
 import { Card, EmptyState, Modal, MoneyInput, PageHeader, formatDate } from './UI';
 import { DatePicker } from './DatePicker';
+import { TimeWheelPicker } from './TimeWheelPicker';
 import { useIsMobile } from '../hooks/useIsMobile';
 import { useFabAction } from '../hooks/useFabAction';
 import { RichTextEditor } from './RichTextEditor';
 
-export type FieldType = 'text' | 'textarea' | 'richtext' | 'number' | 'money' | 'date' | 'select' | 'checkbox' | 'tags' | 'image' | 'multiselect' | 'color';
+export type FieldType = 'text' | 'textarea' | 'richtext' | 'number' | 'money' | 'date' | 'select' | 'checkbox' | 'tags' | 'times' | 'image' | 'multiselect' | 'color';
 
 export type SelectOption = string | { label: string; value: string };
 
@@ -28,6 +29,10 @@ export interface FieldConfig<T> {
   placeholder?: string;
   // Text fields only — filters/reshapes each keystroke's value (e.g. digits-and-one-slash only).
   sanitize?: (raw: string) => string;
+  // Only show this field while the form matches (e.g. a weekday picker for weekly schedules).
+  showWhen?: (form: Partial<T>) => boolean;
+  // Select fields only — the option shown when the record has no value yet (older records).
+  fallback?: string;
 }
 
 export interface GalleryConfig<T> {
@@ -158,6 +163,39 @@ function normalizeMatchText(s: string): string {
 // everything before the first separator.
 function titleFromLabel(label: string): string {
   return normalizeMatchText(label.split(' · ')[0]);
+}
+
+// A list of times of day ("HH:mm"), one time picker each, kept sorted — replaces typing times as
+// comma-separated text, where "8am" or "8:00pm" silently never matched a dose slot.
+function TimesField({ value, onChange }: { value: string[]; onChange: (v: string[]) => void }) {
+  const set = (i: number, t: string) => {
+    const next = value.slice();
+    if (t) next[i] = t; else next.splice(i, 1);
+    onChange([...new Set(next)].sort());
+  };
+  return (
+    <div className="times-field">
+      {value.map((t, i) => (
+        <div className="times-field-row" key={`${t}-${i}`}>
+          <TimeWheelPicker value={t} onChange={v => set(i, v)} />
+          <button type="button" className="icon-btn danger" onClick={() => set(i, '')} aria-label={`Remove ${t}`}><X size={14} /></button>
+        </div>
+      ))}
+      <button
+        type="button"
+        className="btn ghost small"
+        onClick={() => {
+          // Suggest the next free hour after the latest time (or 08:00 for the first).
+          const last = value[value.length - 1];
+          let h = last ? Math.min(23, Number(last.slice(0, 2)) + 4) : 8;
+          while (value.includes(`${String(h).padStart(2, '0')}:00`) && h < 23) h++;
+          onChange([...value, `${String(h).padStart(2, '0')}:00`].sort());
+        }}
+      >
+        <Plus size={13} /> Add time
+      </button>
+    </div>
+  );
 }
 
 function TagsInput({ value, onChange, placeholder }: { value: string[]; onChange: (v: string[]) => void; placeholder?: string }) {
@@ -1353,6 +1391,7 @@ export function CollectionPage<T extends CollectionRecord>({
           <div className="form-grid">
             {duplicateError && <p className="form-error field-full">{duplicateError}</p>}
             {fields.map(field => {
+              if (field.showWhen && !field.showWhen(form)) return null;
               // A <label> forwards a click anywhere inside it to its first "labelable"
               // descendant when the click doesn't land on an interactive element of its own —
               // harmless for a plain <input>, but RichTextEditor renders real <button>s (its
@@ -1386,7 +1425,7 @@ export function CollectionPage<T extends CollectionRecord>({
                     placeholder={field.placeholder}
                   />
                 ) : field.type === 'select' ? (
-                  <select value={(form[field.key] as string) ?? ''} onChange={e => setField(field.key, e.target.value)}>
+                  <select value={(form[field.key] as string) ?? field.fallback ?? ''} onChange={e => setField(field.key, e.target.value)}>
                     <option value="" disabled>Select…</option>
                     {field.options?.map(opt => <option key={optValue(opt)} value={optValue(opt)}>{optLabel(opt)}</option>)}
                   </select>
@@ -1420,6 +1459,11 @@ export function CollectionPage<T extends CollectionRecord>({
                     value={(form[field.key] as string) ?? ''}
                     onChange={v => setField(field.key, v)}
                     placeholder={field.placeholder}
+                  />
+                ) : field.type === 'times' ? (
+                  <TimesField
+                    value={(form[field.key] as string[] | undefined) ?? []}
+                    onChange={v => setField(field.key, v)}
                   />
                 ) : field.type === 'tags' ? (
                   <TagsInput

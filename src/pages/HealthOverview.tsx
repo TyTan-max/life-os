@@ -7,6 +7,7 @@ import { computeHealthInsights } from '../lib/healthInsights';
 import { isMilestone, loggingStreak, medicationAdherenceStreak, nextMilestone } from '../lib/healthStreaks';
 import { inRange, sleepRecencyLabel } from '../lib/healthPeriod';
 import { latestNight, sleepHours } from '../lib/sleep';
+import { adherenceStats, doseStatus, scheduledTimes } from '../lib/medications';
 import type { HealthPeriodProps, HealthTab } from './HealthWellness';
 
 // Local date, not `.toISOString()` — that converts to UTC, which reads as "tomorrow" late
@@ -53,21 +54,11 @@ export function HealthOverview({
   const avgSleep = periodSleep.length ? periodSleep.reduce((s, e) => s + sleepHours(e), 0) / periodSleep.length : undefined;
 
   const activeMeds = data.medications.filter(m => m.active);
-  const scheduledToday = activeMeds.reduce((sum, m) => sum + m.times.length, 0);
-  const takenToday = activeMeds.reduce((sum, m) => sum + m.times.filter(t => {
-    const entry = m.doseLog.find(d => d.date === today && d.time === t);
-    return Boolean(entry?.takenAt) && !entry?.skipped;
-  }).length, 0);
-  let periodTaken = 0;
-  let periodSkipped = 0;
-  for (const m of activeMeds) {
-    for (const d of m.doseLog) {
-      if (!inRange(d.date, range)) continue;
-      if (d.skipped) periodSkipped += 1;
-      else if (d.takenAt) periodTaken += 1;
-    }
-  }
-  const periodAdherence = periodTaken + periodSkipped > 0 ? Math.round((periodTaken / (periodTaken + periodSkipped)) * 100) : undefined;
+  // Same schedule rules as the Medication tab (weekly on its day, as-needed unscheduled, unmarked
+  // due doses count as missed) — see lib/medications.ts.
+  const scheduledToday = activeMeds.reduce((sum, m) => sum + scheduledTimes(m, today).length, 0);
+  const takenToday = activeMeds.reduce((sum, m) => sum + scheduledTimes(m, today).filter(t => doseStatus(m, today, t) === 'taken').length, 0);
+  const periodAdherence = adherenceStats(activeMeds, range.start, range.end).pct;
   const refillAlerts = activeMeds.filter(m => m.pillsRemaining != null && m.refillThreshold != null && m.pillsRemaining <= m.refillThreshold);
 
   const adherenceStreak = medicationAdherenceStreak(data.medications);

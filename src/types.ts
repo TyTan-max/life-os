@@ -479,7 +479,10 @@ export interface SleepEntry extends BaseRecord {
 }
 
 export type MedicationFrequency = 'Once Daily' | 'Twice Daily' | 'Three Times Daily' | 'Weekly' | 'As Needed';
-export const MEDICATION_FREQUENCIES: MedicationFrequency[] = ['Once Daily', 'Twice Daily', 'Three Times Daily', 'Weekly', 'As Needed'];
+// 'Weekly' stays in the type for older records; new schedules use `repeat` (Specific days) instead.
+export const MEDICATION_FREQUENCIES: MedicationFrequency[] = ['Once Daily', 'Twice Daily', 'Three Times Daily', 'As Needed'];
+export type MedicationRepeat = 'Every day' | 'Specific days' | 'Every other day';
+export const MEDICATION_REPEATS: MedicationRepeat[] = ['Every day', 'Specific days', 'Every other day'];
 
 // Self-reported flags driving contextual nudges (see src/lib/healthInsights.ts) — not a
 // clinical interaction database, just what the user knows about their own prescription.
@@ -502,6 +505,20 @@ export interface Medication extends BaseRecord {
   withFood?: boolean;
   pillsRemaining?: number;
   refillThreshold?: number;
+  // Pills taken per dose (default 1) — each taken dose draws this many from pillsRemaining.
+  pillsPerDose?: number;
+  // Size of the last refill, pre-filled the next time "Refilled" is used
+  lastRefillSize?: number;
+  // Legacy 'Weekly' frequency only: which day it's due ('Sunday'…'Saturday', default Monday).
+  weeklyDay?: string;
+  // Which days the schedule applies (default every day).
+  repeat?: MedicationRepeat;
+  // Specific days only: 'Monday', 'Wednesday', …
+  weekdays?: string[];
+  // Every other day only: a day it's taken on, to count from (default the day it was added).
+  repeatFrom?: string;
+  // Days marked "no meds needed" — nothing is due, so they don't count as missed.
+  daysOff?: string[];
   prescriber?: string;
   notes?: string;
   active: boolean;

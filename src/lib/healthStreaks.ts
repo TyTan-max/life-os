@@ -1,4 +1,5 @@
 import type { AppData, Medication } from '../types';
+import { doseStatus, scheduledTimes } from './medications';
 
 // Local date, not `.toISOString()` — that converts to UTC, which reads as "tomorrow" late
 // enough in the day for anyone west of UTC.
@@ -33,18 +34,22 @@ export function medicationAdherenceStreak(medications: Medication[], asOf: strin
     return d < min ? d : min;
   }, asOf);
 
+  // Only doses actually scheduled that day count (weekly medications on their weekday; as-needed
+  // never) — see lib/medications.ts. Before, a weekly or as-needed medication made every day
+  // "incomplete" and the streak could never grow.
   const dayStatus = (date: string): 'complete' | 'broken' | 'none' => {
-    const due = tracked.filter(m => m.createdAt.slice(0, 10) <= date);
-    if (!due.length) return 'none';
+    let scheduled = 0;
     let anySkipped = false;
     let allTaken = true;
-    for (const m of due) {
-      for (const t of m.times) {
-        const entry = m.doseLog.find(d => d.date === date && d.time === t);
-        if (entry?.skipped) anySkipped = true;
-        if (!entry?.takenAt || entry.skipped) allTaken = false;
+    for (const m of tracked) {
+      for (const t of scheduledTimes(m, date)) {
+        scheduled += 1;
+        const status = doseStatus(m, date, t);
+        if (status === 'skipped') anySkipped = true;
+        if (status !== 'taken') allTaken = false;
       }
     }
+    if (!scheduled) return 'none';
     if (anySkipped) return 'broken';
     return allTaken ? 'complete' : 'none';
   };

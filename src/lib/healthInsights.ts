@@ -1,6 +1,7 @@
 import type { AppData } from '../types';
 import { computeCalorieTarget, isLowGlucose } from './nutritionTargets';
 import { sleepHours } from './sleep';
+import { doseStatus, scheduledTimes } from './medications';
 
 export type HealthPillar = 'Fitness' | 'Weight' | 'Sleep' | 'Medication';
 export type InsightSeverity = 'info' | 'warn';
@@ -108,10 +109,8 @@ export function computeHealthInsights(data: AppData): HealthInsight[] {
   const activeMeds = data.medications.filter(m => m.active);
   for (const med of activeMeds) {
     const flags = med.flags ?? [];
-    const doseToday = med.times.some(t => {
-      const entry = med.doseLog.find(d => d.date === today && d.time === t);
-      return !entry || (!entry.takenAt && !entry.skipped);
-    });
+    // A dose still to take today (weekly medications only on their day; as-needed never nag).
+    const doseToday = scheduledTimes(med, today).some(t => doseStatus(med, today, t) === 'pending');
     if (!doseToday) continue;
     if (flags.includes('Requires Dietary Fat')) {
       insights.push({
