@@ -771,6 +771,10 @@ export interface Contact extends BaseRecord {
   tags?: string[];
   // Overrides the tier's default cadence for this one person — undefined means "use the tier default".
   frequencyDays?: number;
+  // "Snooze" on Reach out: not due again before this date (YYYY-MM-DD).
+  snoozedUntil?: string;
+  // "Remind me to stay in touch". Undefined = follow the category's default (see crmCadence).
+  reachOut?: boolean;
   // Explicit next-check-up date (YYYY-MM-DD), set from the calendar picker in the contact form
   // and surfaced on the CRM's Calendar view alongside birthdays.
   nextCheckup?: string;

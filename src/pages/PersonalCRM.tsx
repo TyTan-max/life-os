@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import {
-  Archive, Briefcase, Cake, CalendarCheck, CalendarDays, Camera, ChevronDown, ChevronLeft, ChevronRight, ChevronsUpDown, ChevronUp, CircleSlash, Gift, GraduationCap,
+  Archive, Bell, Briefcase, Cake, CalendarCheck, CalendarDays, Camera, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronsUpDown, ChevronUp, CircleSlash, Clock, GraduationCap,
   GripVertical, Handshake, Home, IdCard, LayoutGrid, Link2, Mail, MapPin, Medal, MessageCircle, Pencil, Phone,
-  Plus, Search, Send, SlidersHorizontal, Sparkles, Star, Table2, Tag as TagIcon, Trash2, Upload, UserPlus, Users, Wrench, X
+  Search, Send, SlidersHorizontal, Sparkles, Star, Table2, Tag as TagIcon, Trash2, Upload, UserPlus, Users, Wrench, X
 } from 'lucide-react';
 import { useStore, newRecord } from '../store';
 import { Badge, Card, EmptyState, Kpi, Modal, PageHeader, formatDate } from '../components/UI';
@@ -25,7 +25,7 @@ import type { Contact, ContactInteraction, ContactCategory, InteractionType } fr
 import { CONTACT_CATEGORIES, INTERACTION_TYPES } from '../types';
 import {
   lastContactedDate, contactStatus, daysBetween, daysUntilNextBirthday, ageFromBirthYear,
-  STATUS_PRIORITY, STATUS_BADGE_TONE
+  STATUS_PRIORITY, STATUS_BADGE_TONE, nextReachOutDate, remindersOn, REACH_OUT_DEFAULT_CATEGORIES
 } from '../lib/crmCadence';
 import type { ContactStatus } from '../lib/crmCadence';
 
@@ -98,6 +98,63 @@ function formatPhoneInput(raw: string): string {
 
 function blankInteraction(contactId?: string): Partial<ContactInteraction> {
   return { contactId, type: 'Check-in', summary: '', date: localIso() };
+}
+
+// How often each tier comes due — shown wherever the tier can be picked.
+const TIER_OPTIONS: { tier: ContactTier; label: string }[] = [
+  { tier: 'Inner Circle', label: 'Inner Circle · every 2 weeks' },
+  { tier: 'Close', label: 'Close · every 6 weeks' },
+  { tier: 'Extended', label: 'Extended · every 4 months' }
+];
+
+type FeedFilter = 'All' | 'Gifts' | 'Life events';
+const FEED_PREVIEW = 5;
+// The timeline gets a search box once it's this long.
+const FEED_SEARCH_MIN = 20;
+
+// "3 check-ins, 1 gift" — the one-line summary on a folded month or year.
+function feedSummary(items: ContactInteraction[]): string {
+  const counts = new Map<InteractionType, number>();
+  for (const i of items) counts.set(i.type, (counts.get(i.type) ?? 0) + 1);
+  return [...counts].sort((a, b) => b[1] - a[1])
+    .map(([t, n]) => `${n} ${t === 'Other' ? 'other' : t.toLowerCase() + (n > 1 ? 's' : '')}`)
+    .join(', ');
+}
+
+function monthLabel(ym: string): string {
+  return new Date(`${ym}-15T12:00:00`).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+}
+
+// Groups entries (newest first) into consecutive runs by a key.
+function groupRuns<T>(items: T[], key: (item: T) => string): { key: string; items: T[] }[] {
+  const out: { key: string; items: T[] }[] = [];
+  for (const item of items) {
+    const k = key(item);
+    if (out.length && out[out.length - 1].key === k) out[out.length - 1].items.push(item);
+    else out.push({ key: k, items: [item] });
+  }
+  return out;
+}
+
+// "Today" / "Yesterday" / "3 days ago" / "Sep 3".
+function relativeDay(iso: string, todayIso: string): string {
+  const days = daysBetween(iso, todayIso);
+  if (days === 0) return 'Today';
+  if (days === 1) return 'Yesterday';
+  if (days > 1 && days < 7) return `${days} days ago`;
+  return formatDate(iso);
+}
+
+// Rich text → one plain line, for the collapsed timeline row.
+function plainText(html: string): string {
+  return html.replace(/<(br|\/p|\/li|\/h\d)[^>]*>/gi, ' ').replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'")
+    .replace(/\s+/g, ' ').trim();
+}
+
+function notePreview(html?: string): string {
+  const text = (html ?? '').replace(/<[^>]*>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim();
+  return text.length > 60 ? `${text.slice(0, 60)}…` : text;
 }
 
 function initials(name: string): string {
@@ -374,13 +431,32 @@ export function PersonalCRM() {
   const activeContacts = contacts.filter(c => !c.archived);
 
   const statusByContact = useMemo(() => {
-    const map = new Map<string, { status: ContactStatus; lastDate?: string }>();
+    const map = new Map<string, { status: ContactStatus; lastDate?: string; dueDate: string }>();
     for (const c of activeContacts) {
       const lastDate = lastContactedDate(c.id, interactions);
-      map.set(c.id, { status: contactStatus(c, lastDate, today), lastDate });
+      map.set(c.id, { status: contactStatus(c, lastDate, today), lastDate, dueDate: nextReachOutDate(c, lastDate) });
     }
     return map;
   }, [activeContacts, interactions, today]);
+
+  // "Due in 12d" / "3d overdue" / "Talked Sep 3" — one short line for cards and Reach out.
+  const dueLabel = (c: Contact): string => {
+    const info = statusByContact.get(c.id);
+    if (!info) return '';
+    if (info.status === 'Off') return info.lastDate ? `Talked ${formatDate(info.lastDate)}` : '';
+    const left = daysBetween(today, info.dueDate);
+    if (left < 0) return info.lastDate ? `${-left}d overdue` : `Never contacted · ${-left}d past due`;
+    if (left === 0) return 'Due today';
+    if (info.status === 'Due soon') return `Due in ${left}d`;
+    return info.lastDate ? `Talked ${formatDate(info.lastDate)}` : `First reach-out ${formatDate(info.dueDate)}`;
+  };
+  // Reach-out shortcuts: log a check-in in one click, or push the reminder back.
+  const talkedToday = (c: Contact) => void upsert('contactInteractions', newRecord<ContactInteraction>({ contactId: c.id, date: today, type: 'Check-in', summary: '<p>Quick check-in</p>' }));
+  const snooze = (c: Contact, days: number) => {
+    const d = new Date(`${today}T12:00:00`);
+    d.setDate(d.getDate() + days);
+    void upsert('contacts', { ...c, snoozedUntil: localIso(d) });
+  };
 
   // Sidebar category counts reflect the full active set, independent of the current
   // search/category filter, so the sidebar stays a stable map of "what's out there" rather
@@ -503,6 +579,9 @@ export function PersonalCRM() {
     });
   }, [orderedRoleFilteredContacts, detailsSort, statusByContact]);
 
+  // Details table: columns nobody has data for stay hidden (like Finance's Notes column).
+  const showSocialCol = activeContacts.some(c => c.linkedin || c.instagram || c.facebook);
+  const showAddressCol = activeContacts.some(c => c.address || c.city || c.region);
   const overdueCount = activeContacts.filter(c => statusByContact.get(c.id)?.status === 'Overdue').length;
   const dueSoonCount = activeContacts.filter(c => statusByContact.get(c.id)?.status === 'Due soon').length;
   const neverCount = activeContacts.filter(c => statusByContact.get(c.id)?.status === 'Never contacted').length;
@@ -536,13 +615,14 @@ export function PersonalCRM() {
         inMonth: date.getMonth() === bdayMonth,
         isToday: dateStr === today,
         contacts: activeContacts.filter(c => c.birthday === mmdd),
-        checkups: activeContacts.filter(c => c.nextCheckup === dateStr)
+        checkups: activeContacts.filter(c => c.nextCheckup === dateStr),
+        dues: activeContacts.filter(c => statusByContact.get(c.id)?.status !== 'Off' && statusByContact.get(c.id)?.dueDate === dateStr)
       };
     });
     const weeks: typeof cells[] = [];
     for (let i = 0; i < 42; i += 7) weeks.push(cells.slice(i, i + 7));
     return weeks;
-  }, [bdayMonth, bdayYear, activeContacts, today]);
+  }, [bdayMonth, bdayYear, activeContacts, today, statusByContact]);
 
   const jumpToNextBirthday = () => {
     if (!upcomingBirthdays.length) { setView('Calendar'); return; }
@@ -720,7 +800,16 @@ export function PersonalCRM() {
   const { menu: contextMenu, openMenu } = useContextMenu();
   const contactMenu = (c: Contact): ContextMenuItem[] => [
     { label: 'Open profile', icon: IdCard, onSelect: () => setSelectedContactId(c.id) },
+    { label: 'Talked today', icon: Check, onSelect: () => talkedToday(c) },
     { label: 'Log interaction…', icon: MessageCircle, onSelect: () => openQuickLog(c.id) },
+    ...(remindersOn(c) ? [
+      { label: 'Snooze 1 week', icon: Clock, onSelect: () => snooze(c, 7) },
+      { label: 'Snooze 1 month', icon: Clock, onSelect: () => snooze(c, 30) }
+    ] : []),
+    { label: remindersOn(c) ? 'Turn off reminders' : 'Remind me to stay in touch', icon: Bell, onSelect: () => {
+      const next = !remindersOn(c);
+      void upsert('contacts', { ...c, reachOut: next === REACH_OUT_DEFAULT_CATEGORIES.has(c.category ?? '') ? undefined : next });
+    } },
     { label: 'Edit details…', icon: Pencil, onSelect: () => startEditContact(c) },
     'separator',
     { heading: 'Tier' },
@@ -742,8 +831,6 @@ export function PersonalCRM() {
       />
 
       <div className="crm-layout">
-        {/* The rail costs nothing beside a wide canvas, but stacked on a phone it is a full
-            viewport of filter chrome before the first contact — there it becomes a sheet. */}
         {!isMobile && (
         <aside className="crm-sidebar">
           <div className="crm-sidebar-block">
@@ -768,6 +855,8 @@ export function PersonalCRM() {
           </div>
         </aside>
         )}
+        {/* The rail costs nothing beside a wide canvas, but stacked on a phone it is a full
+            viewport of filter chrome before the first contact — there it becomes a sheet. */}
 
         <main className="crm-main">
           <div className="crm-main-topbar">
@@ -797,6 +886,7 @@ export function PersonalCRM() {
               </button>
             ))}
           </div>
+
 
           {view === 'Overview' && (
             groupedByTag.length ? (
@@ -849,6 +939,11 @@ export function PersonalCRM() {
                                 )}
                                 {c.email && <small>{c.email}</small>}
                                 {c.phone && <small>{c.phone}</small>}
+                                {statusByContact.get(c.id) && dueLabel(c) && (
+                                  <span className={`crm-card-status status-${statusByContact.get(c.id)!.status.replace(/\s+/g, '-').toLowerCase()}`}>
+                                    <i />{dueLabel(c)}
+                                  </span>
+                                )}
                               </button>
                             </SwipeRow>
                           </div>
@@ -875,7 +970,7 @@ export function PersonalCRM() {
                     return (
                       <span className="crm-trailing-stack">
                         {c.phone && <span>{c.phone}</span>}
-                        {status && <small className={`crm-status-text tone-${STATUS_BADGE_TONE[status]}`}>{status}</small>}
+                        {status && status !== 'Off' && <small className={`crm-status-text tone-${STATUS_BADGE_TONE[status]}`}>{status}</small>}
                       </span>
                     );
                   }}
@@ -952,8 +1047,8 @@ export function PersonalCRM() {
                         </th>
                         <SortableTh label="Email" sortKey="email" state={detailsSort} onSort={k => setDetailsSort(s => toggleGridSort(s, k))} />
                         <th>Phone</th>
-                        <SortableTh label="Social profiles" sortKey="socialProfiles" state={detailsSort} onSort={k => setDetailsSort(s => toggleGridSort(s, k, 'desc'))} />
-                        <SortableTh label="Address" sortKey="address" state={detailsSort} onSort={k => setDetailsSort(s => toggleGridSort(s, k))} />
+                        {showSocialCol && <SortableTh label="Social profiles" sortKey="socialProfiles" state={detailsSort} onSort={k => setDetailsSort(s => toggleGridSort(s, k, 'desc'))} />}
+                        {showAddressCol && <SortableTh label="Address" sortKey="address" state={detailsSort} onSort={k => setDetailsSort(s => toggleGridSort(s, k))} />}
                         <SortableTh label="Category" sortKey="category" state={detailsSort} onSort={k => setDetailsSort(s => toggleGridSort(s, k))} />
                         <th>Status<br /><small>Computed</small></th>
                         <SortableTh label="Last contact" sortKey="lastContact" state={detailsSort} onSort={k => setDetailsSort(s => toggleGridSort(s, k, 'desc'))} />
@@ -1016,19 +1111,21 @@ export function PersonalCRM() {
                                 value={c.phone ?? ''} onChange={e => patchContact(c, { phone: formatPhoneInput(e.target.value) })}
                               />
                             </td>
-                            <td className="crm-social-cell">
-                              {socials.some(([, url]) => url) ? socials.filter(([, url]) => url).map(([label, url]) => (
-                                <a key={label} href={url} target="_blank" rel="noreferrer"><Link2 size={11} /> {label}</a>
-                              )) : <span className="grid-static-cell">—</span>}
-                            </td>
-                            <td>{c.address || [c.city, c.region].filter(Boolean).join(', ') || <span className="grid-static-cell">—</span>}</td>
+                            {showSocialCol && (
+                              <td className="crm-social-cell">
+                                {socials.some(([, url]) => url) ? socials.filter(([, url]) => url).map(([label, url]) => (
+                                  <a key={label} href={url} target="_blank" rel="noreferrer"><Link2 size={11} /> {label}</a>
+                                )) : <span className="grid-static-cell">—</span>}
+                              </td>
+                            )}
+                            {showAddressCol && <td>{c.address || [c.city, c.region].filter(Boolean).join(', ') || <span className="grid-static-cell">—</span>}</td>}
                             <td className="grid-td-compact">
                               <select className="grid-cell-select select-wide" value={c.category ?? ''} onChange={e => patchContact(c, { category: e.target.value || undefined })}>
                                 <option value="">—</option>
                                 {allCategories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
                               </select>
                             </td>
-                            <td><Badge tone={STATUS_BADGE_TONE[info.status]}>{info.status}</Badge></td>
+                            <td>{info.status === 'Off' ? <span className="grid-static-cell">Reminders off</span> : <><Badge tone={STATUS_BADGE_TONE[info.status]}>{info.status}</Badge> <span className="crm-tier-inline">{c.tier}</span></>}</td>
                             <td>{info.lastDate ? formatDate(info.lastDate) : <span className="grid-static-cell">Never</span>}</td>
                             <td className="grid-row-actions">
                               <button type="button" className="icon-btn" onClick={() => startEditContact(c)} aria-label={`Edit ${c.name}`}><Pencil size={13} /></button>
@@ -1047,13 +1144,19 @@ export function PersonalCRM() {
           {view === 'Calendar' && (
             <Card>
               <div className="week-card-header">
-                <div className="week-card-title"><CalendarDays size={17} /><h2>{MONTH_NAMES[bdayMonth]} {bdayYear}</h2></div>
+                <div className="week-card-title">
+                  <CalendarDays size={17} /><h2>{MONTH_NAMES[bdayMonth]} {bdayYear}</h2>
+                  <span className="crm-cal-legend"><span><Cake size={11} /> Birthday</span><span><CalendarCheck size={11} /> Check-up</span><span><Send size={11} /> Reach out</span></span>
+                </div>
                 <div className="calendar-nav">
                   <button type="button" className="icon-btn" onClick={() => setBdayMonth(m => { if (m === 0) { setBdayYear(y => y - 1); return 11; } return m - 1; })} aria-label="Previous month"><ChevronLeft size={16} /></button>
                   <button type="button" className="btn ghost small" onClick={() => { setBdayMonth(now.getMonth()); setBdayYear(now.getFullYear()); }}>Today</button>
                   <button type="button" className="icon-btn" onClick={() => setBdayMonth(m => { if (m === 11) { setBdayYear(y => y + 1); return 0; } return m + 1; })} aria-label="Next month"><ChevronRight size={16} /></button>
                 </div>
               </div>
+              {!bdayWeeks.some(w => w.some(cell => cell.inMonth && (cell.contacts.length || cell.checkups.length || cell.dues.length))) && (
+                <p className="crm-cal-empty">Nothing this month. Add birthdays or check-up dates in a contact's details to see them here.</p>
+              )}
               <div className="calendar-grid crm-bday-grid">
                 <div className="calendar-grid-row calendar-grid-header">
                   {DAY_LABELS.map(d => <span key={d}>{d}</span>)}
@@ -1078,6 +1181,12 @@ export function PersonalCRM() {
                             <span>{c.name}</span>
                           </button>
                         ))}
+                        {cell.dues.map(c => (
+                          <button type="button" key={`d-${c.id}`} className="crm-bday-chip crm-due-chip" onClick={() => setSelectedContactId(c.id)} title={`Reach out to ${c.name}`}>
+                            <Send size={11} />
+                            <span>{c.name}</span>
+                          </button>
+                        ))}
                       </div>
                     ))}
                   </div>
@@ -1088,11 +1197,11 @@ export function PersonalCRM() {
 
           {view === 'Reach out' && (
             <>
-              <div className="kpi-grid four">
-                <Kpi label="Contacts" value={activeContacts.length} caption="tracked" tone="default" />
-                <Kpi label="Overdue" value={overdueCount} caption="past their cadence" tone={overdueCount ? 'red' : 'green'} />
-                <Kpi label="Due Soon" value={dueSoonCount} caption="within the next stretch" tone={dueSoonCount ? 'amber' : 'green'} />
-                <Kpi label="Never Contacted" value={neverCount} caption="no interactions logged" tone={neverCount ? 'red' : 'green'} />
+              <div className="kpi-grid four calm-kpis">
+                <Kpi label="Contacts" value={activeContacts.length} caption={`${activeContacts.filter(c => remindersOn(c)).length} with reach-out reminders`} tone="default" />
+                <Kpi label="Overdue" value={overdueCount} caption="past their cadence" tone={overdueCount ? 'red' : 'muted'} />
+                <Kpi label="Due soon" value={dueSoonCount} caption="in the last stretch of their cadence" tone={dueSoonCount ? 'amber' : 'muted'} />
+                <Kpi label="Never contacted" value={neverCount} caption="past their first due date" tone={neverCount ? 'red' : 'muted'} />
               </div>
               <Card className="crm-weekly-digest">
                 <div className="card-title"><div><Sparkles size={17} /><h2>Reach Out</h2></div></div>
@@ -1107,10 +1216,18 @@ export function PersonalCRM() {
                             <div className="crm-weekly-row" key={c.id}>
                               <button type="button" className="crm-weekly-row-name" onClick={() => setSelectedContactId(c.id)}>
                                 <b>{c.name}</b>
-                                <small>{info.lastDate ? `Last contact ${formatDate(info.lastDate)}` : 'Never contacted'}</small>
+                                <small>{dueLabel(c)}{info.lastDate ? ` · last talked ${formatDate(info.lastDate)}` : ''}</small>
                               </button>
                               <Badge tone={STATUS_BADGE_TONE[info.status]}>{info.status}</Badge>
-                              <button type="button" className="btn ghost small" onClick={() => openQuickLog(c.id)}>Log</button>
+                              <div className="crm-reach-actions">
+                                <button type="button" className="btn ghost small" onClick={() => talkedToday(c)} title="Log a check-in for today"><Check size={13} /> Talked today</button>
+                                <button type="button" className="btn ghost small" onClick={() => openQuickLog(c.id)}>Log…</button>
+                                {!isMobile && <button type="button" className="icon-btn" onClick={e => openMenu(e, [
+                                  { label: 'Snooze 1 week', icon: Clock, onSelect: () => snooze(c, 7) },
+                                  { label: 'Snooze 1 month', icon: Clock, onSelect: () => snooze(c, 30) },
+                                  { label: 'Snooze 3 months', icon: Clock, onSelect: () => snooze(c, 90) }
+                                ])} title="Snooze" aria-label={`Snooze ${c.name}`}><Clock size={14} /></button>}
+                              </div>
                             </div>
                           );
                         })}
@@ -1242,6 +1359,22 @@ export function PersonalCRM() {
               <div className="field-full form-section-title">Reach</div>
               <label><span>Email</span><input type="email" inputMode="email" autoComplete="off" value={contactForm.email ?? ''} onChange={e => setContactField('email', e.target.value)} placeholder="name@example.com" /></label>
               <label><span>Phone</span><input type="tel" inputMode="tel" autoComplete="off" value={contactForm.phone ?? ''} onChange={e => setContactField('phone', formatPhoneInput(e.target.value))} placeholder="(555) 123-4567" /></label>
+
+              <div className="field-full form-section-title">Staying in touch</div>
+              <label className="sheet-checkbox-row">
+                <input
+                  type="checkbox"
+                  checked={remindersOn(contactForm as Contact)}
+                  onChange={e => setContactField('reachOut', e.target.checked === REACH_OUT_DEFAULT_CATEGORIES.has(contactForm.category ?? '') ? undefined : e.target.checked)}
+                />
+                <span>Remind me to stay in touch{contactForm.reachOut === undefined ? ` (${contactForm.category ?? 'uncategorized'} default)` : ''}</span>
+              </label>
+              <label>
+                <span>How often</span>
+                <select value={contactForm.tier ?? 'Close'} onChange={e => setContactField('tier', e.target.value as ContactTier)} disabled={!remindersOn(contactForm as Contact)}>
+                  {TIER_OPTIONS.map(o => <option key={o.tier} value={o.tier}>{o.label}</option>)}
+                </select>
+              </label>
 
               <div className="field-full form-section-title">Dates</div>
               <label>
@@ -1524,8 +1657,64 @@ function PersonPageModal({
     onAddInteraction(logForm);
     setLogForm(blankInteraction());
   };
+  const [feedFilter, setFeedFilter] = useState<FeedFilter>('All');
+  const [openEntryId, setOpenEntryId] = useState<string | null>(null);
+  // Folded months ("2026-08") and years ("2025") the user has opened.
+  const [openGroups, setOpenGroups] = useState<Set<string>>(() => new Set());
+  const [feedQuery, setFeedQuery] = useState('');
+  useEffect(() => { setFeedFilter('All'); setOpenEntryId(null); setOpenGroups(new Set()); setFeedQuery(''); }, [contact.id]);
+  const toggleGroup = (key: string) => setOpenGroups(prev => {
+    const next = new Set(prev);
+    if (next.has(key)) next.delete(key); else next.add(key);
+    return next;
+  });
 
   const lifeEvents = interactions.filter(i => i.type === 'Life Event');
+  const feedItems = feedFilter === 'Gifts' ? interactions.filter(i => i.type === 'Gift')
+    : feedFilter === 'Life events' ? lifeEvents
+    : interactions;
+  const feedSearch = feedQuery.trim().toLowerCase();
+  const feedHits = feedSearch
+    ? feedItems.filter(i => `${i.type} ${plainText(i.summary)} ${formatDate(i.date)}`.toLowerCase().includes(feedSearch))
+    : null;
+  // Recent entries stay as rows: this month's, and at least the latest few.
+  // Older ones fold into one line per month (this year) or per year (earlier years).
+  const thisMonth = today.slice(0, 7);
+  const thisYear = today.slice(0, 4);
+  const firstOlder = feedItems.findIndex(i => i.date.slice(0, 7) < thisMonth);
+  let recentCount = Math.max(firstOlder < 0 ? feedItems.length : firstOlder, Math.min(FEED_PREVIEW, feedItems.length));
+  // Finish the last month shown rather than splitting it, within reason.
+  while (recentCount < feedItems.length && recentCount < FEED_PREVIEW * 2
+    && feedItems[recentCount].date.slice(0, 7) === feedItems[recentCount - 1].date.slice(0, 7)) recentCount++;
+  const feedRecent = feedHits ?? feedItems.slice(0, recentCount);
+  const feedOlder = feedHits ? [] : feedItems.slice(recentCount);
+  const olderGroups = groupRuns(feedOlder, i => (i.date.slice(0, 4) === thisYear ? i.date.slice(0, 7) : i.date.slice(0, 4)));
+  const showMonths = new Set(feedRecent.map(i => i.date.slice(0, 7))).size > 1;
+  // One line per entry; click to read it in full. Only one is open at a time.
+  const renderFeedEntry = (i: ContactInteraction) => (
+    <li key={i.id} className={`crm-feed-item ${openEntryId === i.id ? 'open' : ''}`}>
+      <button
+        type="button"
+        className="crm-feed-row"
+        onClick={() => setOpenEntryId(id => (id === i.id ? null : i.id))}
+        aria-expanded={openEntryId === i.id}
+      >
+        <b>{i.type === 'Gift' ? `Gift ${(i.giftDirection ?? 'Given').toLowerCase()}` : i.type}</b>
+        <span className="crm-feed-date">{relativeDay(i.date, today)}</span>
+        {openEntryId !== i.id && <span className="crm-feed-preview">{plainText(i.summary)}</span>}
+        <ChevronRight size={14} className="crm-feed-chevron" />
+      </button>
+      {openEntryId === i.id && (
+        <div className="crm-feed-open">
+          <div className="crm-feed-body rte-display" dangerouslySetInnerHTML={{ __html: i.summary }} />
+          <div className="crm-feed-open-actions">
+            <span>{formatDate(i.date)}</span>
+            <button type="button" className="text-btn danger" onClick={() => { onDeleteInteraction(i.id); setOpenEntryId(null); }}><Trash2 size={12} /> Delete</button>
+          </div>
+        </div>
+      )}
+    </li>
+  );
   const gifts = interactions.filter(i => i.type === 'Gift');
   const age = ageFromBirthYear(contact.birthYear, contact.birthday, today);
   const socials: [string, string | undefined][] = [['LinkedIn', contact.linkedin], ['Instagram', contact.instagram], ['Facebook', contact.facebook]];
@@ -1557,10 +1746,28 @@ function PersonPageModal({
           <span className="crm-contact-avatar-edit-badge"><Camera size={11} /></span>
         </button>
         <div className="crm-person-head-meta">
+          <label className="crm-reminder-switch" title={contact.reachOut === undefined ? `Following the ${contact.category ?? 'uncategorized'} default` : 'Set for this contact'}>
+            <input
+              type="checkbox"
+              checked={remindersOn(contact)}
+              onChange={e => onPatch({ reachOut: e.target.checked === REACH_OUT_DEFAULT_CATEGORIES.has(contact.category ?? '') ? undefined : e.target.checked })}
+            />
+            <span className="crm-switch-track"><span /></span>
+            <span>Remind me to stay in touch</span>
+            {contact.reachOut === undefined && <small>{contact.category ?? 'Uncategorized'} default</small>}
+          </label>
+          {remindersOn(contact) && (
+            <label className="crm-tier-picker">
+              <span>Every</span>
+              <select value={contact.tier} onChange={e => onPatch({ tier: e.target.value as ContactTier })}>
+                {TIER_OPTIONS.map(o => <option key={o.tier} value={o.tier}>{o.label}</option>)}
+              </select>
+            </label>
+          )}
           <div className="crm-person-head-line">
-            <Badge tone={STATUS_BADGE_TONE[status.status]}>{status.status}</Badge>
+            {status.status !== 'Off' && <Badge tone={STATUS_BADGE_TONE[status.status]}>{status.status}</Badge>}
             <span className="crm-contact-tier">{contact.nextCheckup ? `Next check-up ${formatDate(contact.nextCheckup)}` : 'No check-up scheduled'}</span>
-            {status.lastDate && <span className="muted">Last contact {formatDate(status.lastDate)} ({daysBetween(status.lastDate, today)}d ago)</span>}
+            {status.lastDate && <span className="muted">Last contact {relativeDay(status.lastDate, today).toLowerCase()}</span>}
           </div>
           <div className="crm-person-head-facts">
             {(contact.company || contact.role) && <span><Briefcase size={13} /> {[contact.role, contact.company].filter(Boolean).join(' at ')}</span>}
@@ -1602,31 +1809,13 @@ function PersonPageModal({
         </div>
       )}
 
-      <div className="crm-person-section">
-        <h3>Personal notes</h3>
-        <RichTextEditor
-          value={contact.personalNotes ?? ''}
-          onChange={v => onPatch({ personalNotes: v })}
-          placeholder="Likes, dislikes, family details, anything personal…"
-        />
-      </div>
-
-      <div className="crm-person-section">
-        <h3>Business notes</h3>
-        <RichTextEditor
-          value={contact.businessNotes ?? ''}
-          onChange={v => onPatch({ businessNotes: v })}
-          placeholder="Deals, work history, professional context…"
-        />
-      </div>
-
+      {/* Composer: write first, then pick type/date and log (Ctrl+Enter works too). */}
       <div className="crm-person-section">
         <h3>Log an interaction</h3>
-        <div className="crm-log-form">
-          <select value={logForm.type ?? 'Check-in'} onChange={e => setLogForm(prev => ({ ...prev, type: e.target.value as InteractionType }))}>
-            {INTERACTION_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-          </select>
-          <DatePicker value={logForm.date} onChange={v => setLogForm(prev => ({ ...prev, date: v }))} />
+        <div
+          className="crm-composer"
+          onKeyDown={e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); submitLog(); } }}
+        >
           <RichTextEditor
             placeholder="What happened…"
             value={logForm.summary ?? ''}
@@ -1634,63 +1823,114 @@ function PersonPageModal({
             toolbar={false}
             compact
           />
-          {logForm.type === 'Gift' && (
-            <select value={logForm.giftDirection ?? 'Given'} onChange={e => setLogForm(prev => ({ ...prev, giftDirection: e.target.value as 'Given' | 'Received' }))}>
-              <option value="Given">Given</option>
-              <option value="Received">Received</option>
+          <div className="crm-composer-bar">
+            <select className="crm-composer-select" value={logForm.type ?? 'Check-in'} onChange={e => setLogForm(prev => ({ ...prev, type: e.target.value as InteractionType }))} aria-label="Interaction type">
+              {INTERACTION_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
             </select>
-          )}
-          <button type="button" className="btn teal small" onClick={submitLog}><Plus size={14} /> Log</button>
+            {logForm.type === 'Gift' && (
+              <select className="crm-composer-select" value={logForm.giftDirection ?? 'Given'} onChange={e => setLogForm(prev => ({ ...prev, giftDirection: e.target.value as 'Given' | 'Received' }))} aria-label="Given or received">
+                <option value="Given">Given</option>
+                <option value="Received">Received</option>
+              </select>
+            )}
+            <DatePicker value={logForm.date} onChange={v => setLogForm(prev => ({ ...prev, date: v }))} displayLabel={logForm.date === today ? 'Today' : undefined} />
+            <button type="button" className="btn teal small crm-composer-log" onClick={submitLog} disabled={isEmptyHtml(logForm.summary ?? '')} title="Log (Ctrl+Enter)">Log</button>
+          </div>
         </div>
       </div>
 
-      {gifts.length > 0 && (
-        <div className="crm-person-section">
-          <h3><Gift size={14} /> Gift Log</h3>
-          <div className="crm-timeline">
-            {gifts.map(g => (
-              <div className="crm-timeline-row" key={g.id}>
-                <span className="crm-timeline-date">{formatDate(g.date)}</span>
-                <div className="crm-timeline-body">
-                  <b>{g.giftDirection ?? 'Given'}:</b> <span className="rte-display" dangerouslySetInnerHTML={{ __html: g.summary }} />
-                </div>
-                <button type="button" className="icon-btn danger" onClick={() => onDeleteInteraction(g.id)} aria-label="Delete"><Trash2 size={13} /></button>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {lifeEvents.length > 0 && (
-        <div className="crm-person-section">
-          <h3><Sparkles size={14} /> Life Events</h3>
-          <div className="crm-timeline">
-            {lifeEvents.map(e => (
-              <div className="crm-timeline-row" key={e.id}>
-                <span className="crm-timeline-date">{formatDate(e.date)}</span>
-                <div className="crm-timeline-body rte-display" dangerouslySetInnerHTML={{ __html: e.summary }} />
-                <button type="button" className="icon-btn danger" onClick={() => onDeleteInteraction(e.id)} aria-label="Delete"><Trash2 size={13} /></button>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
+      {/* One feed for everything; gifts and life events are filters, not separate lists. */}
       <div className="crm-person-section">
-        <h3>Interaction Timeline ({interactions.length})</h3>
+        <div className="crm-feed-title">
+          <h3>Timeline <span className="crm-feed-count">{interactions.length}</span></h3>
+          {(gifts.length > 0 || lifeEvents.length > 0) && (
+            <div className="crm-feed-filters">
+              {(['All', ...(gifts.length ? ['Gifts'] : []), ...(lifeEvents.length ? ['Life events'] : [])] as FeedFilter[]).map(f => (
+                <button type="button" key={f} className={feedFilter === f ? 'on' : ''} onClick={() => setFeedFilter(f)}>{f}</button>
+              ))}
+            </div>
+          )}
+        </div>
+        {interactions.length >= FEED_SEARCH_MIN && (
+          <label className="crm-feed-search">
+            <Search size={13} />
+            <input
+              type="search"
+              placeholder={`Search ${interactions.length} entries…`}
+              value={feedQuery}
+              onChange={e => setFeedQuery(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Escape' && feedQuery) { e.stopPropagation(); setFeedQuery(''); } }}
+            />
+            {feedQuery && <button type="button" className="icon-btn" onClick={() => setFeedQuery('')} aria-label="Clear search"><X size={12} /></button>}
+          </label>
+        )}
         {interactions.length ? (
-          <div className="crm-timeline crm-timeline-scroll">
-            {interactions.map(i => (
-              <div className="crm-timeline-row" key={i.id}>
-                <span className="crm-timeline-date">{formatDate(i.date)}</span>
-                <span className="crm-timeline-type">{i.type}</span>
-                <div className="crm-timeline-body rte-display" dangerouslySetInnerHTML={{ __html: i.summary }} />
-                <button type="button" className="icon-btn danger" onClick={() => onDeleteInteraction(i.id)} aria-label="Delete"><Trash2 size={13} /></button>
-              </div>
-            ))}
-          </div>
-        ) : <EmptyState>No interactions logged yet.</EmptyState>}
+          <>
+            {feedHits && <p className="crm-feed-hits">{feedHits.length ? `${feedHits.length} match${feedHits.length === 1 ? '' : 'es'}` : 'No entries match.'}</p>}
+            <ol className="crm-feed">
+              {feedRecent.map((i, idx) => (
+                <Fragment key={i.id}>
+                {/* Month headings once the entries span more than one month. */}
+                {showMonths && (idx === 0 || i.date.slice(0, 7) !== feedRecent[idx - 1].date.slice(0, 7)) && (
+                  <li className="crm-feed-month">{monthLabel(i.date.slice(0, 7))}</li>
+                )}
+                {renderFeedEntry(i)}
+                </Fragment>
+              ))}
+              {olderGroups.map(g => {
+                const open = openGroups.has(g.key);
+                const isYear = g.key.length === 4;
+                return (
+                  <li key={g.key} className={`crm-feed-group ${open ? 'open' : ''}`}>
+                    <button type="button" className="crm-feed-group-row" onClick={() => toggleGroup(g.key)} aria-expanded={open}>
+                      <b>{isYear ? g.key : `${monthLabel(g.key)}${g.key === feedRecent[feedRecent.length - 1]?.date.slice(0, 7) ? ' (earlier)' : ''}`}</b>
+                      <span>{feedSummary(g.items)}</span>
+                      <ChevronRight size={14} className="crm-feed-chevron" />
+                    </button>
+                    {open && (
+                      <ol className="crm-feed-sub">
+                        {isYear
+                          ? groupRuns(g.items, i => i.date.slice(0, 7)).map(m => {
+                            const mOpen = openGroups.has(m.key);
+                            return (
+                              <li key={m.key} className={`crm-feed-group ${mOpen ? 'open' : ''}`}>
+                                <button type="button" className="crm-feed-group-row" onClick={() => toggleGroup(m.key)} aria-expanded={mOpen}>
+                                  <b>{monthLabel(m.key).replace(/ \d{4}$/, '')}</b>
+                                  <span>{feedSummary(m.items)}</span>
+                                  <ChevronRight size={14} className="crm-feed-chevron" />
+                                </button>
+                                {mOpen && <ol className="crm-feed-sub">{m.items.map(renderFeedEntry)}</ol>}
+                              </li>
+                            );
+                          })
+                          : g.items.map(renderFeedEntry)}
+                      </ol>
+                    )}
+                  </li>
+                );
+              })}
+            </ol>
+          </>
+        ) : <p className="crm-feed-empty">Nothing logged yet. Your first check-in will show up here.</p>}
       </div>
+
+      {/* Notes are reference material — folded away under the everyday actions, with a preview. */}
+      <details className="crm-notes-fold" open={!isEmptyHtml(contact.personalNotes ?? '')}>
+        <summary><span>Personal notes</span><small>{notePreview(contact.personalNotes) || 'Likes, family, anything personal'}</small></summary>
+        <RichTextEditor
+          value={contact.personalNotes ?? ''}
+          onChange={v => onPatch({ personalNotes: v })}
+          placeholder="Likes, dislikes, family details, anything personal…"
+        />
+      </details>
+      <details className="crm-notes-fold" open={!isEmptyHtml(contact.businessNotes ?? '')}>
+        <summary><span>Business notes</span><small>{notePreview(contact.businessNotes) || 'Deals, work history, context'}</small></summary>
+        <RichTextEditor
+          value={contact.businessNotes ?? ''}
+          onChange={v => onPatch({ businessNotes: v })}
+          placeholder="Deals, work history, professional context…"
+        />
+      </details>
     </DetailPanel>
     {photoPromptOpen && (
       <Modal

@@ -6441,3 +6441,124 @@ tr.recur-paused td:nth-child(4) { opacity: 1; }
   border-radius: 8px; background: color-mix(in srgb, var(--red) 10%, transparent); color: var(--red);
   font: inherit; font-size: 12px; font-weight: 600; text-align: left; cursor: pointer;
 }
+
+/* ---- Personal CRM polish ---- */
+.calm-kpis .kpi.tone-muted strong { color: var(--text-faint); }
+/* Status line on contact cards. */
+.crm-card-status { display: inline-flex; align-items: center; gap: 6px; margin-top: 6px; font-size: 11.5px; font-weight: 600; color: var(--text-muted); }
+.crm-card-status i { width: 7px; height: 7px; border-radius: 50%; background: var(--text-faint); flex-shrink: 0; }
+.crm-card-status.status-warm i { background: var(--green); }
+.crm-card-status.status-due-soon { color: var(--amber); }
+.crm-card-status.status-due-soon i { background: var(--amber); }
+.crm-card-status.status-overdue, .crm-card-status.status-never-contacted { color: var(--red); }
+.crm-card-status.status-overdue i, .crm-card-status.status-never-contacted i { background: var(--red); }
+.crm-card-status.status-new i { background: var(--accent); }
+/* Reach out: one-click actions. */
+.crm-reach-actions { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+.crm-reach-actions .btn { display: inline-flex; align-items: center; gap: 4px; }
+/* CRM calendar: reach-out chips, legend, empty hint. */
+.crm-due-chip { background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); }
+.crm-cal-legend { display: inline-flex; gap: 12px; margin-left: 14px; font-size: 11.5px; font-weight: 500; color: var(--text-faint); }
+.crm-cal-legend span { display: inline-flex; align-items: center; gap: 4px; }
+.crm-cal-empty { margin: 0 0 10px; font-size: 12.5px; color: var(--text-faint); }
+/* Contact panel: notes folded with a one-line preview. */
+.crm-notes-fold { border-top: 1px solid var(--border); padding: 10px 0; }
+.crm-notes-fold > summary { display: flex; align-items: baseline; gap: 10px; cursor: pointer; list-style: none; }
+.crm-notes-fold > summary::-webkit-details-marker { display: none; }
+.crm-notes-fold > summary::before { content: '▸'; color: var(--text-faint); font-size: 11px; transition: transform 0.12s; }
+.crm-notes-fold[open] > summary::before { transform: rotate(90deg); }
+.crm-notes-fold > summary span { font-size: 12px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted); flex-shrink: 0; }
+.crm-notes-fold > summary small { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--text-faint); }
+.crm-notes-fold[open] > summary small { display: none; }
+.crm-notes-fold > .rte, .crm-notes-fold > div { margin-top: 8px; }
+/* CRM: "Remind me to stay in touch" switch in the contact panel. */
+.crm-reminder-switch { display: flex; align-items: center; gap: 8px; margin: 2px 0 8px; font-size: 13px; color: var(--text); cursor: pointer; }
+.crm-reminder-switch input { position: absolute; opacity: 0; pointer-events: none; }
+.crm-switch-track { position: relative; width: 30px; height: 17px; border-radius: 999px; background: var(--border); flex-shrink: 0; transition: background 0.15s; }
+.crm-switch-track span { position: absolute; top: 2px; left: 2px; width: 13px; height: 13px; border-radius: 50%; background: #fff; transition: transform 0.15s; }
+.crm-reminder-switch input:checked + .crm-switch-track { background: var(--accent); }
+.crm-reminder-switch input:checked + .crm-switch-track span { transform: translateX(13px); }
+.crm-reminder-switch input:focus-visible + .crm-switch-track { outline: 2px solid var(--accent); outline-offset: 2px; }
+.crm-reminder-switch small { font-size: 11px; color: var(--text-faint); }
+.crm-tier-picker { display: flex; align-items: center; gap: 8px; margin: -2px 0 10px 38px; font-size: 12.5px; color: var(--text-muted); }
+.crm-tier-picker select { padding: 3px 8px; border: 1px solid var(--border); border-radius: 7px; background: var(--surface); color: var(--text); font: inherit; font-size: 12.5px; }
+.crm-tier-inline { margin-left: 4px; font-size: 11.5px; color: var(--text-faint); }
+/* Contact photo: large in the profile panel (photos are saved at 480px, so this stays sharp). */
+.detail-panel .crm-contact-avatar.large { width: 120px; height: 120px; font-size: 38px; border-radius: 18px; }
+.modal-card .crm-person-head .crm-contact-avatar.large { width: 88px; height: 88px; font-size: 28px; border-radius: 14px; }
+.detail-panel .crm-contact-avatar-edit-badge { width: 22px; height: 22px; }
+
+/* ---- CRM panel: interaction composer + timeline feed ---- */
+.crm-composer { border: 1px solid var(--border); border-radius: 10px; background: var(--surface-hover); transition: border-color 0.12s; }
+.crm-composer:focus-within { border-color: var(--accent); }
+.crm-composer .rte { border: 0 !important; background: transparent !important; }
+.crm-composer .rte-body { min-height: 44px; max-height: 200px; padding: 10px 12px; font-size: 13px; }
+.crm-composer .rte-placeholder { top: 10px; left: 12px; }
+.crm-composer-bar { display: flex; align-items: center; gap: 6px; padding: 6px 8px; border-top: 1px solid var(--border); }
+.crm-composer-select { padding: 4px 8px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); color: var(--text); font: inherit; font-size: 12px; cursor: pointer; }
+.crm-composer-bar .date-picker-trigger { padding: 4px 10px; border-radius: 999px; font-size: 12px; }
+.crm-composer-log { margin-left: auto; padding-left: 16px; padding-right: 16px; }
+.crm-composer-log:disabled { opacity: 0.45; cursor: default; }
+
+.crm-feed-title { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
+.crm-feed-title h3 { margin: 0; }
+.crm-feed-count { padding: 0 7px; border-radius: 999px; background: var(--surface-hover); color: var(--text-muted); font-size: 11px; letter-spacing: 0; }
+.crm-feed-filters { display: flex; gap: 4px; }
+.crm-feed-filters button { padding: 2px 9px; border: 1px solid var(--border); border-radius: 999px; background: transparent; color: var(--text-faint); font: inherit; font-size: 11.5px; cursor: pointer; }
+.crm-feed-filters button.on { border-color: var(--accent); color: var(--text); background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.crm-feed { list-style: none; margin: 0; padding: 0 0 0 14px; border-left: 2px solid var(--border); }
+.crm-feed-body { margin-top: 3px; font-size: 13px; line-height: 1.5; color: var(--text-muted); overflow-wrap: anywhere; }
+.crm-feed-body p, .crm-feed-body ul, .crm-feed-body ol { margin: 0 0 4px; }
+.crm-feed-body ul, .crm-feed-body ol { padding-left: 18px; }
+
+.crm-feed-empty { margin: 0; font-size: 12.5px; color: var(--text-faint); }
+.modal-card .crm-person-head { align-items: flex-start; }
+.modal-card .crm-person-head .crm-contact-avatar-edit { flex-shrink: 0; }
+.crm-feed-month { position: relative; margin: 4px 0 10px -14px; padding-left: 14px; font-size: 10.5px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-faint); list-style: none; background: var(--surface); }
+.crm-feed-month:not(:first-child) { margin-top: 6px; }
+
+/* Side panels scroll on their own layer and never hand the scroll to the page behind. */
+.detail-panel-body { overscroll-behavior: contain; }
+.modal-card, .modal-body { overscroll-behavior: contain; }
+/* Timeline: one line per entry, one open at a time. */
+.crm-feed-item { position: relative; padding: 0 0 2px 6px; }
+.crm-feed-item::before { content: ''; position: absolute; left: -20px; top: 11px; width: 8px; height: 8px; border-radius: 50%; background: var(--surface); border: 2px solid var(--accent); }
+.crm-feed-row {
+  display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 8px; border: 0; border-radius: 7px;
+  background: transparent; color: var(--text); font: inherit; font-size: 12.5px; text-align: left; cursor: pointer;
+}
+.crm-feed-row:hover { background: var(--surface-hover); }
+.crm-feed-row b { font-weight: 650; flex-shrink: 0; }
+.crm-feed-date { flex-shrink: 0; color: var(--text-faint); font-size: 12px; }
+.crm-feed-preview { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-muted); }
+.crm-feed-chevron { margin-left: auto; flex-shrink: 0; color: var(--text-faint); transition: transform 0.12s; }
+.crm-feed-item.open .crm-feed-chevron { transform: rotate(90deg); }
+.crm-feed-item.open .crm-feed-row { background: color-mix(in srgb, var(--accent) 10%, transparent); border-radius: 7px 7px 0 0; }
+.crm-feed-open { padding: 8px 10px 10px; border-radius: 0 0 7px 7px; background: color-mix(in srgb, var(--accent) 6%, transparent); }
+.crm-feed-open-actions { display: flex; align-items: center; justify-content: space-between; margin-top: 8px; font-size: 11.5px; color: var(--text-faint); }
+.crm-feed-open-actions .text-btn { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; }
+
+/* CRM timeline: older months/years fold into one summary line each; search once it's long. */
+.crm-feed-group { position: relative; list-style: none; }
+.crm-feed-group::before { content: ''; position: absolute; left: -19px; top: 12px; width: 6px; height: 6px; border-radius: 2px; background: var(--border); }
+.crm-feed-sub .crm-feed-group::before { display: none; }
+.crm-feed-group-row {
+  display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 8px; border: 0; border-radius: 7px;
+  background: transparent; color: inherit; font: inherit; font-size: 13px; text-align: left; cursor: pointer;
+}
+.crm-feed-group-row:hover { background: var(--surface-hover); }
+.crm-feed-group-row b { flex-shrink: 0; font-weight: 650; color: var(--text-muted); }
+.crm-feed-group-row span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--text-faint); }
+.crm-feed-group.open > .crm-feed-group-row .crm-feed-chevron { transform: rotate(90deg); }
+.crm-feed-sub { list-style: none; margin: 0 0 4px; padding: 0; }
+.crm-feed-sub .crm-feed-sub { padding-left: 0; }
+.crm-feed-sub .crm-feed-group-row { padding-left: 16px; }
+.crm-feed-search {
+  display: flex; align-items: center; gap: 6px; margin-bottom: 10px; padding: 0 8px; height: 30px;
+  border: 1px solid var(--border); border-radius: 8px; color: var(--text-faint);
+}
+.crm-feed-search:focus-within { border-color: var(--accent); }
+.crm-feed-search input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--text); font: inherit; font-size: 13px; }
+.crm-feed-search input::-webkit-search-cancel-button { display: none; }
+.crm-feed-search .icon-btn { width: 20px; height: 20px; }
+.crm-feed-hits { margin: 0 0 8px; font-size: 12px; color: var(--text-faint); }
