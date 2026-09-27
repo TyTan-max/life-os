@@ -1,4 +1,5 @@
 import type { AppData } from './types';
+import { isBillPaused } from './lib/cashFlowForecast';
 import { formatCurrency } from './components/UI';
 import { computeDailyBrief } from './lib/dailyBrief';
 
@@ -38,6 +39,7 @@ function dueReminders(data: AppData, now: Date): DueReminder[] {
     }
   }
   for (const bill of data.bills) {
+    if (isBillPaused(bill, nowIso.slice(0, 10))) continue;
     if (bill.reminderAt && bill.reminderAt <= nowIso) {
       items.push({ id: `bill-${bill.id}`, title: 'Bill reminder', body: `${bill.name} is due ${bill.nextDue}` });
     }

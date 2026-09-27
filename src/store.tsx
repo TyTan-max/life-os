@@ -9,6 +9,8 @@ import { mergeSnapshots } from './lib/syncMerge';
 import type { SyncSnapshot } from './lib/syncMerge';
 import { startBrowserReminderLoop, syncScheduledNotifications } from './notifications';
 import { registerCustomDebtTypes } from './pages/FinanceAccounts';
+import { applyLinkedBalances } from './lib/trading';
+import { rolledForwardDue } from './lib/billPayments';
 import { advanceDueDate } from './lib/budgetMath';
 import { setActiveCurrency } from './components/UI';
 
@@ -192,14 +194,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     // enough in the day for anyone west of UTC and would catch bills up a day too early.
     const now = new Date();
     const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    // Every bill, autopay or not: once a due date passes, the next one is what's due. Whether
+    // the passed one was paid is answered from imported transactions (lib/billPayments.ts).
     for (const bill of data.bills) {
-      if (!bill.autopay || (bill.frequency ?? 'Monthly') === 'Once' || bill.nextDue >= today) continue;
-      let nextDue = bill.nextDue;
-      let guard = 0;
-      while (nextDue < today && guard < 240) {
-        nextDue = advanceDueDate(nextDue, bill.frequency ?? 'Monthly');
-        guard += 1;
-      }
+      const nextDue = rolledForwardDue(bill, today, d => advanceDueDate(d, bill.frequency ?? 'Monthly'));
       if (nextDue !== bill.nextDue) void upsert('bills', { ...bill, nextDue });
     }
   }, [loading, data.bills, upsert]);
@@ -364,13 +362,16 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     return () => window.removeEventListener('keydown', handler);
   }, [undo, redo]);
 
+  // The trading account in Finance mirrors the Trading Journal (see lib/trading.ts).
+  const liveData = useMemo(() => applyLinkedBalances(data), [data]);
+
   const value = useMemo<Store>(() => ({
-    data, loading, upsert, remove, updateSettings, toggleTask, exportBackup, importBackup, reset,
+    data: liveData, loading, upsert, remove, updateSettings, toggleTask, exportBackup, importBackup, reset,
     undo, redo, canUndo:undoStackRef.current.length > 0, canRedo:redoStackRef.current.length > 0,
     lastDestructive, dismissDestructive, syncNow, syncStatus, syncError, lastSyncedAt,
     isSyncConfigured: isDriveConfigured()
   }), [
-    data, loading, upsert, remove, updateSettings, toggleTask, exportBackup, importBackup, reset, undo, redo,
+    liveData, loading, upsert, remove, updateSettings, toggleTask, exportBackup, importBackup, reset, undo, redo,
     historyTick, lastDestructive, dismissDestructive, syncNow, syncStatus, syncError, lastSyncedAt
   ]);
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;

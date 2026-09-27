@@ -128,6 +128,8 @@ export interface FinanceAccount extends BaseRecord {
   assetClass?: InvestmentAssetClass;
   minimumPayment?: number;
   order?: number;
+  // 'tradingJournal': balance is always the Trading Journal's (total deposited + P/L), read-only.
+  linkedTo?: 'tradingJournal';
 }
 
 export type InvestmentAssetClass = 'Stocks' | 'ETFs' | 'Bonds' | 'Cash' | 'Real Estate' | 'Cryptocurrency' | 'Other';
@@ -198,6 +200,12 @@ export interface Bill extends BaseRecord {
   usageRating?: number;
   priceHistory?: AmountHistoryEntry[];
   order?: number;
+  // Paused: not counted anywhere (left over, calendar, reminders, totals) until resumed —
+  // or automatically from `pausedUntil` (YYYY-MM-DD) on, if set. History is kept.
+  paused?: boolean;
+  pausedUntil?: string;
+  // Due dates confirmed paid by hand ("It was paid") — silences "No payment found" for them.
+  paidOverrides?: string[];
 }
 
 export type FinanceGoalCategory = string;
@@ -684,7 +692,10 @@ export interface Settings {
   contactCategories?: string[];
   // Undefined means "use $50,000" — the same default Trading Journal always used back when this
   // lived in its own separate localStorage key.
+  // Shown as "Total deposited" — everything moved into the trading account so far.
   tradingStartBalance?: number;
+  // Deposits added with the Trading Journal's "+ Deposit" button (each also raises the total).
+  tradingDepositLog?: { date: string; amount: number }[];
   tradingPresetLabels?: string[];
 }
 

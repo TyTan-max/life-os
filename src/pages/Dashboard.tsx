@@ -17,6 +17,9 @@ import { useIsMobile } from '../hooks/useIsMobile';
 import { useContextMenu } from '../components/ContextMenu';
 import type { ContextMenuItem } from '../components/ContextMenu';
 import { latestNight, sleepHours } from '../lib/sleep';
+import { linkedTradingAccount } from '../lib/trading';
+import { isBillPaused } from '../lib/cashFlowForecast';
+import { missedPaymentDates } from '../lib/billPayments';
 import { doseStatus, scheduledTimes, withDoseStatus } from '../lib/medications';
 import type { DoseStatus } from '../lib/medications';
 
@@ -156,12 +159,17 @@ export function Dashboard({navigate}:{navigate:(page:string, tab?: string)=>void
   const availableCash = activeAccounts.filter(a=>LIQUID_TYPES.includes(a.type)).reduce((s,a)=>s+a.balance,0)
     - activeAccounts.filter(a=>a.type==='Credit Card').reduce((s,a)=>s+a.balance,0);
   const lockedInvestments = activeAccounts.filter(a=>a.type==='Investment' || a.type==='Retirement').reduce((s,a)=>s+a.balance,0);
+  const tradingAccount = linkedTradingAccount(activeAccounts);
+  const excludedNote = [
+    lockedInvestments ? `${formatCurrency(lockedInvestments)} in investments & retirement` : null,
+    tradingAccount ? `${formatCurrency(tradingAccount.balance)} in trading` : null
+  ].filter(Boolean).join(' · ');
   const monthBudgets = data.budgets.filter(b=>b.month===month);
   const spendByCategory = actualSpendByCategory(data.transactions, month);
   const overBudgetCount = monthBudgets.filter(b=>(spendByCategory.get(b.categoryId) ?? 0) > b.limit).length;
   const in7 = new Date(); in7.setDate(in7.getDate()+7);
   const in7Iso = localIso(in7);
-  const upcomingBills = data.bills.filter(b=>(b.kind ?? 'Bill') === 'Bill' && b.nextDue>=today && b.nextDue<=in7Iso);
+  const upcomingBills = data.bills.filter(b=>(b.kind ?? 'Bill') === 'Bill' && b.nextDue>=today && b.nextDue<=in7Iso && !isBillPaused(b, b.nextDue));
   // Trading Journal moved to the real IndexedDB-backed store a while back — this card was never
   // updated off the old localStorage key it used to read, so it's been silently showing 0 days
   // logged / $0.00 regardless of actual data ever since.
@@ -189,6 +197,8 @@ export function Dashboard({navigate}:{navigate:(page:string, tab?: string)=>void
   const toggleDose = (med: Medication, time: string, status: DoseStatus) =>
     void upsert('medications', withDoseStatus(med, today, time, status === 'taken' ? 'pending' : 'taken'));
   const billsTotal = upcomingBills.reduce((s, b) => s + b.amount, 0);
+  // Bills that were due, are covered by imported data, and have no matching charge.
+  const possiblyUnpaid = data.bills.map(b => ({ bill: b, dates: missedPaymentDates(b, data.transactions) })).filter(x => x.dates.length);
   const lowMeds = data.medications.filter(m=>m.active && m.pillsRemaining!=null && m.refillThreshold!=null && m.pillsRemaining<=m.refillThreshold).length;
   const thisYear = today.slice(0,4);
   const achievedThisYear = data.bucketList.filter(b=>b.status==='Achieved' && b.achievedAt?.startsWith(thisYear)).length;
@@ -204,7 +214,7 @@ export function Dashboard({navigate}:{navigate:(page:string, tab?: string)=>void
     const rows = [
       ...openTasks.filter(t=>t.reminderAt).map(t=>({type:'Task',title:t.title,at:t.reminderAt!})),
       ...data.events.filter(e=>e.reminderAt||e.date>=today).map(e=>({type:'Event',title:e.title,at:e.reminderAt||`${e.date}T${e.startTime||'09:00'}`})),
-      ...data.bills.filter(b=>b.nextDue>=today && !b.autopay).map(b=>({type:'Bill',title:`${b.name} (${formatCurrency(b.amount)})`,at:b.reminderAt||`${b.nextDue}T09:00`}))
+      ...data.bills.filter(b=>b.nextDue>=today && !b.autopay && !isBillPaused(b, b.nextDue)).map(b=>({type:'Bill',title:`${b.name} (${formatCurrency(b.amount)})`,at:b.reminderAt||`${b.nextDue}T09:00`}))
     ];
     return rows.sort((a,b)=>a.at.localeCompare(b.at));
   },[data,openTasks,today]);
@@ -412,6 +422,7 @@ export function Dashboard({navigate}:{navigate:(page:string, tab?: string)=>void
         orderStyle={slot(7)}
       >
         <div className="metric-pair"><span>Current balance</span><b>{formatCurrency(tradingCurrentBalance)}</b></div>
+        <div className="metric-pair"><span>Deposited</span><b>{formatCurrency(data.settings.tradingStartBalance ?? 50000)}</b></div>
         <div className="metric-pair"><span>Win rate</span><b>{tradingWinRate}%</b></div>
         <div className="metric-pair"><span>Net P/L</span><b className={tradingPnl >= 0 ? 'positive' : 'negative'}>{tradingPnl >= 0 ? '+' : ''}{tradingPnl.toFixed(2)}</b></div>
       </DashCard>
@@ -432,12 +443,17 @@ export function Dashboard({navigate}:{navigate:(page:string, tab?: string)=>void
   const financeCard = (
       <DashCard
         className="span-2" icon={<Wallet size={19}/>} title="Finance overview" isMobile={isMobile}
-        quiet={overBudgetCount + upcomingBills.length === 0} expanded={expandedCards.has('finance')} onToggle={()=>toggleCard('finance')}
+        quiet={overBudgetCount + upcomingBills.length + possiblyUnpaid.length === 0} expanded={expandedCards.has('finance')} onToggle={()=>toggleCard('finance')}
         summary={`${formatCurrency(availableCash)} available · ${overBudgetCount?`${overBudgetCount} over budget`:'on track'}`}
         action={<button className="text-btn" onClick={()=>navigate('Finance')}>Open <ArrowRight size={15}/></button>}
         orderStyle={slot(9, overBudgetCount + upcomingBills.length)}
       >
-        <div className="metric-pair dash-networth" title="Checking + Savings + Cash, minus credit card balances"><span>Available cash{lockedInvestments ? <small>Excl. {formatCurrency(lockedInvestments)} in investments &amp; retirement</small> : null}</span><b className={availableCash>=0?'positive':'negative'}>{formatCurrency(availableCash)}</b></div>
+        {possiblyUnpaid.length > 0 && (
+          <button type="button" className="dash-unpaid-alert" onClick={()=>navigate('Finance')}>
+            ⚠ {possiblyUnpaid.length} bill{possiblyUnpaid.length === 1 ? '' : 's'} may be unpaid — {possiblyUnpaid.slice(0, 2).map(x => `${x.bill.name} (${formatDate(x.dates[0])})`).join(', ')}
+          </button>
+        )}
+        <div className="metric-pair dash-networth" title="Checking + Savings + Cash, minus credit card balances"><span>Available cash{excludedNote ? <small>Excl. {excludedNote}</small> : null}</span><b className={availableCash>=0?'positive':'negative'}>{formatCurrency(availableCash)}</b></div>
         <div className="metric-pair"><span>This month's income</span><b className="positive">{formatCurrency(income)}</b></div>
         <div className="metric-pair"><span>This month's expenses</span><b className="negative">{formatCurrency(expenses)}</b></div>
         <div className="metric-pair total"><span>Net cash flow</span><b>{formatCurrency(income-expenses)}</b></div>

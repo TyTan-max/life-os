@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { Modal } from './UI';
 import { parseCSV, normalizeCsvDate, parseCsvAmount, isCreditCardPaymentMerchant, matchCsvCategoryId } from '../lib/csv';
 import { suggestCategory, lookupMerchantCategoryId } from '../lib/autoCategorize';
+import { linkedTradingAccount, TRADING_DEPOSIT_PATTERN } from '../lib/trading';
 import { newRecord } from '../store';
 import type { FinanceAccount, FinanceCategory, Transaction } from '../types';
 
@@ -208,16 +209,24 @@ export function ImportTransactionsModal({
     return parts.join(', ') + '.';
   };
 
+  // Deposits into the trading account (see lib/trading.ts) are transfers, not spending.
+  const tradingAccountId = linkedTradingAccount(accounts)?.id;
+  const tradingTransferFor = (r: { merchant: string; isIncome: boolean }) =>
+    tradingAccountId && tradingAccountId !== accountId && !r.isIncome && TRADING_DEPOSIT_PATTERN.test(r.merchant) ? tradingAccountId : undefined;
+  const transferTargetFor = (r: { merchant: string; isIncome: boolean; isTransferLike: boolean }) =>
+    tradingTransferFor(r) ?? (r.isTransferLike && transferToAccountId && transferToAccountId !== accountId ? transferToAccountId : undefined);
+
   const doImport = () => {
     const records = rowsToImport.map(r => {
-      const asTransfer = r.isTransferLike && transferToAccountId && transferToAccountId !== accountId;
+      const transferTo = transferTargetFor(r);
+      const asTransfer = Boolean(transferTo);
       return newRecord<Transaction>({
         date: r.date,
         merchant: r.merchant,
         amount: r.amount,
         type: asTransfer ? 'Transfer' : (r.isIncome ? 'Income' : 'Expense'),
         accountId,
-        transferAccountId: asTransfer ? transferToAccountId : undefined,
+        transferAccountId: transferTo,
         categoryId: asTransfer ? undefined : categoryFor(r.merchant, r.isIncome, r.csvCategory)
       });
     });
@@ -394,7 +403,7 @@ export function ImportTransactionsModal({
               </thead>
               <tbody>
                 {previewRows.slice(0, 50).map((r, i) => {
-                  const asTransfer = r.isTransferLike && transferToAccountId && transferToAccountId !== accountId;
+                  const asTransfer = Boolean(transferTargetFor(r));
                   const categoryId = asTransfer ? undefined : categoryFor(r.merchant, r.isIncome, r.csvCategory);
                   const categoryLabel = categoryId ? categories.find(c => c.id === categoryId)?.name : undefined;
                   const typeLabel = asTransfer ? 'Transfer' : (r.isIncome ? 'Income' : 'Expense');

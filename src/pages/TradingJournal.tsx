@@ -1238,6 +1238,20 @@ export function TradingJournal() {
   const [editingLogId, setEditingLogId] = useState<string | null>(null);
   const startBalance = data.settings.tradingStartBalance ?? 50000;
   const setStartBalance = (n: number) => void updateSettings({ tradingStartBalance: n });
+  // "+ Deposit" raises the total and keeps a dated log, so the balance reads as deposits + P/L.
+  const [depositOpen, setDepositOpen] = useState(false);
+  const [depositDraft, setDepositDraft] = useState(0);
+  const depositLog = data.settings.tradingDepositLog ?? [];
+  const lastDeposit = depositLog[depositLog.length - 1];
+  const addDeposit = () => {
+    if (!(depositDraft > 0)) return;
+    void updateSettings({
+      tradingStartBalance: Math.round((startBalance + depositDraft) * 100) / 100,
+      tradingDepositLog: [...depositLog, { date: toIsoDate(new Date()), amount: depositDraft }]
+    });
+    setDepositDraft(0);
+    setDepositOpen(false);
+  };
   const presetLabels = data.settings.tradingPresetLabels ?? [];
   const setPresetLabels = (next: string[]) => void updateSettings({ tradingPresetLabels: next });
   const [period, setPeriod] = useState<Period>('Total');
@@ -1423,8 +1437,22 @@ export function TradingJournal() {
   // presentations, defined once.
   const statRows = (
     <>
-      <div className="tj-stat-row"><span>Start Balance</span><NumberField className="tj-inline-input" value={startBalance} onChange={setStartBalance} decimals={2} /></div>
-      <div className="tj-stat-row"><span>Current Balance</span><b>{formatCurrency(currentBalance)}</b></div>
+      <div className="tj-stat-row" title="Everything moved into the trading account so far"><span>Total Deposited</span><NumberField className="tj-inline-input" value={startBalance} onChange={setStartBalance} decimals={2} /></div>
+      <div className="tj-deposit-row">
+        {depositOpen ? (
+          <>
+            <NumberField className="tj-inline-input" value={depositDraft} onChange={setDepositDraft} decimals={2} min={0} />
+            <button type="button" className="btn teal small" onClick={addDeposit} disabled={!(depositDraft > 0)}>Add</button>
+            <button type="button" className="icon-btn" onClick={() => { setDepositOpen(false); setDepositDraft(0); }} aria-label="Cancel deposit"><X size={13} /></button>
+          </>
+        ) : (
+          <>
+            <button type="button" className="text-btn" onClick={() => setDepositOpen(true)}><Plus size={13} /> Deposit</button>
+            {lastDeposit && <small>Last: {formatCurrency(lastDeposit.amount)} on {formatFullDate(lastDeposit.date)}</small>}
+          </>
+        )}
+      </div>
+      <div className="tj-stat-row"><span>Current Balance</span><b title={`${formatCurrency(startBalance)} deposited ${allTimeNet >= 0 ? '+' : '−'} ${formatCurrency(Math.abs(allTimeNet))} P/L`}>{formatCurrency(currentBalance)}</b></div>
       <div className="tj-stat-row"><span>Total Trades</span><b>{totalTradesSum}</b></div>
       <div className="tj-stat-row"><span>Days Logged</span><b>{daysLogged}</b></div>
       <div className="tj-stat-row"><span>Green Days</span><b>{greenDays.length}</b></div>

@@ -6362,3 +6362,82 @@ body.has-detail-panel .history-controls { right: calc(var(--detail-w) + 20px); }
 /* Backlog at half width in Money & life. */
 .dash-pulse .backlog-row { flex-wrap: wrap; row-gap: 2px; }
 .dash-pulse .backlog-row-counts { white-space: nowrap; font-size: 12px; }
+
+/* ---- Trading account link ---- */
+.tj-deposit-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: -2px 0 6px; font-size: 12px; }
+.tj-deposit-row .text-btn { display: inline-flex; align-items: center; gap: 3px; font-size: 12px; }
+.tj-deposit-row small { color: var(--text-faint); font-size: 11px; }
+.tj-deposit-row .tj-inline-input { max-width: 96px; }
+.fa-linked-note { display: flex; align-items: flex-start; gap: 8px; margin: 0 0 14px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); font-size: 13px; color: var(--text-muted); line-height: 1.45; }
+.fa-linked-note svg { flex-shrink: 0; margin-top: 2px; color: var(--accent); }
+.fa-linked-note b { color: var(--text); font-weight: 600; }
+.fa-linked-note.pending { border-color: color-mix(in srgb, var(--amber) 45%, var(--border)); }
+
+/* ---- Finance polish ---- */
+.finance-header { align-items: center; }
+/* Calm KPI cards (shared with the Dashboard look): neutral card, color only on the number. */
+.calm-kpis .card.kpi { background: var(--surface); border: 1px solid var(--border); }
+.calm-kpis .card.kpi span { color: var(--text-muted); }
+.calm-kpis .card.kpi small { color: var(--text-faint); }
+.calm-kpis .kpi.tone-red strong { color: var(--red); }
+.calm-kpis .kpi.tone-amber strong { color: var(--amber); }
+.calm-kpis .kpi.tone-green strong { color: var(--green); }
+.calm-kpis .kpi.tone-blue strong { color: var(--accent); }
+.calm-kpis .kpi.tone-default strong { color: var(--text); }
+/* Missing debt details: an invitation, not a fake zero. */
+.debt-missing { font-size: 12px; color: var(--text-faint); }
+.debt-missing:hover { color: var(--accent); }
+/* Transactions: sign + $ and color by kind. */
+.tx-amount-cell { display: flex; align-items: center; gap: 1px; }
+.tx-currency { font-size: 12px; font-weight: 600; flex-shrink: 0; }
+.tx-kind-expense .tx-currency, .tx-kind-expense .tx-amount-input { color: var(--red); }
+.tx-kind-income .tx-currency, .tx-kind-income .tx-amount-input { color: var(--green); }
+.tx-kind-transfer .tx-currency, .tx-kind-transfer .tx-amount-input { color: var(--text-muted); }
+.tx-notes-toggle { display: inline-flex; align-items: center; gap: 3px; width: auto; padding: 2px 6px; font-size: 11px; white-space: nowrap; }
+/* Accounts: grouped list with prominent balances. */
+.record-list-grouped .record-group-head { display: flex; justify-content: space-between; align-items: baseline; padding: 14px 16px 6px; font-size: 10.5px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-faint); }
+.record-list-grouped .record-group-head:first-child { padding-top: 6px; }
+.record-list-grouped .record-group-head b { font-size: 12px; letter-spacing: 0; color: var(--text-muted); }
+.record-row-trailing { margin-left: auto; padding: 0 12px; cursor: pointer; }
+.fa-balance { font-size: 16px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--text); }
+.fa-balance.debt, .fa-balance.negative { color: var(--red); }
+/* Calendar: paid items read as done. */
+.cal-event-chip.paid { opacity: 0.6; text-decoration: none; }
+.cal-legend-paid { color: var(--text-faint); }
+
+/* ---- Paused bills & subscriptions ---- */
+tr.recur-paused td { opacity: 0.55; }
+tr.recur-paused td:last-child, tr.recur-paused td:first-child { opacity: 1; }
+.recur-resume-btn { color: var(--green); }
+.recur-paused-mini { margin-left: 6px; padding: 0 6px; border-radius: 999px; background: var(--amber-soft); color: var(--amber); font-size: 10px; font-weight: 700; }
+/* Paused pill in the Next Due column + the pause menu. */
+.recur-paused-pill {
+  display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px; border: 1px solid color-mix(in srgb, var(--amber) 35%, var(--border));
+  border-radius: 999px; background: color-mix(in srgb, var(--amber) 10%, transparent); color: var(--amber);
+  font: inherit; font-size: 12px; font-weight: 600; white-space: nowrap; cursor: pointer;
+}
+.recur-paused-pill:hover { border-color: var(--amber); }
+tr.recur-paused td:nth-child(4) { opacity: 1; }
+.pause-menu {
+  position: fixed; z-index: 1000; width: 220px; padding: 5px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 14px 40px rgba(0, 0, 0, 0.4);
+}
+.pause-menu-heading { padding: 6px 9px 4px; font-size: 10.5px; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase; color: var(--text-faint); }
+.pause-menu > button { display: flex; align-items: center; gap: 6px; width: 100%; padding: 7px 9px; border: 0; border-radius: 6px; background: transparent; color: var(--text); font: inherit; font-size: 13px; text-align: left; cursor: pointer; }
+.pause-menu > button:hover { background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.pause-menu > button.on { color: var(--amber); font-weight: 600; }
+.pause-menu-date { display: flex; align-items: center; gap: 8px; padding: 4px 9px 6px; font-size: 13px; color: var(--text-muted); }
+.pause-menu-date .date-picker { flex: 1; }
+.pause-menu-sep { height: 1px; margin: 4px; background: var(--border); }
+.pause-menu > button.pause-menu-resume { color: var(--green); font-weight: 600; }
+
+/* ---- "No payment found" ---- */
+.recur-missed { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 6px; margin-top: 3px; font-size: 11px; font-weight: 600; color: var(--red); }
+.recur-missed .text-btn { font-size: 11px; padding: 0; }
+.cal-event-chip.missed { background: var(--red-soft); color: var(--red); border-color: color-mix(in srgb, var(--red) 40%, transparent); }
+.cal-legend-missed { color: var(--red); }
+.dash-unpaid-alert {
+  display: block; width: 100%; margin: 0 0 8px; padding: 7px 10px; border: 1px solid color-mix(in srgb, var(--red) 35%, var(--border));
+  border-radius: 8px; background: color-mix(in srgb, var(--red) 10%, transparent); color: var(--red);
+  font: inherit; font-size: 12px; font-weight: 600; text-align: left; cursor: pointer;
+}

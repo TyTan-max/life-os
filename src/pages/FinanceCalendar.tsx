@@ -3,7 +3,8 @@ import { ChevronLeft, ChevronRight, RotateCcw } from 'lucide-react';
 import { useStore } from '../store';
 import { Card, formatCurrency, formatDate } from '../components/UI';
 import { MonthYearPicker } from '../components/MonthYearPicker';
-import { billOccurrences } from '../lib/cashFlowForecast';
+import { billActiveDueDates, billOccurrences, isBillPaused } from '../lib/cashFlowForecast';
+import { missedPaymentDates } from '../lib/billPayments';
 import { detectSubscriptions } from '../lib/subscriptionDetector';
 
 type EventKind = 'Bill' | 'Subscription' | 'Payday';
@@ -13,7 +14,17 @@ interface CalEvent {
   title: string;
   amount: number;
   date: string;
+  /** Already happened — a posted transaction this month, not a forecast. */
+  paid?: boolean;
+  /** Was due, the imported data covers it, and no matching charge was found. */
+  missed?: boolean;
 }
+
+const normName = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
+const sameName = (a: string, b: string) => {
+  const x = normName(a); const y = normName(b);
+  return Boolean(x && y) && (x === y || x.includes(y) || y.includes(x));
+};
 
 function toIso(date: Date): string {
   const y = date.getFullYear();
@@ -52,27 +63,59 @@ export function FinanceCalendar() {
   const monthStart = new Date(year, month, 1, 0, 0, 0);
   const monthEnd = new Date(year, month + 1, 0, 23, 59, 59);
 
+  // Recurring items, each listed once: tracked bills/subscriptions first; a subscription detected
+  // from transactions only adds something when it isn't already a tracked bill.
+  const detectedExpense = useMemo(
+    () => detectSubscriptions(data.transactions, 'Expense').filter(s => !data.bills.some(b => sameName(b.name, s.merchant))),
+    [data.transactions, data.bills]
+  );
+  const detectedIncome = useMemo(() => detectSubscriptions(data.transactions, 'Income'), [data.transactions]);
+
   const events = useMemo(() => {
     const list: CalEvent[] = [];
-    for (const bill of data.bills) {
-      for (const occ of billOccurrences(bill, monthStart, monthEnd)) {
-        list.push({ kind: 'Bill', title: bill.name, amount: bill.amount, date: toIso(occ) });
-      }
-    }
     const monthStartIso = toIso(monthStart);
     const monthEndIso = toIso(monthEnd);
-    for (const sub of detectSubscriptions(data.transactions, 'Expense')) {
-      if (sub.nextExpectedDate >= monthStartIso && sub.nextExpectedDate <= monthEndIso) {
+    const recurring: { kind: EventKind; name: string; type: 'Expense' | 'Income' }[] = [
+      ...data.bills.map(b => ({ kind: (b.kind === 'Subscription' ? 'Subscription' : 'Bill') as EventKind, name: b.name, type: 'Expense' as const })),
+      ...detectedExpense.map(s => ({ kind: 'Subscription' as EventKind, name: s.merchant, type: 'Expense' as const })),
+      ...detectedIncome.map(s => ({ kind: 'Payday' as EventKind, name: s.merchant, type: 'Income' as const }))
+    ];
+    // What already happened this month, from the actual transactions.
+    for (const t of data.transactions) {
+      if (t.date < monthStartIso || t.date > monthEndIso) continue;
+      const match = recurring.find(r => r.type === t.type && sameName(r.name, t.merchant));
+      if (match) list.push({ kind: match.kind, title: match.name, amount: t.amount, date: t.date, paid: true });
+    }
+    const alreadyPaid = (title: string, date: string) =>
+      list.some(e => e.paid && e.title === title && Math.abs(new Date(e.date).getTime() - new Date(date).getTime()) <= 5 * 86400000);
+    // What's still scheduled.
+    for (const bill of data.bills) {
+      const kind: EventKind = bill.kind === 'Subscription' ? 'Subscription' : 'Bill';
+      const missed = new Set(missedPaymentDates(bill, data.transactions));
+      for (const occ of billActiveDueDates(bill, monthStart, monthEnd)) {
+        const date = toIso(occ);
+        if (!alreadyPaid(bill.name, date)) list.push({ kind, title: bill.name, amount: bill.amount, date, missed: missed.has(date) });
+      }
+      // Missed dates further back than one period still belong on their day.
+      for (const date of missed) {
+        if (date >= monthStartIso && date <= monthEndIso && !list.some(e => e.title === bill.name && e.date === date)) {
+          list.push({ kind, title: bill.name, amount: bill.amount, date, missed: true });
+        }
+      }
+    }
+    for (const sub of detectedExpense) {
+      if (sub.nextExpectedDate >= monthStartIso && sub.nextExpectedDate <= monthEndIso && !alreadyPaid(sub.merchant, sub.nextExpectedDate)) {
         list.push({ kind: 'Subscription', title: sub.merchant, amount: sub.monthlyEquivalent, date: sub.nextExpectedDate });
       }
     }
-    for (const income of detectSubscriptions(data.transactions, 'Income')) {
-      if (income.nextExpectedDate >= monthStartIso && income.nextExpectedDate <= monthEndIso) {
+    for (const income of detectedIncome) {
+      if (income.nextExpectedDate >= monthStartIso && income.nextExpectedDate <= monthEndIso && !alreadyPaid(income.merchant, income.nextExpectedDate)) {
         list.push({ kind: 'Payday', title: income.merchant, amount: income.lastAmount, date: income.nextExpectedDate });
       }
     }
     return list;
-  }, [data.bills, data.transactions, year, month]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data.bills, data.transactions, detectedExpense, detectedIncome, year, month]);
 
   const eventsByDate = useMemo(() => {
     const map = new Map<string, CalEvent[]>();
@@ -94,24 +137,23 @@ export function FinanceCalendar() {
     const end = addDays(start, 60);
     const list: CalEvent[] = [];
     for (const bill of data.bills) {
-      for (const occ of billOccurrences(bill, start, end)) {
-        list.push({ kind: 'Bill', title: bill.name, amount: bill.amount, date: toIso(occ) });
-      }
+      const next = billOccurrences(bill, start, end).find(d => !isBillPaused(bill, toIso(d)));
+      if (next) list.push({ kind: bill.kind === 'Subscription' ? 'Subscription' : 'Bill', title: bill.name, amount: bill.amount, date: toIso(next) });
     }
     const startIso = toIso(start);
     const endIso = toIso(end);
-    for (const sub of detectSubscriptions(data.transactions, 'Expense')) {
+    for (const sub of detectedExpense) {
       if (sub.nextExpectedDate >= startIso && sub.nextExpectedDate <= endIso) {
         list.push({ kind: 'Subscription', title: sub.merchant, amount: sub.monthlyEquivalent, date: sub.nextExpectedDate });
       }
     }
-    for (const income of detectSubscriptions(data.transactions, 'Income')) {
+    for (const income of detectedIncome) {
       if (income.nextExpectedDate >= startIso && income.nextExpectedDate <= endIso) {
         list.push({ kind: 'Payday', title: income.merchant, amount: income.lastAmount, date: income.nextExpectedDate });
       }
     }
-    return list.sort((a, b) => a.date.localeCompare(b.date)).slice(0, 8);
-  }, [data.bills, data.transactions]);
+    return list.sort((a, b) => a.date.localeCompare(b.date)).slice(0, 10);
+  }, [data.bills, detectedExpense, detectedIncome]);
 
   const jumpToDate = (iso: string) => {
     const d = new Date(`${iso}T12:00:00`);
@@ -125,6 +167,8 @@ export function FinanceCalendar() {
         <span className="cal-legend-item"><i className="cal-dot kind-bill" />Bill</span>
         <span className="cal-legend-item"><i className="cal-dot kind-subscription" />Subscription renewal</span>
         <span className="cal-legend-item"><i className="cal-dot kind-payday" />Payday</span>
+        <span className="cal-legend-item cal-legend-paid">✓ paid</span>
+        <span className="cal-legend-item cal-legend-missed">⚠ no payment found</span>
       </div>
 
       <div className="cal-layout">
@@ -160,7 +204,7 @@ export function FinanceCalendar() {
                     {dayEvents.length > 0 && (
                       <div className="cal-cell-events">
                         {dayEvents.map((e, i) => (
-                          <span key={i} className={`cal-event-chip kind-${e.kind.toLowerCase()}`}>{e.title}</span>
+                          <span key={i} className={`cal-event-chip kind-${e.kind.toLowerCase()} ${e.paid ? 'paid' : ''} ${e.missed ? 'missed' : ''}`} title={`${e.title} · ${formatCurrency(e.amount)}${e.paid ? ' · paid' : e.missed ? ' · no payment found' : ''}`}>{e.paid ? '✓ ' : e.missed ? '⚠ ' : ''}{e.title}</span>
                         ))}
                       </div>
                     )}
@@ -179,7 +223,7 @@ export function FinanceCalendar() {
                 {selectedEvents.map((e, i) => (
                   <div className="cal-upcoming-row" key={i}>
                     <i className={`cal-dot kind-${e.kind.toLowerCase()}`} />
-                    <div className="cal-upcoming-text"><b>{e.title}</b><small>{e.kind} · {formatCurrency(e.amount)}</small></div>
+                    <div className="cal-upcoming-text"><b>{e.title}</b><small>{e.paid ? 'Paid' : e.missed ? 'No payment found' : e.kind} · {formatCurrency(e.amount)}</small></div>
                   </div>
                 ))}
               </div>
@@ -191,7 +235,7 @@ export function FinanceCalendar() {
               {upcomingEvents.map((e, i) => (
                 <div className="cal-upcoming-row" key={i} onClick={() => jumpToDate(e.date)}>
                   <i className={`cal-dot kind-${e.kind.toLowerCase()}`} />
-                  <div className="cal-upcoming-text"><b>{e.title}</b><small>{formatDate(e.date)} · {e.kind} · {formatCurrency(e.amount)}</small></div>
+                  <div className="cal-upcoming-text"><b>{e.title}</b><small>Next due {formatDate(e.date)} · {e.kind} · {formatCurrency(e.amount)}</small></div>
                 </div>
               ))}
             </div>

@@ -350,7 +350,12 @@ export function FinanceTransactions({ typeFilter, autoAdd, onAutoAdded }: {
   const visibleTransactions = sortedTransactions.slice(rowStart, rowEnd);
   const topSpacerHeight = rowStart * ROW_HEIGHT;
   const bottomSpacerHeight = (sortedTransactions.length - rowEnd) * ROW_HEIGHT;
-  const columnCount = isIncomeView ? 9 : 10;
+  // Columns that are empty across the whole list stay hidden until something needs them:
+  // To Account only matters once a Transfer is listed; Notes can be revealed with its toggle.
+  const [notesColumnOpen, setNotesColumnOpen] = useState(false);
+  const showToAccount = !isIncomeView && sortedTransactions.some(t => t.type === 'Transfer');
+  const showNotes = notesColumnOpen || sortedTransactions.some(t => t.notes?.trim());
+  const columnCount = 8 + (showToAccount ? 1 : 0) + (showNotes ? 1 : 0);
 
   // A new search (or re-sort) should show results from the top rather than leaving the view
   // wherever it happened to be scrolled to in the previous (differently filtered/ordered) list.
@@ -662,9 +667,9 @@ export function FinanceTransactions({ typeFilter, autoAdd, onAutoAdded }: {
             <col />
             <col />
             <col />
-            {!isIncomeView && <col />}
+            {showToAccount && <col />}
             <col />
-            <col />
+            {showNotes && <col />}
             <col />
           </colgroup>
           <thead>
@@ -716,15 +721,21 @@ export function FinanceTransactions({ typeFilter, autoAdd, onAutoAdded }: {
                   <Pencil size={11} />
                 </button>
               </th>
-              {!isIncomeView && <th title="Destination account for Transfer-type transactions">To Account</th>}
+              {showToAccount && <th title="Destination account for Transfer-type transactions">To Account</th>}
               <th>
                 <SortableThLabel label="Category" sortKey="category" state={sort} onSort={k => setSort(s => toggleSort(s, k))} />
                 <button type="button" className="col-edit-btn" onClick={() => setManager('category')} aria-label="Manage categories" title="Add or remove categories">
                   <Pencil size={11} />
                 </button>
               </th>
-              <th>Notes</th>
-              <th />
+              {showNotes && <th>Notes</th>}
+              <th>
+                {!showNotes && (
+                  <button type="button" className="col-edit-btn tx-notes-toggle" onClick={() => setNotesColumnOpen(true)} title="Show the Notes column" aria-label="Show the Notes column">
+                    <Plus size={11} /> Notes
+                  </button>
+                )}
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -762,7 +773,12 @@ export function FinanceTransactions({ typeFilter, autoAdd, onAutoAdded }: {
                     )}
                   </div>
                 </td>
-                <td className="grid-td-compact"><NumberCell value={t.amount} onChange={n => patch(t, { amount: n })} min={0} decimals={2} className="tx-amount-input" /></td>
+                <td className="grid-td-compact">
+                  <div className={`tx-amount-cell tx-kind-${String(t.type).toLowerCase()}`} title={t.type === 'Income' ? 'Money in' : t.type === 'Transfer' ? 'Moved between your accounts' : 'Money out'}>
+                    <span className="tx-currency">{t.type === 'Income' ? '+$' : t.type === 'Transfer' ? '⇄$' : '−$'}</span>
+                    <NumberCell value={t.amount} onChange={n => patch(t, { amount: n })} min={0} decimals={2} className="tx-amount-input" />
+                  </div>
+                </td>
                 <td>
                   {isIncomeView ? (
                     <span className="grid-static-cell">Income</span>
@@ -778,7 +794,7 @@ export function FinanceTransactions({ typeFilter, autoAdd, onAutoAdded }: {
                     {accountOptions.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
                   </select>
                 </td>
-                {!isIncomeView && (
+                {showToAccount && (
                   <td>
                     {t.type === 'Transfer' ? (
                       <select
@@ -798,7 +814,7 @@ export function FinanceTransactions({ typeFilter, autoAdd, onAutoAdded }: {
                     {relevantCategories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                   </select>
                 </td>
-                <td><NotesCell value={t.notes ?? ''} onChange={v => patch(t, { notes: v })} /></td>
+                {showNotes && <td><NotesCell value={t.notes ?? ''} onChange={v => patch(t, { notes: v })} /></td>}
                 <td><button type="button" className="icon-btn danger" onClick={() => deleteTransaction(t)} aria-label={`Delete ${t.merchant || noun}`}><Trash2 size={14} /></button></td>
               </tr>
             ))}

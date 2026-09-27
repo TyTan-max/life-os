@@ -1,5 +1,6 @@
-import { useState } from 'react';
-import { Bell, CheckCircle2, GripVertical, Pencil, Plus, Trash2 } from 'lucide-react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { AlertTriangle, Bell, GripVertical, Pause, Pencil, Play, Plus, Trash2 } from 'lucide-react';
 import { useStore, newRecord } from '../store';
 import { Kpi, formatCurrency, formatDate, MoneyInput } from '../components/UI';
 import { DatePicker } from '../components/DatePicker';
@@ -10,7 +11,9 @@ import { Sheet } from '../components/Sheet';
 import { useIsMobile } from '../hooks/useIsMobile';
 import { SortableTh, SortableThLabel, toggleGridSort } from '../components/SortableTh';
 import type { GridSortState } from '../components/SortableTh';
-import { advanceDueDate, billMonthlyEquivalent } from '../lib/budgetMath';
+import { billMonthlyEquivalent } from '../lib/budgetMath';
+import { isBillPaused } from '../lib/cashFlowForecast';
+import { missedPaymentDates } from '../lib/billPayments';
 import { classifyRecurringKind } from '../lib/classifyRecurring';
 import { isLoanAccount } from './FinanceAccounts';
 import type { AmountHistoryEntry, Bill, BillFrequency, FinanceAccount, FinanceCategory, RecurringKind } from '../types';
@@ -62,6 +65,61 @@ function UsageDots({ value, onChange }: { value: number; onChange: (n: number) =
   );
 }
 
+function addMonthsIso(months: number): string {
+  const d = new Date();
+  d.setMonth(d.getMonth() + months);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+// Pause options in one small menu, anchored to the ⏸ button or the "Paused" pill.
+function PauseMenu({ anchor, paused, pausedUntil, onPause, onResume, onClose }: {
+  anchor: DOMRect; paused: boolean; pausedUntil?: string;
+  onPause: (until?: string) => void; onResume: () => void; onClose: () => void;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState({ top: anchor.bottom + 6, left: anchor.left });
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const { width, height } = el.getBoundingClientRect();
+    setPos({
+      top: anchor.bottom + height + 8 > window.innerHeight ? Math.max(8, anchor.top - height - 6) : anchor.bottom + 6,
+      left: Math.max(8, Math.min(anchor.right - width, window.innerWidth - width - 8))
+    });
+  }, [anchor]);
+  useEffect(() => {
+    const onDown = (e: MouseEvent) => {
+      const t = e.target as HTMLElement;
+      if (ref.current?.contains(t) || t.closest?.('.date-picker-popover')) return;
+      onClose();
+    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('mousedown', onDown, true);
+    window.addEventListener('keydown', onKey);
+    return () => { window.removeEventListener('mousedown', onDown, true); window.removeEventListener('keydown', onKey); };
+  }, [onClose]);
+  const choose = (until?: string) => { onPause(until); onClose(); };
+  return createPortal(
+    <div ref={ref} className="pause-menu" role="menu" style={{ top: pos.top, left: pos.left }}>
+      <div className="pause-menu-heading">{paused ? 'Paused — change or resume' : 'Pause'}</div>
+      <button type="button" role="menuitem" className={paused && !pausedUntil ? 'on' : ''} onClick={() => choose(undefined)}>Until I resume it</button>
+      <button type="button" role="menuitem" onClick={() => choose(addMonthsIso(1))}>For 1 month</button>
+      <button type="button" role="menuitem" onClick={() => choose(addMonthsIso(3))}>For 3 months</button>
+      <div className="pause-menu-date">
+        <span>Until</span>
+        <DatePicker value={pausedUntil ?? ''} onChange={v => { if (v) choose(v); }} placeholder="pick a date…" />
+      </div>
+      {paused && (
+        <>
+          <div className="pause-menu-sep" />
+          <button type="button" role="menuitem" className="pause-menu-resume" onClick={() => { onResume(); onClose(); }}><Play size={12} /> Resume now</button>
+        </>
+      )}
+    </div>,
+    document.body
+  );
+}
+
 export function FinanceRecurringGrid({ kind }: { kind: RecurringKind }) {
   const { data, upsert, remove } = useStore();
   const isMobile = useIsMobile();
@@ -77,8 +135,18 @@ export function FinanceRecurringGrid({ kind }: { kind: RecurringKind }) {
   weekAhead.setDate(weekAhead.getDate() + 7);
   const weekAheadIso = localIso(weekAhead);
 
-  const monthlyTotal = items.reduce((s, b) => s + billMonthlyEquivalent(b), 0);
-  const dueThisWeek = items.filter(b => b.nextDue >= today && b.nextDue <= weekAheadIso);
+  // Paused items stay listed (greyed, with Resume) but don't count toward any total.
+  const pausedNow = (b: Bill) => isBillPaused(b, today);
+  const activeItems = items.filter(b => !pausedNow(b));
+  const pausedCount = items.length - activeItems.length;
+  const monthlyTotal = activeItems.reduce((s, b) => s + billMonthlyEquivalent(b), 0);
+  const dueThisWeek = activeItems.filter(b => b.nextDue >= today && b.nextDue <= weekAheadIso);
+  const pause = (b: Bill, until?: string) => patch(b, { paused: true, pausedUntil: until });
+  const [pauseMenu, setPauseMenu] = useState<{ id: string; anchor: DOMRect } | null>(null);
+  const openPauseMenu = (b: Bill, el: HTMLElement) => setPauseMenu({ id: b.id, anchor: el.getBoundingClientRect() });
+  const pauseMenuBill = pauseMenu ? items.find(i => i.id === pauseMenu.id) : undefined;
+  const resume = (b: Bill) => patch(b, { paused: false, pausedUntil: undefined });
+  const pausedLabel = (b: Bill) => (b.pausedUntil ? `Paused until ${formatDate(b.pausedUntil)}` : 'Paused');
   const autopayCount = items.filter(b => b.autopay).length;
 
   const categoryOptions = categories.filter(c => c.kind === 'expense').sort((a, b) => (a.order ?? 9999) - (b.order ?? 9999));
@@ -155,9 +223,19 @@ export function FinanceRecurringGrid({ kind }: { kind: RecurringKind }) {
 
   // Advances nextDue to the next cycle instead of leaving it stuck on the date that was just
   // paid — a "Once" item has no next occurrence, so this is a no-op for those.
-  const markPaid = (b: Bill) => {
-    if ((b.frequency ?? 'Monthly') === 'Once') return;
-    patch(b, { nextDue: advanceDueDate(b.nextDue, b.frequency ?? 'Monthly') });
+  // Due dates with no matching imported charge — see lib/billPayments.ts.
+  const missedFor = (b: Bill) => missedPaymentDates(b, data.transactions);
+  const confirmPaid = (b: Bill, dates: string[]) => patch(b, { paidOverrides: [...(b.paidOverrides ?? []), ...dates] });
+  const missedNote = (b: Bill) => {
+    const missed = missedFor(b);
+    if (!missed.length) return null;
+    return (
+      <div className="recur-missed">
+        <AlertTriangle size={11} />
+        <span>No payment found for {missed.slice(0, 2).map(d => formatDate(d)).join(', ')}{missed.length > 2 ? ` +${missed.length - 2}` : ''}</span>
+        <button type="button" className="text-btn" onClick={() => confirmPaid(b, missed)} title="Mark these dates as paid (e.g. paid another way)">It was paid</button>
+      </div>
+    );
   };
 
   const checkClassification = (b: Bill) => {
@@ -193,7 +271,7 @@ export function FinanceRecurringGrid({ kind }: { kind: RecurringKind }) {
     return (
       <>
         <div className="kpi-grid three">
-          <Kpi label={kind === 'Bill' ? 'Monthly Bills' : 'Monthly Subscriptions'} value={formatCurrency(monthlyTotal)} caption={`${items.length} tracked`} tone="default" />
+          <Kpi label={kind === 'Bill' ? 'Monthly Bills' : 'Monthly Subscriptions'} value={formatCurrency(monthlyTotal)} caption={`${activeItems.length} active${pausedCount ? ` · ${pausedCount} paused` : ''}`} tone="default" />
           <Kpi label="Due This Week" value={dueThisWeek.length} caption={dueThisWeek.map(b => b.name).join(', ') || 'nothing due soon'} tone={dueThisWeek.length ? 'amber' : 'green'} />
           <Kpi label="On Autopay" value={autopayCount} caption={`of ${items.length}`} tone="blue" />
         </div>
@@ -201,7 +279,7 @@ export function FinanceRecurringGrid({ kind }: { kind: RecurringKind }) {
         <MobileRecordList
           items={sortedItems}
           primary={b => b.name || (kind === 'Bill' ? 'Untitled bill' : 'Untitled subscription')}
-          secondary={b => `${formatDate(b.nextDue)} · ${b.frequency ?? 'Monthly'}`}
+          secondary={b => pausedNow(b) ? pausedLabel(b) : missedFor(b).length ? `⚠ No payment found for ${formatDate(missedFor(b)[0])}` : `${formatDate(b.nextDue)} · ${b.frequency ?? 'Monthly'}`}
           trailing={b => formatCurrency(b.amount)}
           fields={[
             { label: 'Account', value: b => accountName(b.accountId) || '—' },
@@ -230,11 +308,7 @@ export function FinanceRecurringGrid({ kind }: { kind: RecurringKind }) {
                 <span>Next due</span>
                 <DatePicker value={editing.nextDue} onChange={v => patch(editing, { nextDue: v })} />
               </label>
-              {(editing.frequency ?? 'Monthly') !== 'Once' && (
-                <button type="button" className="btn ghost small" onClick={() => markPaid(editing)}>
-                  <CheckCircle2 size={14} /> Mark paid — advances to {formatDate(advanceDueDate(editing.nextDue, editing.frequency ?? 'Monthly'))}
-                </button>
-              )}
+              {missedNote(editing)}
               <label><span>Started</span><DatePicker value={editing.startDate ?? ''} onChange={v => patch(editing, { startDate: v })} placeholder="When this started…" allowClear /></label>
               <label>
                 <span>Frequency</span>
@@ -260,6 +334,13 @@ export function FinanceRecurringGrid({ kind }: { kind: RecurringKind }) {
                 <input type="checkbox" checked={Boolean(editing.autopay)} onChange={e => patch(editing, { autopay: e.target.checked })} />
                 <span>Autopay</span>
               </label>
+              <label className="sheet-checkbox-row">
+                <input type="checkbox" checked={pausedNow(editing)} onChange={e => (e.target.checked ? pause(editing) : resume(editing))} />
+                <span>Paused — not counted until resumed</span>
+              </label>
+              {pausedNow(editing) && (
+                <label><span>Resume on</span><DatePicker value={editing.pausedUntil ?? ''} onChange={v => patch(editing, { pausedUntil: v || undefined })} placeholder="Until I resume it" allowClear /></label>
+              )}
               {kind === 'Subscription' && (
                 <>
                   <label>
@@ -286,7 +367,7 @@ export function FinanceRecurringGrid({ kind }: { kind: RecurringKind }) {
   return (
     <>
       <div className="kpi-grid three">
-        <Kpi label={kind === 'Bill' ? 'Monthly Bills' : 'Monthly Subscriptions'} value={formatCurrency(monthlyTotal)} caption={`${items.length} tracked`} tone="default" />
+        <Kpi label={kind === 'Bill' ? 'Monthly Bills' : 'Monthly Subscriptions'} value={formatCurrency(monthlyTotal)} caption={`${activeItems.length} active${pausedCount ? ` · ${pausedCount} paused` : ''}`} tone="default" />
         <Kpi label="Due This Week" value={dueThisWeek.length} caption={dueThisWeek.map(b => b.name).join(', ') || 'nothing due soon'} tone={dueThisWeek.length ? 'amber' : 'green'} />
         <Kpi label="On Autopay" value={autopayCount} caption={`of ${items.length}`} tone="blue" />
       </div>
@@ -327,7 +408,7 @@ export function FinanceRecurringGrid({ kind }: { kind: RecurringKind }) {
             {sortedItems.map(b => (
               <tr
                 key={b.id}
-                className={dragId === b.id ? 'dragging' : ''}
+                className={`${dragId === b.id ? 'dragging' : ''} ${pausedNow(b) ? 'recur-paused' : ''}`}
                 onDragOver={e => e.preventDefault()}
                 onDrop={() => handleDrop(b.id)}
               >
@@ -375,8 +456,13 @@ export function FinanceRecurringGrid({ kind }: { kind: RecurringKind }) {
                 </td>
                 <td className="grid-td-compact"><NumberCell value={b.amount} onChange={n => patch(b, { amount: n })} min={0} decimals={2} /></td>
                 <td>
-                  <DatePicker value={b.nextDue} onChange={v => patch(b, { nextDue: v })} />
-                  {(() => {
+                  {pausedNow(b) ? (
+                    <button type="button" className="recur-paused-pill" onClick={e => openPauseMenu(b, e.currentTarget)} title="Change the pause or resume">
+                      <Pause size={11} /> {b.pausedUntil ? `Until ${formatDate(b.pausedUntil)}` : 'Paused'}
+                    </button>
+                  ) : <DatePicker value={b.nextDue} onChange={v => patch(b, { nextDue: v })} />}
+                  {!pausedNow(b) && missedNote(b)}
+                  {!pausedNow(b) && !missedFor(b).length && (() => {
                     const info = dueSoonInfo(b.nextDue, today);
                     if (!info) return null;
                     return (
@@ -423,17 +509,15 @@ export function FinanceRecurringGrid({ kind }: { kind: RecurringKind }) {
                 <td><NotesCell value={b.notes ?? ''} onChange={v => patch(b, { notes: v })} /></td>
                 <td>
                   <div className="grid-row-actions">
-                    {(b.frequency ?? 'Monthly') !== 'Once' && (
-                      <button
-                        type="button"
-                        className="icon-btn"
-                        onClick={() => markPaid(b)}
-                        aria-label={`Mark ${b.name || 'item'} paid`}
-                        title={`Mark paid — advances Next Due to ${formatDate(advanceDueDate(b.nextDue, b.frequency ?? 'Monthly'))}`}
-                      >
-                        <CheckCircle2 size={14} />
-                      </button>
-                    )}
+                    <button
+                      type="button"
+                      className={`icon-btn ${pausedNow(b) ? 'recur-resume-btn' : ''}`}
+                      onClick={e => (pausedNow(b) ? resume(b) : openPauseMenu(b, e.currentTarget))}
+                      aria-label={`${pausedNow(b) ? 'Resume' : 'Pause'} ${b.name || 'item'}`}
+                      title={pausedNow(b) ? 'Resume — counts again from now' : 'Pause…'}
+                    >
+                      {pausedNow(b) ? <Play size={14} /> : <Pause size={14} />}
+                    </button>
                     <button type="button" className="icon-btn danger" onClick={() => void remove('bills', b.id)} aria-label={`Delete ${b.name || 'item'}`}><Trash2 size={14} /></button>
                   </div>
                 </td>
@@ -448,6 +532,17 @@ export function FinanceRecurringGrid({ kind }: { kind: RecurringKind }) {
         )}
       </div>
       <button type="button" className="btn teal grid-add-row" onClick={addItem}><Plus size={16} /> Add {kind === 'Bill' ? 'bill' : 'subscription'}</button>
+
+      {pauseMenu && pauseMenuBill && (
+        <PauseMenu
+          anchor={pauseMenu.anchor}
+          paused={pausedNow(pauseMenuBill)}
+          pausedUntil={pauseMenuBill.pausedUntil}
+          onPause={until => pause(pauseMenuBill, until)}
+          onResume={() => resume(pauseMenuBill)}
+          onClose={() => setPauseMenu(null)}
+        />
+      )}
 
       {manager === 'account' && (
         <ListManagerModal

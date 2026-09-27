@@ -69,7 +69,8 @@ export function Finance() {
 
   return (
     <>
-      <div className="filter-row">
+      <div className="page-header finance-header">
+        <div><h1>Finance</h1><p>Budgets, accounts and what's coming due.</p></div>
         <div className="segmented">
           {TABS.map(t => (
             <button type="button" key={t} className={tab === t ? 'on' : ''} onClick={() => setTab(t)}>{t}</button>

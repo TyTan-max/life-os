@@ -5,16 +5,18 @@ import { FinanceSubscriptions } from './FinanceSubscriptions';
 import { FinanceDebtGrid } from './FinanceAccounts';
 import { FinanceSavingsGrid } from './FinanceGoals';
 
-type LedgerTab = 'Transactions' | 'Bills' | 'Subscriptions' | 'Income' | 'Debt' | 'Savings';
+export type LedgerTab = 'Transactions' | 'Bills' | 'Subscriptions' | 'Income' | 'Debt' | 'Savings';
 
 const TABS: LedgerTab[] = ['Transactions', 'Bills', 'Subscriptions', 'Income', 'Debt', 'Savings'];
 
-export function FinanceLedger() {
-  const [tab, setTab] = useState<LedgerTab>('Transactions');
+export function FinanceLedger({ tab: controlledTab, onTabChange }: { tab?: LedgerTab; onTabChange?: (tab: LedgerTab) => void } = {}) {
+  const [ownTab, setOwnTab] = useState<LedgerTab>('Transactions');
+  const tab = controlledTab ?? ownTab;
+  const setTab = onTabChange ?? setOwnTab;
 
   return (
     <>
-      <div className="filter-row">
+      <div className="filter-row" id="finance-ledger">
         <div className="segmented">
           {TABS.map(t => (
             <button type="button" key={t} className={tab === t ? 'on' : ''} onClick={() => setTab(t)}>{t}</button>

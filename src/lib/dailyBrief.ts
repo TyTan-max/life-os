@@ -2,6 +2,7 @@ import type { AppData, DailyLog, Habit } from '../types';
 import { actualSpendByCategory } from './budgetMath';
 import { getEffectiveRoutineFilter, loadSavedRoutineFilter, matchesRoutineFilter, sortRoutines } from './habitRoutines';
 import { formatCurrency } from '../components/UI';
+import { isBillPaused } from './cashFlowForecast';
 
 function netOf(l: Pick<DailyLog, 'dailyPL' | 'dailyFees'>): number {
   return l.dailyPL; // fees are display-only
@@ -41,7 +42,7 @@ export function computeDailyBrief(data: AppData, today: string = localIso()): st
   const in7 = new Date();
   in7.setDate(in7.getDate() + 7);
   const in7Iso = localIso(in7);
-  const upcomingBills = data.bills.filter(b => (b.kind ?? 'Bill') === 'Bill' && b.nextDue >= today && b.nextDue <= in7Iso);
+  const upcomingBills = data.bills.filter(b => (b.kind ?? 'Bill') === 'Bill' && b.nextDue >= today && b.nextDue <= in7Iso && !isBillPaused(b, b.nextDue));
   const upcomingBillsTotal = upcomingBills.reduce((s, b) => s + b.amount, 0);
 
   const backlogNeedsReview =

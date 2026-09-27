@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import {
@@ -110,6 +110,12 @@ interface CollectionPageProps<T extends CollectionRecord> {
   // Nav page this collection is the whole of (e.g. 'Movies'). When set, the mobile center FAB
   // becomes this page's Add, and the header's own Add button steps aside for it.
   fabPage?: string;
+  // List view only: section the rows under headings (in `groupOrder`, unlisted groups last),
+  // each with an optional subtotal, and show a prominent value at the right of every row.
+  groupBy?: (record: T) => string;
+  groupOrder?: string[];
+  groupTotal?: (records: T[]) => ReactNode;
+  trailing?: (record: T) => ReactNode;
   // Field the Oldest/Newest sort button uses instead of createdAt (when set) — e.g. a game's
   // actual release date rather than when it was added to your list. Records missing a value
   // for this field always sort to the end, regardless of direction.
@@ -748,7 +754,8 @@ function GenreDropdown({
 }
 
 export function CollectionPage<T extends CollectionRecord>({
-  collection, title, subtitle, itemLabel, fields, defaults, renderTitle, renderSubtitle, sortBy, gallery, statusFilter, genreFilter, autofill, leading, table, embedded, onFieldChange, needsReviewKey, headerExtra, fabPage, dateSortKey, dateSortLabel, numberSortKey, numberSortLabel
+  collection, title, subtitle, itemLabel, fields, defaults, renderTitle, renderSubtitle, sortBy, gallery, statusFilter, genreFilter, autofill, leading, table, embedded, onFieldChange, needsReviewKey, headerExtra, fabPage, dateSortKey, dateSortLabel, numberSortKey, numberSortLabel,
+  groupBy, groupOrder, groupTotal, trailing
 }: CollectionPageProps<T>) {
   const { data, upsert: rawUpsert, remove } = useStore();
   const isMobile = useIsMobile();
@@ -1370,21 +1377,40 @@ export function CollectionPage<T extends CollectionRecord>({
         </table>
       </div>
     ) : (
-      <div className="record-list">
-        {orderedRecords.map(record => (
-          <div className="record-row" key={record.id} onContextMenu={e => openMenu(e, recordMenu(record))}>
-            <div className={leading ? 'record-row-main' : ''} onClick={() => startEdit(record)}>
-              {leading && <span className="record-row-leading">{leading(record)}</span>}
-              <span>
-                <b>{renderTitle(record)}</b>
-                {renderSubtitle && <small>{renderSubtitle(record)}</small>}
-              </span>
-            </div>
-            <div className="record-actions">
-              <button className="icon-btn" onClick={() => startEdit(record)} aria-label="Edit"><Pencil size={15} /></button>
-              <button className="icon-btn danger" onClick={() => void remove(collection, record.id)} aria-label="Delete"><Trash2 size={15} /></button>
-            </div>
-          </div>
+      <div className={`record-list ${groupBy ? 'record-list-grouped' : ''}`}>
+        {(groupBy
+          ? (() => {
+              const groups = new Map<string, T[]>();
+              for (const r of orderedRecords) { const g = groupBy(r); groups.set(g, [...(groups.get(g) ?? []), r]); }
+              const order = groupOrder ?? [];
+              return [...groups.entries()].sort(([a], [b]) => (order.indexOf(a) + 1 || 999) - (order.indexOf(b) + 1 || 999));
+            })()
+          : [['', orderedRecords] as [string, T[]]]
+        ).map(([group, records]) => (
+          <Fragment key={group || '__all'}>
+            {group && (
+              <div className="record-group-head">
+                <span>{group}</span>
+                {groupTotal && <b>{groupTotal(records)}</b>}
+              </div>
+            )}
+            {records.map(record => (
+              <div className="record-row" key={record.id} onContextMenu={e => openMenu(e, recordMenu(record))}>
+                <div className={leading ? 'record-row-main' : ''} onClick={() => startEdit(record)}>
+                  {leading && <span className="record-row-leading">{leading(record)}</span>}
+                  <span>
+                    <b>{renderTitle(record)}</b>
+                    {renderSubtitle && <small>{renderSubtitle(record)}</small>}
+                  </span>
+                </div>
+                {trailing && <div className="record-row-trailing" onClick={() => startEdit(record)}>{trailing(record)}</div>}
+                <div className="record-actions">
+                  <button className="icon-btn" onClick={() => startEdit(record)} aria-label="Edit"><Pencil size={15} /></button>
+                  <button className="icon-btn danger" onClick={() => void remove(collection, record.id)} aria-label="Delete"><Trash2 size={15} /></button>
+                </div>
+              </div>
+            ))}
+          </Fragment>
         ))}
       </div>
     )

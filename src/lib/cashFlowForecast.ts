@@ -72,6 +72,43 @@ export function billOccurrences(bill: Bill, rangeStart: Date, rangeEnd: Date): D
   return occurrences;
 }
 
+// A bill's `nextDue` only ever moves forward, so a due date earlier in the range that hasn't
+// been paid/imported yet would be missed by billOccurrences alone — step back one period too.
+export function previousDue(bill: Bill): Date | null {
+  if (bill.frequency === 'Once') return null;
+  const d = new Date(`${bill.nextDue}T12:00:00`);
+  if (Number.isNaN(d.getTime())) return null;
+  if (bill.frequency === 'Weekly') d.setDate(d.getDate() - 7);
+  else if (bill.frequency === 'Biweekly') d.setDate(d.getDate() - 14);
+  else if (bill.frequency === 'Quarterly') d.setMonth(d.getMonth() - 3);
+  else if (bill.frequency === 'Semiannual') d.setMonth(d.getMonth() - 6);
+  else if (bill.frequency === 'Yearly') d.setFullYear(d.getFullYear() - 1);
+  else d.setMonth(d.getMonth() - 1);
+  return d;
+}
+
+function isoOf(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+// Paused on this date? A pause with a resume date ends on that date by itself.
+export function isBillPaused(bill: Bill, onIso: string): boolean {
+  return Boolean(bill.paused) && (!bill.pausedUntil || onIso < bill.pausedUntil);
+}
+
+// Due dates in the range that actually count — skips any that fall while the bill is paused.
+export function billActiveDueDates(bill: Bill, rangeStart: Date, rangeEnd: Date): Date[] {
+  return billDueDates(bill, rangeStart, rangeEnd).filter(d => !isBillPaused(bill, isoOf(d)));
+}
+
+// Every date this bill is due within the range — the forward schedule plus the one before nextDue.
+export function billDueDates(bill: Bill, rangeStart: Date, rangeEnd: Date): Date[] {
+  const dates = billOccurrences(bill, rangeStart, rangeEnd);
+  const prev = previousDue(bill);
+  if (prev && prev >= rangeStart && prev <= rangeEnd) dates.unshift(prev);
+  return dates;
+}
+
 export function buildForecast(
   accounts: FinanceAccount[], bills: Bill[], transactions: Transaction[], weeksAhead = 8
 ): ForecastResult {
@@ -85,7 +122,7 @@ export function buildForecast(
   const events: { date: Date; label: string; amount: number }[] = [];
 
   for (const bill of bills) {
-    for (const occ of billOccurrences(bill, today, rangeEnd)) {
+    for (const occ of billOccurrences(bill, today, rangeEnd).filter(d => !isBillPaused(bill, isoOf(d)))) {
       events.push({ date: occ, label: bill.name, amount: -bill.amount });
     }
   }

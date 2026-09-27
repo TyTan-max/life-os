@@ -1,5 +1,5 @@
 import { Fragment, useMemo, useState } from 'react';
-import { ChevronDown, ChevronLeft, ChevronRight, DollarSign, GripVertical, Lock, LockOpen, Pencil, Wand2, X } from 'lucide-react';
+import { ArrowRight, ChevronDown, ChevronLeft, ChevronRight, DollarSign, GripVertical, Lock, LockOpen, Pencil, Wand2, X } from 'lucide-react';
 import { useStore, newRecord } from '../store';
 import { Card, Kpi, formatCurrency, formatDate, Modal } from '../components/UI';
 import { NumberCell } from '../components/GridCells';
@@ -8,10 +8,12 @@ import type { SortState } from '../components/SortableTh';
 import { MonthYearPicker } from '../components/MonthYearPicker';
 import { isLiabilityAccount } from './FinanceAccounts';
 import { FinanceLedger } from './FinanceLedger';
+import type { LedgerTab } from './FinanceLedger';
 import {
   actualSpendByCategory, billMonthlyEquivalent, formatMonthLabel, monthKey, monthlyIncome,
   rolloverAmount, shiftMonth, suggest502030
 } from '../lib/budgetMath';
+import { billActiveDueDates, isBillPaused } from '../lib/cashFlowForecast';
 import type { Bill, Budget, BudgetGroup, FinanceCategory, FinanceGoal } from '../types';
 
 type BudgetViewMode = 'month' | 'year';
@@ -234,8 +236,6 @@ export function FinanceBudgets({ hideLedger = false }: { hideLedger?: boolean } 
   const budgetedRowCount = rows.filter(r => r.budget != null).length;
   const totalActual = rows.reduce((s, r) => s + r.spent, 0);
   const remaining = totalPlanned - totalActual;
-  const savings = income - totalActual;
-  const savingsRate = income > 0 ? Math.round((savings / income) * 100) : 0;
 
   const [trendRange, setTrendRange] = useState<6 | 12>(6);
   const cashFlowTrend = useMemo(() => {
@@ -326,10 +326,26 @@ export function FinanceBudgets({ hideLedger = false }: { hideLedger?: boolean } 
     return list;
   }, [debtAccountsBase, debtSort]);
 
-  const incomeSaved = useMemo(() => transactions
-    .filter(t => t.type === 'Transfer' && t.date.startsWith(period))
+  // Money moved out to investment, retirement or the linked trading account this period — not
+  // spending, but no longer available either, so "left over" subtracts it.
+  const investingAccountIds = useMemo(
+    () => new Set(data.financeAccounts.filter(a => a.type === 'Investment' || a.type === 'Retirement' || a.linkedTo).map(a => a.id)),
+    [data.financeAccounts]
+  );
+  const movedToInvesting = useMemo(() => transactions
+    .filter(t => t.type === 'Transfer' && t.date.startsWith(period) && t.transferAccountId && investingAccountIds.has(t.transferAccountId))
     .reduce((s, t) => s + t.amount, 0),
-  [transactions, period]);
+  [transactions, period, investingAccountIds]);
+
+  // The Budgets page's ledger tabs, opened from the summary cards' "Open →" links.
+  const [ledgerTab, setLedgerTab] = useState<LedgerTab>('Transactions');
+  const openLedger = (tab: LedgerTab) => {
+    setLedgerTab(tab);
+    requestAnimationFrame(() => document.getElementById('finance-ledger')?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+  };
+  const ledgerLink = (tab: LedgerTab) => hideLedger ? null : (
+    <button type="button" className="text-btn" onClick={() => openLedger(tab)}>Open <ArrowRight size={14} /></button>
+  );
 
   const upcomingBillsBase = useMemo(
     () => data.bills.filter(b => (b.kind ?? 'Bill') === 'Bill').sort((a, b) => a.nextDue.localeCompare(b.nextDue)).slice(0, 8),
@@ -339,9 +355,10 @@ export function FinanceBudgets({ hideLedger = false }: { hideLedger?: boolean } 
     () => data.bills.filter(b => b.kind === 'Subscription').sort((a, b) => a.nextDue.localeCompare(b.nextDue)).slice(0, 8),
     [data.bills]
   );
-  const billsOnlyTotal = upcomingBillsBase.reduce((s, b) => s + b.amount, 0);
-  const subscriptionsTotal = upcomingSubscriptionsBase.reduce((s, b) => s + b.amount, 0);
-  const billsSummaryTotal = billsOnlyTotal + subscriptionsTotal;
+  const todayIso = new Date().toLocaleDateString('en-CA');
+  const pausedNow = (b: Bill) => isBillPaused(b, todayIso);
+  const billsOnlyTotal = upcomingBillsBase.filter(b => !pausedNow(b)).reduce((s, b) => s + b.amount, 0);
+  const subscriptionsTotal = upcomingSubscriptionsBase.filter(b => !pausedNow(b)).reduce((s, b) => s + b.amount, 0);
 
   const monthExpenseTransactions = useMemo(
     () => transactions.filter(t => t.type === 'Expense' && t.date.startsWith(month)),
@@ -349,27 +366,27 @@ export function FinanceBudgets({ hideLedger = false }: { hideLedger?: boolean } 
   );
   const normalizeBillName = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
 
-  // A bill/subscription whose name and amount already match an actual Expense transaction this
-  // month (e.g. the Netflix charge itself got imported as "NETFLIX.COM" for $15.99) is already
-  // counted once via Expenses — counting its forecast amount here too would subtract it twice from
-  // Total Cash Left Over. Matched by name + amount (not just shared category) so two bills sharing a
-  // category — e.g. Netflix and Hulu both under "Subscriptions" — aren't both excluded just because
-  // one of them actually posted. Only used for the Cash Flow Summary's own math; the Bills and
-  // Subscriptions worksheet cards below still show every tracked item at its full amount.
-  const isCoveredByActualSpend = (b: Bill) => {
+  // Month view: only bills/subscriptions actually due in the month being viewed (same due-date
+  // logic as the Finance calendar), each time it's due, minus charges already posted this month.
+  // A quarterly or yearly subscription only counts in the month it actually charges.
+  const monthRangeStart = new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)) - 1, 1, 0, 0, 0);
+  const monthRangeEnd = new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0, 23, 59, 59);
+  const paidChargesFor = (b: Bill) => {
     const billName = normalizeBillName(b.name);
-    if (!billName) return false;
-    return monthExpenseTransactions.some(t => {
+    if (!billName) return 0;
+    const tolerance = Math.max(3, b.amount * 0.15);
+    return monthExpenseTransactions.filter(t => {
       const merchantName = normalizeBillName(t.merchant);
-      if (!merchantName) return false;
-      const namesMatch = merchantName.includes(billName) || billName.includes(merchantName);
-      if (!namesMatch) return false;
-      const tolerance = Math.max(3, b.amount * 0.15);
-      return Math.abs(t.amount - b.amount) <= tolerance;
-    });
+      return merchantName && (merchantName.includes(billName) || billName.includes(merchantName)) && Math.abs(t.amount - b.amount) <= tolerance;
+    }).length;
   };
-  const billsExcludedFromCashFlow = [...upcomingBillsBase, ...upcomingSubscriptionsBase].filter(isCoveredByActualSpend);
-  const billsSummaryTotalForCashFlow = billsSummaryTotal - billsExcludedFromCashFlow.reduce((s, b) => s + b.amount, 0);
+  const dueThisMonth = data.bills.map(b => {
+    const due = billActiveDueDates(b, monthRangeStart, monthRangeEnd).length;
+    const paid = Math.min(due, paidChargesFor(b));
+    return { bill: b, due, paid, stillToPay: due - paid };
+  }).filter(x => x.due > 0);
+  const billsExcludedFromCashFlow = dueThisMonth.filter(x => x.paid > 0).map(x => x.bill);
+  const billsSummaryTotalForCashFlow = dueThisMonth.reduce((s, x) => s + x.bill.amount * x.stillToPay, 0);
 
   // Year view's Cash Flow Summary can't reuse the month math above as-is: "next 8 upcoming" and
   // the already-posted-as-a-transaction exclusion are both month-scoped ideas that don't translate
@@ -377,11 +394,11 @@ export function FinanceBudgets({ hideLedger = false }: { hideLedger?: boolean } 
   // equivalent is annualized (×12) — a forecast, not a literal sum of the year's transactions, and
   // without the double-count guard the month view has.
   const annualBillsOnlyTotal = useMemo(
-    () => data.bills.filter(b => (b.kind ?? 'Bill') === 'Bill').reduce((s, b) => s + billMonthlyEquivalent(b) * 12, 0),
+    () => data.bills.filter(b => (b.kind ?? 'Bill') === 'Bill' && !(b.paused && !b.pausedUntil)).reduce((s, b) => s + billMonthlyEquivalent(b) * 12, 0),
     [data.bills]
   );
   const annualSubscriptionsTotal = useMemo(
-    () => data.bills.filter(b => b.kind === 'Subscription').reduce((s, b) => s + billMonthlyEquivalent(b) * 12, 0),
+    () => data.bills.filter(b => b.kind === 'Subscription' && !(b.paused && !b.pausedUntil)).reduce((s, b) => s + billMonthlyEquivalent(b) * 12, 0),
     [data.bills]
   );
   const annualBillsTotal = annualBillsOnlyTotal + annualSubscriptionsTotal;
@@ -416,7 +433,7 @@ export function FinanceBudgets({ hideLedger = false }: { hideLedger?: boolean } 
   // Income Summary → Income, Bills Summary → Bills, Expenses Summary → Expenses,
   // Debt Payments → Debts, Savings → Savings (required monthly contribution across goals). In year
   // view Bills/Debts/Savings are all ×12 annualized forecasts rather than literal period sums.
-  const totalCashLeftOver = income - cashFlowBillsTotal - totalActual - cashFlowDebtsTotal - cashFlowSavingsTotal;
+  const totalCashLeftOver = income - cashFlowBillsTotal - totalActual - cashFlowDebtsTotal - cashFlowSavingsTotal - movedToInvesting;
 
   // Waterfall only maps Expenses (never mixed with Income/Bills/Debts/Savings) so its total
   // bar always matches what it visually represents — top categories by spend, rest bucketed.
@@ -566,13 +583,13 @@ export function FinanceBudgets({ hideLedger = false }: { hideLedger?: boolean } 
           <button type="button" className={viewMode === 'year' ? 'on' : ''} onClick={() => setViewMode('year')}>Year</button>
         </div>
         {viewMode === 'month' && (
-          <button type="button" className="btn ghost small" onClick={() => void apply502030()} disabled={income <= 0} title={income <= 0 ? 'No income recorded this month yet' : 'Distribute 50% of income across Needs, 30% across Wants'}>
-            <Wand2 size={14} /> Apply 50/30/20
+          <button type="button" className="btn ghost small" onClick={() => void apply502030()} disabled={income <= 0} title={income <= 0 ? 'No income recorded this month yet' : 'Sets this month\'s category budgets: 50% of income across Needs, 30% across Wants, 20% left for savings. Locked categories are skipped.'}>
+            <Wand2 size={14} /> Auto-budget 50/30/20
           </button>
         )}
       </div>
 
-      <div className="kpi-grid four">
+      <div className="kpi-grid four calm-kpis">
         <Kpi
           label={viewMode === 'year' ? 'Yearly Income' : 'Monthly Income'}
           value={formatCurrency(income)}
@@ -581,32 +598,17 @@ export function FinanceBudgets({ hideLedger = false }: { hideLedger?: boolean } 
         />
         <Kpi label="Planned" value={formatCurrency(totalPlanned)} caption={`${budgetedRowCount} categor${budgetedRowCount === 1 ? 'y' : 'ies'} budgeted`} tone="default" />
         <Kpi label="Actual Spent" value={formatCurrency(totalActual)} caption={income > 0 ? `${Math.round((totalActual / income) * 100)}% of income` : undefined} tone={totalActual > totalPlanned ? 'red' : 'green'} />
-        <Kpi label="Remaining" value={formatCurrency(remaining)} caption={`savings rate ${savingsRate}%`} tone={remaining < 0 ? 'red' : 'green'} />
+        <Kpi label="Budget left" value={formatCurrency(remaining)} caption={`of ${formatCurrency(totalPlanned)} planned`} tone={remaining < 0 ? 'red' : 'green'} />
       </div>
 
       <div className="budget-dashboard-grid">
         <div className="budget-dashboard-col-narrow">
-          <Card className="budget-overview-card">
-            <div className="card-title"><div><h2>Budget Overview</h2></div></div>
-            <p className="muted mini-table-hint">Income minus category spending only — bills, debts, and savings goals aren't subtracted here.</p>
-            <div className="mini-table-wrap">
-              <table className="mini-table">
-                <tbody>
-                  <tr><td>Income Received</td><td>{formatCurrency(income)}</td></tr>
-                  <tr><td>Actual Expenses</td><td>{formatCurrency(totalActual)}</td></tr>
-                  <tr><td>Income Saved</td><td>{formatCurrency(incomeSaved)}</td></tr>
-                  <tr className={`mini-table-highlight ${savings < 0 ? 'mini-table-highlight-negative' : ''}`}><td>Remaining Income</td><td><b className={savings >= 0 ? 'positive' : 'negative'}>{formatCurrency(savings)}</b></td></tr>
-                </tbody>
-              </table>
-            </div>
-          </Card>
-
           <Card className="budget-cashflow-table-card">
-            <div className="card-title"><div><h2>Cash Flow Summary</h2></div></div>
+            <div className="card-title"><div><h2>{viewMode === 'year' ? 'Left over this year' : 'Left over this month'}</h2></div></div>
             <p className="muted mini-table-hint">
               {viewMode === 'year'
-                ? "What's left after income also covers bills, debts, and every savings goal's required contribution across the whole year."
-                : "What's left after income also covers bills, debts, and every savings goal's required monthly contribution."}
+                ? "Income minus spending, bills & subscriptions, debt payments, savings goals, and money moved to investing or trading — across the whole year."
+                : "Income minus spending, bills & subscriptions still to come, debt payments, savings goals, and money moved to investing or trading."}
               {viewMode === 'month' && billsExcludedFromCashFlow.length > 0 && (
                 <> {billsExcludedFromCashFlow.length} bill{billsExcludedFromCashFlow.length === 1 ? '' : 's'} already showing up in Expenses this month {billsExcludedFromCashFlow.length === 1 ? "isn't" : "aren't"} counted twice here.</>
               )}
@@ -616,19 +618,73 @@ export function FinanceBudgets({ hideLedger = false }: { hideLedger?: boolean } 
               <table className="mini-table">
                 <tbody>
                   <tr className="mini-table-highlight"><td>Income</td><td>{formatCurrency(income)}</td></tr>
-                  <tr><td>Bills</td><td>{formatCurrency(cashFlowBillsTotal)}</td></tr>
-                  <tr><td>Expenses</td><td>{formatCurrency(totalActual)}</td></tr>
-                  <tr><td>Savings</td><td>{formatCurrency(cashFlowSavingsTotal)}</td></tr>
-                  <tr><td>Debts</td><td>{formatCurrency(cashFlowDebtsTotal)}</td></tr>
+                  <tr><td>Spending</td><td>−{formatCurrency(totalActual)}</td></tr>
+                  <tr title="Bills and subscriptions not already charged this period"><td>Bills &amp; subscriptions</td><td>−{formatCurrency(cashFlowBillsTotal)}</td></tr>
+                  <tr><td>Debt payments</td><td>−{formatCurrency(cashFlowDebtsTotal)}</td></tr>
+                  <tr><td>Savings goals</td><td>−{formatCurrency(cashFlowSavingsTotal)}</td></tr>
+                  <tr title="Transfers to investment, retirement or trading accounts"><td>Moved to investing &amp; trading</td><td>−{formatCurrency(movedToInvesting)}</td></tr>
                 </tbody>
                 <tfoot>
                   <tr>
-                    <td>Total Cash Left Over</td>
+                    <td>Left over</td>
                     <td><b className={totalCashLeftOver >= 0 ? 'positive' : 'negative'}>{formatCurrency(totalCashLeftOver)}</b></td>
                   </tr>
                 </tfoot>
               </table>
             </div>
+          </Card>
+          <Card className="worksheet-card">
+            <div className="card-title"><div><h2>Income</h2></div>{ledgerLink('Income')}</div>
+            {incomeRows.length ? (
+              <div className="mini-table-wrap">
+                <table className="mini-table">
+                  <thead>
+                    <tr>
+                      <SortableTh label="Description" sortKey="merchant" state={incomeSort} onSort={k => setIncomeSort(s => toggleSort(s, k))} />
+                      <SortableTh label="Date" sortKey="date" state={incomeSort} onSort={k => setIncomeSort(s => toggleSort(s, k, 'desc'))} />
+                      <SortableTh label="Amount" sortKey="amount" state={incomeSort} onSort={k => setIncomeSort(s => toggleSort(s, k, 'desc'))} />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {incomeRows.map(t => (
+                      <tr key={t.id}><td>{t.merchant}</td><td>{formatDate(t.date)}</td><td>{formatCurrency(t.amount)}</td></tr>
+                    ))}
+                  </tbody>
+                  <tfoot><tr><td colSpan={2}>Total</td><td>{formatCurrency(income)}</td></tr></tfoot>
+                </table>
+              </div>
+            ) : <p className="muted empty-state">No income logged {viewMode === 'year' ? 'this year' : 'this month'}.</p>}
+          </Card>
+          <Card className="worksheet-card">
+            <div className="card-title"><div><h2>Bills</h2></div>{ledgerLink('Bills')}</div>
+            {upcomingBills.length ? (
+              <div className="mini-table-wrap">
+                <table className="mini-table">
+                  <thead>
+                    <tr>
+                      <SortableTh label="Bill" sortKey="name" state={billsSort} onSort={k => setBillsSort(s => toggleSort(s, k))} />
+                      <SortableTh label="Due" sortKey="due" state={billsSort} onSort={k => setBillsSort(s => toggleSort(s, k))} />
+                      <SortableTh label={viewMode === 'year' ? 'Annual' : 'Amount'} sortKey="amount" state={billsSort} onSort={k => setBillsSort(s => toggleSort(s, k, 'desc'))} />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {upcomingBills.map(b => (
+                      <tr key={b.id} className={pausedNow(b) ? 'recur-paused' : undefined}>
+                        <td>{b.name}{pausedNow(b) && <span className="recur-paused-mini">Paused</span>}</td>
+                        <td>{formatDate(b.nextDue)}</td>
+                        <td>{formatCurrency(recurringDisplayAmount(b))}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr>
+                      <td colSpan={2}>{viewMode === 'year' ? 'Annual total (all bills)' : 'Total'}</td>
+                      <td>{formatCurrency(viewMode === 'year' ? annualBillsOnlyTotal : billsOnlyTotal)}</td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            ) : <p className="muted empty-state">No bills yet.</p>}
           </Card>
         </div>
 
@@ -661,31 +717,9 @@ export function FinanceBudgets({ hideLedger = false }: { hideLedger?: boolean } 
       </div>
 
       <div className="budget-worksheets-grid">
-          <Card className="worksheet-card">
-            <div className="card-title"><div><h2>Income Summary</h2></div></div>
-            {incomeRows.length ? (
-              <div className="mini-table-wrap">
-                <table className="mini-table">
-                  <thead>
-                    <tr>
-                      <SortableTh label="Description" sortKey="merchant" state={incomeSort} onSort={k => setIncomeSort(s => toggleSort(s, k))} />
-                      <SortableTh label="Date" sortKey="date" state={incomeSort} onSort={k => setIncomeSort(s => toggleSort(s, k, 'desc'))} />
-                      <SortableTh label="Amount" sortKey="amount" state={incomeSort} onSort={k => setIncomeSort(s => toggleSort(s, k, 'desc'))} />
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {incomeRows.map(t => (
-                      <tr key={t.id}><td>{t.merchant}</td><td>{formatDate(t.date)}</td><td>{formatCurrency(t.amount)}</td></tr>
-                    ))}
-                  </tbody>
-                  <tfoot><tr><td colSpan={2}>Total</td><td>{formatCurrency(income)}</td></tr></tfoot>
-                </table>
-              </div>
-            ) : <p className="muted empty-state">No income logged {viewMode === 'year' ? 'this year' : 'this month'}.</p>}
-          </Card>
 
           <Card className="worksheet-card">
-            <div className="card-title"><div><h2>Savings</h2></div></div>
+            <div className="card-title"><div><h2>Savings goals</h2></div>{ledgerLink('Savings')}</div>
             {data.financeGoals.length ? (
               <div className="mini-table-wrap">
                 <table className="mini-table">
@@ -724,7 +758,7 @@ export function FinanceBudgets({ hideLedger = false }: { hideLedger?: boolean } 
           </Card>
 
           <Card className="worksheet-card">
-            <div className="card-title"><div><h2>Debt Payments</h2></div></div>
+            <div className="card-title"><div><h2>Debt payments</h2></div>{ledgerLink('Debt')}</div>
             {debtAccounts.length ? (
               <div className="mini-table-wrap">
                 <table className="mini-table">
@@ -741,8 +775,8 @@ export function FinanceBudgets({ hideLedger = false }: { hideLedger?: boolean } 
                       <tr key={a.id}>
                         <td>{a.name}</td>
                         <td>{formatCurrency(a.balance)}</td>
-                        <td>{formatCurrency(a.minimumPayment ?? 0)}</td>
-                        <td>{(a.interestRate ?? 0).toFixed(1)}%</td>
+                        <td>{a.minimumPayment ? formatCurrency(a.minimumPayment) : <button type="button" className="text-btn debt-missing" onClick={() => openLedger('Debt')} title="Add the minimum payment">— add</button>}</td>
+                        <td>{a.interestRate ? `${a.interestRate.toFixed(1)}%` : <button type="button" className="text-btn debt-missing" onClick={() => openLedger('Debt')} title="Add the APR">— add</button>}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -759,42 +793,12 @@ export function FinanceBudgets({ hideLedger = false }: { hideLedger?: boolean } 
             ) : <p className="muted empty-state">No debt accounts yet.</p>}
           </Card>
 
-          <Card className="worksheet-card">
-            <div className="card-title"><div><h2>Bills Summary</h2></div></div>
-            {upcomingBills.length ? (
-              <div className="mini-table-wrap">
-                <table className="mini-table">
-                  <thead>
-                    <tr>
-                      <SortableTh label="Bill" sortKey="name" state={billsSort} onSort={k => setBillsSort(s => toggleSort(s, k))} />
-                      <SortableTh label="Due" sortKey="due" state={billsSort} onSort={k => setBillsSort(s => toggleSort(s, k))} />
-                      <SortableTh label={viewMode === 'year' ? 'Annual' : 'Amount'} sortKey="amount" state={billsSort} onSort={k => setBillsSort(s => toggleSort(s, k, 'desc'))} />
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {upcomingBills.map(b => (
-                      <tr key={b.id}>
-                        <td>{b.name}</td>
-                        <td>{formatDate(b.nextDue)}</td>
-                        <td>{formatCurrency(recurringDisplayAmount(b))}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                  <tfoot>
-                    <tr>
-                      <td colSpan={2}>{viewMode === 'year' ? 'Annual total (all bills)' : 'Total'}</td>
-                      <td>{formatCurrency(viewMode === 'year' ? annualBillsOnlyTotal : billsOnlyTotal)}</td>
-                    </tr>
-                  </tfoot>
-                </table>
-              </div>
-            ) : <p className="muted empty-state">No bills yet.</p>}
-          </Card>
 
         <Card className="worksheet-card">
           <div className="card-title">
-            <div><h2>Expenses Summary</h2></div>
+            <div><h2>Spending by category</h2></div>
             <div className="grid-row-actions">
+              {ledgerLink('Transactions')}
               <label className="expense-summary-toggle">
                 <input type="checkbox" checked={hideZeroActual} onChange={e => setHideZeroActual(e.target.checked)} />
                 Hide $0 categories
@@ -873,7 +877,7 @@ export function FinanceBudgets({ hideLedger = false }: { hideLedger?: boolean } 
         </Card>
 
         <Card className="worksheet-card">
-          <div className="card-title"><div><h2>Subscriptions Summary</h2></div></div>
+          <div className="card-title"><div><h2>Subscriptions</h2></div>{ledgerLink('Subscriptions')}</div>
           {upcomingSubscriptions.length ? (
             <div className="mini-table-wrap">
               <table className="mini-table">
@@ -886,8 +890,8 @@ export function FinanceBudgets({ hideLedger = false }: { hideLedger?: boolean } 
                 </thead>
                 <tbody>
                   {upcomingSubscriptions.map(b => (
-                    <tr key={b.id}>
-                      <td>{b.name}</td>
+                    <tr key={b.id} className={pausedNow(b) ? 'recur-paused' : undefined}>
+                      <td>{b.name}{pausedNow(b) && <span className="recur-paused-mini">Paused</span>}</td>
                       <td>{formatDate(b.nextDue)}</td>
                       <td>{formatCurrency(recurringDisplayAmount(b))}</td>
                     </tr>
@@ -905,7 +909,7 @@ export function FinanceBudgets({ hideLedger = false }: { hideLedger?: boolean } 
         </Card>
       </div>
 
-      {!hideLedger && <FinanceLedger />}
+      {!hideLedger && <FinanceLedger tab={ledgerTab} onTabChange={setLedgerTab} />}
 
       {showEditBudgets && (
         <Modal

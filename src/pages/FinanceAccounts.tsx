@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { GripVertical, Pencil, Plus, Trash2 } from 'lucide-react';
+import { GripVertical, Link2, Pencil, Plus, Trash2 } from 'lucide-react';
+import { financeTradingDeposits, linkedTradingAccount, tradingDeposited } from '../lib/trading';
 import { CollectionPage } from '../components/CollectionPage';
 import { useStore, newRecord } from '../store';
 import { Kpi, formatCurrency, MoneyInput } from '../components/UI';
@@ -270,6 +271,17 @@ export function FinanceDebtGrid() {
   );
 }
 
+// Same definition as the Dashboard's "Available cash": spendable today.
+const LIQUID_ACCOUNT_TYPES = ['Checking', 'Savings', 'Cash'];
+const ACCOUNT_GROUP_ORDER = ['Cash', 'Investments & retirement', 'Trading', 'Debt', 'Other'];
+function accountGroup(a: FinanceAccount): string {
+  if (a.linkedTo) return 'Trading';
+  if (LIQUID_ACCOUNT_TYPES.includes(a.type)) return 'Cash';
+  if (a.type === 'Investment' || a.type === 'Retirement') return 'Investments & retirement';
+  if (isLiabilityAccount(a.type)) return 'Debt';
+  return 'Other';
+}
+
 export function FinanceAccounts() {
   const { data } = useStore();
   const accounts = data.financeAccounts;
@@ -277,14 +289,37 @@ export function FinanceAccounts() {
   const typeOptions = [...ACCOUNT_TYPES, ...(data.settings.customDebtTypes ?? [])];
   const totalAssets = activeAccounts.filter(a => !isLiabilityAccount(a.type)).reduce((s, a) => s + a.balance, 0);
   const totalLiabilities = activeAccounts.filter(a => isLiabilityAccount(a.type)).reduce((s, a) => s + a.balance, 0);
+  // Linked trading account: the journal knows every deposit right away, Finance only after the
+  // month-end CSV import — say so rather than let the two silently disagree.
+  const tradingAccount = linkedTradingAccount(accounts);
+  const availableCash = activeAccounts.filter(a => LIQUID_ACCOUNT_TYPES.includes(a.type)).reduce((s, a) => s + a.balance, 0)
+    - activeAccounts.filter(a => a.type === 'Credit Card').reduce((s, a) => s + a.balance, 0);
+  const investedTotal = activeAccounts.filter(a => a.type === 'Investment' || a.type === 'Retirement').reduce((s, a) => s + a.balance, 0);
+  const journalDeposited = tradingDeposited(data.settings);
+  const recordedDeposits = tradingAccount ? financeTradingDeposits(data.transactions, tradingAccount.id) : 0;
+  const pendingDeposits = Math.round((journalDeposited - recordedDeposits) * 100) / 100;
 
   return (
     <>
-      <div className="kpi-grid three">
-        <Kpi label="Total Assets" value={formatCurrency(totalAssets)} caption={`${activeAccounts.filter(a => !isLiabilityAccount(a.type)).length} accounts`} tone="green" />
-        <Kpi label="Total Liabilities" value={formatCurrency(totalLiabilities)} caption={`${activeAccounts.filter(a => isLiabilityAccount(a.type)).length} accounts`} tone="red" />
-        <Kpi label="Net" value={formatCurrency(totalAssets - totalLiabilities)} caption="assets minus liabilities" tone="blue" />
+      <div className="kpi-grid four calm-kpis">
+        <Kpi label="Available cash" value={formatCurrency(availableCash)} caption="bank + cash − credit cards" tone={availableCash >= 0 ? 'green' : 'red'} />
+        <Kpi label="Investments & retirement" value={formatCurrency(investedTotal)} caption="long-term, not for spending" tone="default" />
+        <Kpi label="Trading" value={formatCurrency(tradingAccount?.balance ?? 0)} caption={tradingAccount ? 'linked to Trading Journal' : 'no trading account'} tone="default" />
+        <Kpi label="Net worth" value={formatCurrency(totalAssets - totalLiabilities)} caption={`owe ${formatCurrency(totalLiabilities)} across ${activeAccounts.filter(a => isLiabilityAccount(a.type)).length} debt${activeAccounts.filter(a => isLiabilityAccount(a.type)).length === 1 ? '' : 's'}`} tone="blue" />
       </div>
+      {tradingAccount && (
+        <div className={`fa-linked-note ${pendingDeposits > 0.004 ? 'pending' : ''}`}>
+          <Link2 size={14} />
+          <span>
+            <b>{tradingAccount.name}</b> is linked to the Trading Journal: {formatCurrency(journalDeposited)} deposited, {formatCurrency(tradingAccount.balance)} balance.
+            {pendingDeposits > 0.004
+              ? <> Finance has {formatCurrency(recordedDeposits)} of those deposits — <b>{formatCurrency(pendingDeposits)} waiting for your next import.</b></>
+              : pendingDeposits < -0.004
+                ? <> Finance has {formatCurrency(recordedDeposits)} of deposits — {formatCurrency(-pendingDeposits)} more than the journal's total.</>
+                : ' Finance and the journal agree.'}
+          </span>
+        </div>
+      )}
       <CollectionPage<FinanceAccount>
         collection="financeAccounts"
         itemLabel="Account"
@@ -305,8 +340,12 @@ export function FinanceAccounts() {
         ]}
         defaults={{ name: '', type: 'Checking', balance: 0, status: 'Active' }}
         renderTitle={a => a.name}
-        renderSubtitle={a => `${a.type}${a.institution ? ` · ${a.institution}` : ''} · ${formatCurrency(a.balance)}${a.status !== 'Active' ? ` · ${a.status}` : ''}`}
+        renderSubtitle={a => `${a.type}${a.institution ? ` · ${a.institution}` : ''}${a.linkedTo ? ' · linked to Trading Journal' : ''}${a.status !== 'Active' ? ` · ${a.status}` : ''}`}
         sortBy={(a, b) => a.name.localeCompare(b.name)}
+        groupBy={accountGroup}
+        groupOrder={ACCOUNT_GROUP_ORDER}
+        groupTotal={records => formatCurrency(records.reduce((s, a) => s + (isLiabilityAccount(a.type) ? -a.balance : a.balance), 0))}
+        trailing={a => <span className={`fa-balance ${isLiabilityAccount(a.type) ? 'debt' : a.balance < 0 ? 'negative' : ''}`}>{isLiabilityAccount(a.type) ? '−' : ''}{formatCurrency(a.balance)}</span>}
         onFieldChange={(key) => {
           if (key === 'balance' || key === 'availableBalance' || key === 'type' || key === 'status') {
             return { lastSyncedAt: new Date().toISOString() };
