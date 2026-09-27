@@ -1619,15 +1619,15 @@ export function TradingJournal() {
               return (
                 <tr key={l.id}>
                   <td><DatePicker value={l.date} onChange={v => patch(l.id, { date: v })} /></td>
-                  <td className="tj-td-compact">
-                    <NumberField className="tj-cell-input tj-num tj-num-trades" value={l.totalTrades} onChange={n => patch(l.id, { totalTrades: n })} min={0} />
-                    {l.totalTrades > 0 && <small className="tj-fee-caption" title={`${l.totalTrades} × ${formatCurrency(FEE_PER_TRADE)} estimated commission`}>{formatCurrency(feesOf(l))} fees</small>}
-                  </td>
+                  <td className="tj-td-compact"><NumberField className="tj-cell-input tj-num tj-num-trades" value={l.totalTrades} onChange={n => patch(l.id, { totalTrades: n })} min={0} /></td>
                   <td className="tj-td-compact"><NumberField className="tj-cell-input tj-num tj-num-pl" value={l.dailyPL} onChange={n => patch(l.id, { dailyPL: n })} decimals={2} /></td>
                   <td>
                     <NotesField value={l.notes ?? ''} onChange={v => patch(l.id, { notes: v })} />
                   </td>
-                  <td className={`tj-computed-cell ${net >= 0 ? 'tj-text-pos' : 'tj-text-neg'}`}>{formatCurrency(net)}</td>
+                  <td className={`tj-computed-cell ${net >= 0 ? 'tj-text-pos' : 'tj-text-neg'}`}>
+                    {formatCurrency(net)}
+                    {l.totalTrades > 0 && <small className="tj-fee-caption" title={`${l.totalTrades} × ${formatCurrency(FEE_PER_TRADE)} estimated commission — not deducted from P/L`}>−{formatCurrency(feesOf(l))} fees</small>}
+                  </td>
                   <td><span className={`tj-status tj-status-${status.toLowerCase()}`}>{status}</span></td>
                   <td>
                     <select className="tj-cell-select" value={l.emotion ?? ''} onChange={e => patch(l.id, { emotion: e.target.value || undefined })}>

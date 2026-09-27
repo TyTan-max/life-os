@@ -3342,7 +3342,7 @@ input, select, textarea { font-family: inherit; }
 .tj-cell-input.tj-num-trades { min-width: 30px; }
 .tj-cell-input.tj-num-pl { min-width: 44px; }
 .tj-td-compact { padding-left: 3px; padding-right: 3px; }
-.tj-fee-caption { display: block; padding: 0 6px; font-size: 10.5px; color: var(--text-muted); white-space: nowrap; line-height: 1.2; }
+.tj-fee-caption { display: block; margin-top: 2px; font-size: 10.5px; font-weight: 400; color: var(--text-muted); white-space: nowrap; line-height: 1.2; }
 .tj-fee-readout { padding: 8px 10px; color: var(--text-muted); }
 .tj-cell-input.tj-notes-input {
   min-width: 160px;
