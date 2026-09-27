@@ -4,7 +4,7 @@ import { getEffectiveRoutineFilter, loadSavedRoutineFilter, matchesRoutineFilter
 import { formatCurrency } from '../components/UI';
 
 function netOf(l: Pick<DailyLog, 'dailyPL' | 'dailyFees'>): number {
-  return l.dailyPL - l.dailyFees;
+  return l.dailyPL; // fees are display-only
 }
 
 function localIso(date = new Date()): string {

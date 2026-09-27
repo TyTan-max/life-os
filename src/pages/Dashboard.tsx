@@ -20,7 +20,7 @@ import { latestNight, sleepHours } from '../lib/sleep';
 type DailyLog = { totalTrades:number; dailyPL:number; dailyFees:number };
 
 function netOf(l: DailyLog): number {
-  return l.dailyPL - l.dailyFees;
+  return l.dailyPL; // fees are display-only
 }
 
 function localIso(date = new Date()) {

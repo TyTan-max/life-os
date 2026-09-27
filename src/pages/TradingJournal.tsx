@@ -22,8 +22,15 @@ const CAT_CLASSES = ['tj-cat-1', 'tj-cat-2', 'tj-cat-3', 'tj-cat-4'];
 type Period = 'Week' | 'Month' | 'Year' | 'Total';
 const PERIODS: Period[] = ['Week', 'Month', 'Year', 'Total'];
 
+// Fees are display-only (an estimate from trade count) — they never reduce P/L, Net Total or balance.
+const FEE_PER_TRADE = 0.65;
+
+function feesOf(log: Pick<DailyLog, 'totalTrades'>): number {
+  return (log.totalTrades || 0) * FEE_PER_TRADE;
+}
+
 function netOf(log: DailyLog): number {
-  return log.dailyPL - log.dailyFees;
+  return log.dailyPL;
 }
 
 function statusOf(net: number): 'GREEN' | 'RED' | 'FLAT' {
@@ -970,7 +977,7 @@ function DayEditModal({
       <div className="form-grid">
         <label><span>Total Trades</span><NumberField value={form.totalTrades} onChange={n => setField('totalTrades', n)} min={0} /></label>
         <label><span>Daily P/L</span><NumberField value={form.dailyPL} onChange={n => setField('dailyPL', n)} decimals={2} /></label>
-        <label><span>Daily Fees</span><NumberField value={form.dailyFees} onChange={n => setField('dailyFees', n)} decimals={2} /></label>
+        <label><span>Est. Fees</span><div className="tj-fee-readout">{formatCurrency(feesOf(form))}</div></label>
         <label>
           <span>Primary Emotion</span>
           <select value={form.emotion ?? ''} onChange={e => setField('emotion', e.target.value || undefined)}>
@@ -1242,10 +1249,8 @@ export function TradingJournal() {
   // Everything else below reflects only the selected period.
   const totalTradesSum = filteredLogs.reduce((s, l) => s + (l.totalTrades || 0), 0);
   const totalPL = filteredLogs.reduce((s, l) => s + l.dailyPL, 0);
-  const totalFees = filteredLogs.reduce((s, l) => s + l.dailyFees, 0);
-  // Display-only: $0.65/trade commission estimate. Not folded into Net Total or any other stat.
-  const totalFeesDisplay = totalTradesSum * 0.65;
-  const netTotal = totalPL - totalFees;
+  const totalFeesDisplay = totalTradesSum * FEE_PER_TRADE;
+  const netTotal = totalPL;
   const daysLogged = filteredLogs.length;
   const greenDays = filteredLogs.filter(l => netOf(l) > 0);
   const redDays = filteredLogs.filter(l => netOf(l) < 0);
@@ -1581,6 +1586,7 @@ export function TradingJournal() {
             trailingTone={l => (netOf(l) >= 0 ? 'positive' : 'negative')}
             fields={[
               { label: 'Status', value: l => statusOf(netOf(l)) },
+              { label: 'Est. Fees', value: l => formatCurrency(feesOf(l)) },
               { label: 'Screenshots', value: l => l.screenshots?.length || '—' }
             ]}
             onOpen={l => setEditingLogId(l.id)}
@@ -1613,7 +1619,10 @@ export function TradingJournal() {
               return (
                 <tr key={l.id}>
                   <td><DatePicker value={l.date} onChange={v => patch(l.id, { date: v })} /></td>
-                  <td className="tj-td-compact"><NumberField className="tj-cell-input tj-num tj-num-trades" value={l.totalTrades} onChange={n => patch(l.id, { totalTrades: n })} min={0} /></td>
+                  <td className="tj-td-compact">
+                    <NumberField className="tj-cell-input tj-num tj-num-trades" value={l.totalTrades} onChange={n => patch(l.id, { totalTrades: n })} min={0} />
+                    {l.totalTrades > 0 && <small className="tj-fee-caption" title={`${l.totalTrades} × ${formatCurrency(FEE_PER_TRADE)} estimated commission`}>{formatCurrency(feesOf(l))} fees</small>}
+                  </td>
                   <td className="tj-td-compact"><NumberField className="tj-cell-input tj-num tj-num-pl" value={l.dailyPL} onChange={n => patch(l.id, { dailyPL: n })} decimals={2} /></td>
                   <td>
                     <NotesField value={l.notes ?? ''} onChange={v => patch(l.id, { notes: v })} />
