@@ -6441,4 +6441,3 @@ tr.recur-paused td:nth-child(4) { opacity: 1; }
   border-radius: 8px; background: color-mix(in srgb, var(--red) 10%, transparent); color: var(--red);
   font: inherit; font-size: 12px; font-weight: 600; text-align: left; cursor: pointer;
 }
-.fa-linked-note .fa-convert-btn { margin-left: auto; flex-shrink: 0; align-self: center; }
