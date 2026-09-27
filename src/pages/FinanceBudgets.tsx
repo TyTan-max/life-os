@@ -329,7 +329,7 @@ export function FinanceBudgets({ hideLedger = false }: { hideLedger?: boolean } 
   // Money moved out to investment, retirement or the linked trading account this period — not
   // spending, but no longer available either, so "left over" subtracts it.
   const investingAccountIds = useMemo(
-    () => new Set(data.financeAccounts.filter(a => a.type === 'Investment' || a.type === 'Retirement' || a.linkedTo).map(a => a.id)),
+    () => new Set(data.financeAccounts.filter(a => a.type === 'Investment' || a.type === 'Retirement' || a.linkedTo === 'tradingJournal').map(a => a.id)),
     [data.financeAccounts]
   );
   const movedToInvesting = useMemo(() => transactions

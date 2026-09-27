@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { GripVertical, Link2, Pencil, Plus, Trash2 } from 'lucide-react';
-import { financeTradingDeposits, linkedTradingAccount, tradingDeposited } from '../lib/trading';
+import { financeTradingDeposits, linkedTradingAccount, TRADING_DEPOSIT_PATTERN, TRADING_LINK, tradingDeposited } from '../lib/trading';
 import { CollectionPage } from '../components/CollectionPage';
 import { useStore, newRecord } from '../store';
 import { Kpi, formatCurrency, MoneyInput } from '../components/UI';
@@ -275,7 +275,7 @@ export function FinanceDebtGrid() {
 const LIQUID_ACCOUNT_TYPES = ['Checking', 'Savings', 'Cash'];
 const ACCOUNT_GROUP_ORDER = ['Cash', 'Investments & retirement', 'Trading', 'Debt', 'Other'];
 function accountGroup(a: FinanceAccount): string {
-  if (a.linkedTo) return 'Trading';
+  if (a.linkedTo === TRADING_LINK) return 'Trading';
   if (LIQUID_ACCOUNT_TYPES.includes(a.type)) return 'Cash';
   if (a.type === 'Investment' || a.type === 'Retirement') return 'Investments & retirement';
   if (isLiabilityAccount(a.type)) return 'Debt';
@@ -283,7 +283,7 @@ function accountGroup(a: FinanceAccount): string {
 }
 
 export function FinanceAccounts() {
-  const { data } = useStore();
+  const { data, upsert } = useStore();
   const accounts = data.financeAccounts;
   const activeAccounts = accounts.filter(a => a.status !== 'Closed');
   const typeOptions = [...ACCOUNT_TYPES, ...(data.settings.customDebtTypes ?? [])];
@@ -298,6 +298,19 @@ export function FinanceAccounts() {
   const journalDeposited = tradingDeposited(data.settings);
   const recordedDeposits = tradingAccount ? financeTradingDeposits(data.transactions, tradingAccount.id) : 0;
   const pendingDeposits = Math.round((journalDeposited - recordedDeposits) * 100) / 100;
+  // MoneyLink rows still counted as spending (imported before the link existed, or typed in).
+  const unconvertedDeposits = tradingAccount
+    ? data.transactions.filter(t => t.type === 'Expense' && TRADING_DEPOSIT_PATTERN.test(t.merchant))
+    : [];
+  // Saved directly (not through the transactions table), so no account balance is adjusted:
+  // this money left checking long ago and the journal already knows about it.
+  const convertDeposits = () => {
+    if (!tradingAccount) return;
+    for (const t of unconvertedDeposits) {
+      const { categoryId: _unused, ...rest } = t;
+      void upsert('transactions', { ...rest, type: 'Transfer', transferAccountId: tradingAccount.id });
+    }
+  };
 
   return (
     <>
@@ -318,6 +331,11 @@ export function FinanceAccounts() {
                 ? <> Finance has {formatCurrency(recordedDeposits)} of deposits — {formatCurrency(-pendingDeposits)} more than the journal's total.</>
                 : ' Finance and the journal agree.'}
           </span>
+          {unconvertedDeposits.length > 0 && (
+            <button type="button" className="btn ghost small fa-convert-btn" onClick={convertDeposits} title="Turns them into transfers to this account — no account balance changes">
+              Convert {unconvertedDeposits.length} MoneyLink deposit{unconvertedDeposits.length === 1 ? '' : 's'} to transfers
+            </button>
+          )}
         </div>
       )}
       <CollectionPage<FinanceAccount>
@@ -336,11 +354,18 @@ export function FinanceAccounts() {
           { key: 'costBasis', label: 'Cost Basis (investment accounts)', type: 'money' },
           { key: 'assetClass', label: 'Asset Class (investment accounts)', type: 'select', options: ASSET_CLASSES },
           { key: 'status', label: 'Status', type: 'select', options: ['Active', 'Closed', 'Frozen'] },
+          {
+            key: 'linkedTo', label: 'Balance comes from', type: 'select', fallback: 'manual',
+            options: [
+              { label: 'Entered manually', value: 'manual' },
+              { label: 'Trading Journal (deposits + P/L)', value: TRADING_LINK }
+            ]
+          },
           { key: 'notes', label: 'Notes', type: 'textarea' }
         ]}
         defaults={{ name: '', type: 'Checking', balance: 0, status: 'Active' }}
         renderTitle={a => a.name}
-        renderSubtitle={a => `${a.type}${a.institution ? ` · ${a.institution}` : ''}${a.linkedTo ? ' · linked to Trading Journal' : ''}${a.status !== 'Active' ? ` · ${a.status}` : ''}`}
+        renderSubtitle={a => `${a.type}${a.institution ? ` · ${a.institution}` : ''}${a.linkedTo === TRADING_LINK ? ' · linked to Trading Journal' : ''}${a.status !== 'Active' ? ` · ${a.status}` : ''}`}
         sortBy={(a, b) => a.name.localeCompare(b.name)}
         groupBy={accountGroup}
         groupOrder={ACCOUNT_GROUP_ORDER}

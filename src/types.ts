@@ -129,7 +129,8 @@ export interface FinanceAccount extends BaseRecord {
   minimumPayment?: number;
   order?: number;
   // 'tradingJournal': balance is always the Trading Journal's (total deposited + P/L), read-only.
-  linkedTo?: 'tradingJournal';
+  // ('manual' / unset: the balance you type in.)
+  linkedTo?: 'tradingJournal' | 'manual';
 }
 
 export type InvestmentAssetClass = 'Stocks' | 'ETFs' | 'Bonds' | 'Cash' | 'Real Estate' | 'Cryptocurrency' | 'Other';
