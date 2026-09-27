@@ -30,7 +30,13 @@ type QuickLogKind = 'Weight' | 'Sleep' | 'Meal' | 'Workout';
 
 export function HealthWellness() {
   const [tab, setTab] = useState<HealthTab>('Overview');
-  const [period, setPeriod] = useState<HealthPeriod>('Day');
+  // Each tab keeps its own period. Sleep starts on Week — a single night per screen said little,
+  // while a week shows the pattern and gives the average/debt something to average over.
+  const [periodByTab, setPeriodByTab] = useState<Record<HealthTab, HealthPeriod>>({
+    Overview: 'Day', Fitness: 'Day', Weight: 'Day', Sleep: 'Week', Medication: 'Day'
+  });
+  const period = periodByTab[tab];
+  const setPeriod = (p: HealthPeriod) => setPeriodByTab(prev => ({ ...prev, [tab]: p }));
   const [anchorDate, setAnchorDate] = useState(new Date());
   const [quickLogOpen, setQuickLogOpen] = useState(false);
 

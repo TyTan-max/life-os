@@ -6,6 +6,7 @@ import { HealthInsightList } from '../components/HealthInsights';
 import { computeHealthInsights } from '../lib/healthInsights';
 import { isMilestone, loggingStreak, medicationAdherenceStreak, nextMilestone } from '../lib/healthStreaks';
 import { inRange, sleepRecencyLabel } from '../lib/healthPeriod';
+import { latestNight, sleepHours } from '../lib/sleep';
 import type { HealthPeriodProps, HealthTab } from './HealthWellness';
 
 // Local date, not `.toISOString()` — that converts to UTC, which reads as "tomorrow" late
@@ -47,9 +48,9 @@ export function HealthOverview({
   const weightChange = periodWeights.length > 1
     ? Math.round((periodWeights[periodWeights.length - 1].weight - periodWeights[0].weight) * 10) / 10 : undefined;
 
-  const lastNight = data.sleepEntries.slice().sort((a, b) => b.date.localeCompare(a.date))[0];
+  const lastNight = latestNight(data.sleepEntries);
   const periodSleep = data.sleepEntries.filter(e => inRange(e.date, range));
-  const avgSleep = periodSleep.length ? periodSleep.reduce((s, e) => s + e.durationHours, 0) / periodSleep.length : undefined;
+  const avgSleep = periodSleep.length ? periodSleep.reduce((s, e) => s + sleepHours(e), 0) / periodSleep.length : undefined;
 
   const activeMeds = data.medications.filter(m => m.active);
   const scheduledToday = activeMeds.reduce((sum, m) => sum + m.times.length, 0);
@@ -108,7 +109,7 @@ export function HealthOverview({
           <h3>Sleep</h3>
           <button type="button" className="icon-btn" onClick={() => onNavigate('Sleep')} aria-label="View Sleep"><ArrowRight size={14} /></button>
         </div>
-        <strong className="health-quadrant-hero">{lastNight ? `${lastNight.durationHours}h` : '—'}</strong>
+        <strong className="health-quadrant-hero">{lastNight ? `${sleepHours(lastNight)}h` : '—'}</strong>
         {/* Only "last night" when it actually was — the newest entry was labelled that way even
             when it was two weeks old, right above a "no entries yet" caption. */}
         <span className="health-quadrant-hero-label">{sleepRecencyLabel(lastNight?.date)}</span>

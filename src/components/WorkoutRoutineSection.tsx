@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Check, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, Circle, Plus, RotateCcw, Trash2 } from 'lucide-react';
+import { Check, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, Circle, History, Plus, RotateCcw, Trash2 } from 'lucide-react';
 import { useStore, newRecord } from '../store';
 import { Card } from './UI';
 import { DatePicker } from './DatePicker';
@@ -25,6 +25,11 @@ function iso(offsetDays = 0): string {
   const d = new Date();
   d.setDate(d.getDate() + offsetDays);
   return toLocalIso(d);
+}
+
+// "Sep 24" — for the Same-as-last-time tooltip.
+function formatShortDate(dateStr: string): string {
+  return new Date(`${dateStr}T12:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
 function shiftIso(dateStr: string, deltaDays: number): string {
@@ -250,18 +255,30 @@ function ProgramMenu({
 }
 
 function RoutineExerciseRow({
-  exercise, maxSets, activeEntry, onLogDate, onEditWeight, onEditLastReps, onEditField, onDelete
+  exercise, maxSets, activeEntry, lastEntry, onEditWeight, onEditLastReps, onCopyLast, onEditField, onDelete
 }: {
   exercise: RoutineExercise;
   maxSets: number;
   activeEntry: ExerciseSetLog | undefined;
-  onLogDate: () => void;
+  // The most recent earlier session for this exercise — shown as faint placeholder numbers so
+  // you can see what you lifted last time before typing anything.
+  lastEntry: ExerciseSetLog | undefined;
   onEditWeight: (setIndex: number, weight: number | undefined) => void;
   onEditLastReps: (reps: number | undefined) => void;
+  onCopyLast: () => void;
   onEditField: (patch: Partial<RoutineExercise>) => void;
   onDelete: () => void;
 }) {
   const isMobile = useIsMobile();
+  // "Same as last time" is offered only when there's a previous session with weights and today
+  // doesn't already match it.
+  const lastWeights = lastEntry ? Array.from({ length: exercise.targetSets }, (_, i) => lastEntry.weights[i]) : [];
+  const canCopyLast = !!lastEntry && lastWeights.some(w => w != null) && (
+    !activeEntry || lastWeights.some((w, i) => activeEntry.weights[i] !== w) || activeEntry.lastReps !== lastEntry.lastReps
+  );
+  const lastSummary = lastEntry
+    ? `${lastWeights.map(w => w ?? '–').join(' / ')}${lastEntry.lastReps != null ? ` · last rep ${lastEntry.lastReps}` : ''}`
+    : '';
   return (
     <tr>
       <td>
@@ -277,37 +294,59 @@ function RoutineExerciseRow({
       <td className="grid-td-compact"><input type="text" className="grid-cell-input" value={exercise.targetReps} placeholder="e.g. 12 or 10-12" onChange={e => onEditField({ targetReps: e.target.value })} /></td>
       {Array.from({ length: maxSets }, (_, i) => {
         if (i >= exercise.targetSets) return <td key={i} className="health-routine-blank-cell" />;
-        if (!activeEntry) {
-          return i === 0
-            ? <td key={i} className="grid-td-compact"><button type="button" className="btn ghost small" onClick={onLogDate}>+ Log</button></td>
-            : <td key={i} className="health-routine-blank-cell" />;
-        }
+        const last = lastEntry?.weights[i];
         return (
           <td key={i} className="grid-td-compact">
-            <OptionalNumberCell value={activeEntry.weights[i]} onChange={n => onEditWeight(i, n)} placeholder="lb" />
+            <OptionalNumberCell
+              value={activeEntry?.weights[i]}
+              onChange={n => onEditWeight(i, n)}
+              placeholder={last != null ? String(last) : 'lb'}
+              className="routine-weight-input"
+            />
           </td>
         );
       })}
       <td className="grid-td-compact">
-        {activeEntry && <OptionalNumberCell value={activeEntry.lastReps} onChange={onEditLastReps} placeholder="reps" />}
+        <OptionalNumberCell
+          value={activeEntry?.lastReps}
+          onChange={onEditLastReps}
+          placeholder={lastEntry?.lastReps != null ? String(lastEntry.lastReps) : 'reps'}
+          className="routine-weight-input"
+        />
       </td>
       <td className="health-routine-notes-cell">
         <NotesCell value={exercise.notes ?? ''} onChange={notes => onEditField({ notes: notes || undefined })} />
       </td>
-      <td><button type="button" className="icon-btn danger" onClick={onDelete} aria-label={`Delete ${exercise.name}`}><Trash2 size={13} /></button></td>
+      <td>
+        <div className="routine-row-actions">
+          {canCopyLast && (
+            <button
+              type="button"
+              className="icon-btn"
+              onClick={onCopyLast}
+              title={`Same as last time (${formatShortDate(lastEntry!.date)}): ${lastSummary}`}
+              aria-label={`Fill in the same weights as last time: ${lastSummary}`}
+            >
+              <History size={13} />
+            </button>
+          )}
+          <button type="button" className="icon-btn danger" onClick={onDelete} aria-label={`Delete ${exercise.name}`}><Trash2 size={13} /></button>
+        </div>
+      </td>
     </tr>
   );
 }
 
 function RoutineDayCard({
-  day, accent, entryByExerciseId, onLogDate, onEditWeight, onEditLastReps, onEditField, onDeleteExercise, onAddExercise, onEditDay, onDeleteDay
+  day, accent, entryByExerciseId, lastEntryByExerciseId, onEditWeight, onEditLastReps, onCopyLast, onEditField, onDeleteExercise, onAddExercise, onEditDay, onDeleteDay
 }: {
   day: RoutineDay;
   accent: string;
   entryByExerciseId: Map<string, ExerciseSetLog>;
-  onLogDate: (exerciseId: string) => void;
-  onEditWeight: (exerciseId: string, setIndex: number, weight: number | undefined) => void;
-  onEditLastReps: (exerciseId: string, reps: number | undefined) => void;
+  lastEntryByExerciseId: Map<string, ExerciseSetLog>;
+  onEditWeight: (exercise: RoutineExercise, setIndex: number, weight: number | undefined) => void;
+  onEditLastReps: (exercise: RoutineExercise, reps: number | undefined) => void;
+  onCopyLast: (exercise: RoutineExercise) => void;
   onEditField: (exerciseId: string, patch: Partial<RoutineExercise>) => void;
   onDeleteExercise: (exerciseId: string) => void;
   onAddExercise: () => void;
@@ -346,7 +385,7 @@ function RoutineDayCard({
     const ro = new ResizeObserver(measure);
     ro.observe(wrap);
     return () => ro.disconnect();
-  }, [day, entryByExerciseId, collapsed]);
+  }, [day, entryByExerciseId, lastEntryByExerciseId, collapsed]);
 
   return (
     <Card className={`health-routine-day accent-${accent} ${collapsed ? 'is-collapsed' : ''}`}>
@@ -401,9 +440,10 @@ function RoutineDayCard({
                 exercise={ex}
                 maxSets={maxSets}
                 activeEntry={entryByExerciseId.get(ex.id)}
-                onLogDate={() => onLogDate(ex.id)}
-                onEditWeight={(i, w) => onEditWeight(ex.id, i, w)}
-                onEditLastReps={reps => onEditLastReps(ex.id, reps)}
+                lastEntry={lastEntryByExerciseId.get(ex.id)}
+                onEditWeight={(i, w) => onEditWeight(ex, i, w)}
+                onEditLastReps={reps => onEditLastReps(ex, reps)}
+                onCopyLast={() => onCopyLast(ex)}
                 onEditField={patch => onEditField(ex.id, patch)}
                 onDelete={() => onDeleteExercise(ex.id)}
               />
@@ -520,6 +560,13 @@ export function WorkoutRoutineSection({
 
   const activeDays = resolveVersion(routine, logDate).days;
   const entryByExerciseId = new Map(routine.exerciseLogs.filter(l => l.date === logDate).map(l => [l.exerciseId, l]));
+  // Each exercise's most recent session *before* this date (not the latest overall — logging a
+  // past day shouldn't suggest numbers from the future). Shown as placeholders, and the source for
+  // "Same as last time".
+  const lastEntryByExerciseId = new Map<string, ExerciseSetLog>();
+  for (const l of routine.exerciseLogs.filter(l => l.date < logDate).sort((a, b) => a.date.localeCompare(b.date))) {
+    lastEntryByExerciseId.set(l.exerciseId, l);
+  }
 
   const patchDays = (mutate: (days: RoutineDay[]) => RoutineDay[]) => {
     void upsert('workoutRoutines', { ...routine, versions: withStructuralEdit(routine, logDate, mutate) });
@@ -536,28 +583,39 @@ export function WorkoutRoutineSection({
     patchDays(days => days.map(d => d.id !== dayId ? d : { ...d, ...patch }));
   };
 
-  const logForDate = (exerciseId: string, targetSets: number) => {
-    if (routine.exerciseLogs.some(l => l.exerciseId === exerciseId && l.date === logDate)) return;
-    const prior = routine.exerciseLogs.filter(l => l.exerciseId === exerciseId).sort((a, b) => a.date.localeCompare(b.date));
-    const last = prior[prior.length - 1];
-    const weights: (number | undefined)[] = Array.from({ length: targetSets }, (_, i) => last?.weights[i]);
-    const entry: ExerciseSetLog = { exerciseId, date: logDate, weights, lastReps: last?.lastReps };
-    void upsert('workoutRoutines', { ...routine, exerciseLogs: [...routine.exerciseLogs, entry] });
+  // Logging is just typing: the first number entered for an exercise on this date creates its log,
+  // and clearing every number removes it again — so there's no "+ Log" to tap by mistake and
+  // nothing extra to undo. (It replaced a "+ Log" button that saved last session's weights as
+  // today's the moment it was tapped.)
+  const writeEntry = (exercise: RoutineExercise, mutate: (entry: ExerciseSetLog) => ExerciseSetLog) => {
+    const same = (l: ExerciseSetLog) => l.exerciseId === exercise.id && l.date === logDate;
+    const existing = routine.exerciseLogs.find(same);
+    const base: ExerciseSetLog = existing
+      ? { ...existing, weights: existing.weights.slice() }
+      : { exerciseId: exercise.id, date: logDate, weights: Array.from({ length: exercise.targetSets }, () => undefined) };
+    const next = mutate(base);
+    const empty = next.weights.every(w => w == null) && next.lastReps == null;
+    const others = routine.exerciseLogs.filter(l => !same(l));
+    void upsert('workoutRoutines', { ...routine, exerciseLogs: empty ? others : [...others, next] });
   };
 
-  const editWeight = (exerciseId: string, setIndex: number, weight: number | undefined) => {
-    const exerciseLogs = routine.exerciseLogs.map(l => {
-      if (l.exerciseId !== exerciseId || l.date !== logDate) return l;
-      const weights = l.weights.slice();
-      weights[setIndex] = weight;
-      return { ...l, weights };
-    });
-    void upsert('workoutRoutines', { ...routine, exerciseLogs });
+  const editWeight = (exercise: RoutineExercise, setIndex: number, weight: number | undefined) => {
+    writeEntry(exercise, e => { e.weights[setIndex] = weight; return e; });
   };
 
-  const editLastReps = (exerciseId: string, reps: number | undefined) => {
-    const exerciseLogs = routine.exerciseLogs.map(l => (l.exerciseId === exerciseId && l.date === logDate) ? { ...l, lastReps: reps } : l);
-    void upsert('workoutRoutines', { ...routine, exerciseLogs });
+  const editLastReps = (exercise: RoutineExercise, reps: number | undefined) => {
+    writeEntry(exercise, e => ({ ...e, lastReps: reps }));
+  };
+
+  // "Same as last time": fills this date with the previous session's weights and last reps.
+  const copyLast = (exercise: RoutineExercise) => {
+    const last = lastEntryByExerciseId.get(exercise.id);
+    if (!last) return;
+    writeEntry(exercise, e => ({
+      ...e,
+      weights: Array.from({ length: exercise.targetSets }, (_, i) => last.weights[i]),
+      lastReps: last.lastReps
+    }));
   };
 
   const editExerciseField = (dayId: string, exerciseId: string, patch: Partial<RoutineExercise>) => {
@@ -650,12 +708,10 @@ export function WorkoutRoutineSection({
           day={day}
           accent={DAY_ACCENTS[i % DAY_ACCENTS.length]}
           entryByExerciseId={entryByExerciseId}
-          onLogDate={exId => {
-            const ex = day.exercises.find(e => e.id === exId);
-            if (ex) logForDate(exId, ex.targetSets);
-          }}
-          onEditWeight={(exId, setIndex, w) => editWeight(exId, setIndex, w)}
-          onEditLastReps={(exId, reps) => editLastReps(exId, reps)}
+          lastEntryByExerciseId={lastEntryByExerciseId}
+          onEditWeight={editWeight}
+          onEditLastReps={editLastReps}
+          onCopyLast={copyLast}
           onEditField={(exId, patch) => editExerciseField(day.id, exId, patch)}
           onDeleteExercise={exId => deleteExercise(day.id, exId)}
           onAddExercise={() => addExercise(day.id)}

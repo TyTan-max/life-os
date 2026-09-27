@@ -549,6 +549,11 @@ input, select, textarea { font-family: inherit; }
 .date-picker-cell.marked.selected::after { background: #fff; }
 /* Secondary markers: logged, but under something other than what's on screen (other programs) —
    one dot per program in that program's colour. */
+/* Workout weights: last session's numbers sit in the empty boxes as faint italic placeholders, so
+   they read as a reference, not as something already logged. */
+.routine-weight-input::placeholder { color: var(--text-faint); font-style: italic; opacity: .8; }
+/* "Same as last time" + delete, side by side in the last column. */
+.routine-row-actions { display: flex; align-items: center; gap: 2px; }
 /* Program colour key in the workout program menu. */
 .program-color-dot { flex: none; width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
 .date-picker-dots {
@@ -4913,6 +4918,56 @@ input, select, textarea { font-family: inherit; }
 .health-quadrant-meta { font-size: 12px; color: var(--text-faint); margin-top: 4px; }
 .health-quadrant-meta.warn { color: var(--amber); font-weight: 600; }
 
+/* Sleep trend (SleepTrendChart): nightly bars coloured by quality, dashed target line. */
+.sleep-trend-card { margin-bottom: 16px; }
+.sleep-trend-controls { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.sleep-target-field { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 600; color: var(--text-muted); }
+.sleep-target-field input {
+  width: 58px; padding: 5px 8px; border: 1px solid var(--border); border-radius: 8px;
+  background: var(--surface); color: var(--text); font-family: inherit; font-size: 13px; text-align: right;
+}
+.sleep-trend { display: flex; flex-direction: column; gap: 6px; }
+.sleep-tracker-toggle { align-self: center; color: var(--text-muted); }
+/* ⓘ info popover (InfoTip) */
+.info-tip-btn {
+  display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; padding: 0;
+  border: none; border-radius: 50%; background: none; color: var(--text-faint); cursor: pointer; vertical-align: middle;
+}
+.info-tip-btn:hover, .info-tip-btn[aria-expanded="true"] { color: var(--accent); }
+.info-tip-pop {
+  position: fixed; z-index: 700; padding: 12px 14px; border: 1px solid var(--border); border-radius: 10px;
+  background: var(--surface); color: var(--text); box-shadow: var(--shadow);
+  font-size: 12.5px; font-weight: 400; line-height: 1.45; text-align: left; white-space: normal; text-transform: none; letter-spacing: 0;
+}
+.th-with-info, .label-with-info { display: inline-flex; align-items: center; gap: 4px; }
+.quality-guide b { display: block; font-size: 13px; margin-bottom: 4px; }
+.quality-guide p { margin: 0 0 8px; color: var(--text-muted); }
+.quality-guide table { width: 100%; border-collapse: collapse; margin-bottom: 8px; }
+.quality-guide th { width: 42px; padding: 3px 8px 3px 0; text-align: left; font-weight: 700; color: var(--text); white-space: nowrap; vertical-align: top; }
+.quality-guide td { padding: 3px 0; color: var(--text-muted); }
+.quality-guide tr + tr th, .quality-guide tr + tr td { border-top: 1px solid var(--border); }
+.quality-guide-q { font-size: 12px; margin: 0 !important; }
+.sheet-form .sleep-tracker-toggle { align-self: flex-start; }
+.sleep-trend-plot { position: relative; padding-right: 30px; }
+.sleep-trend-svg { display: block; width: 100%; height: 150px; }
+.sleep-trend-bar.good { fill: var(--green); }
+.sleep-trend-bar.ok { fill: var(--amber); }
+.sleep-trend-bar.poor { fill: var(--red); }
+.sleep-trend-bar.unrated { fill: var(--blue); opacity: .55; }
+.sleep-trend-target { stroke: var(--text-muted); stroke-width: 1.2; stroke-dasharray: 4 3; vector-effect: non-scaling-stroke; }
+.sleep-trend-target-label {
+  position: absolute; right: 0; transform: translateY(-50%);
+  font-size: 11px; font-weight: 650; color: var(--text-muted);
+}
+.sleep-trend-axis { display: grid; margin-right: 30px; font-size: 10.5px; color: var(--text-faint); text-align: center; }
+.sleep-trend-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; font-size: 12.5px; color: var(--text-muted); margin-top: 4px; }
+.sleep-trend-summary b { color: var(--text); font-weight: 650; }
+.sleep-trend-legend { display: inline-flex; align-items: center; gap: 4px 8px; margin-left: auto; font-size: 11.5px; flex-wrap: wrap; }
+.sleep-trend-legend i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-left: 4px; }
+.sleep-trend-legend i.good { background: var(--green); }
+.sleep-trend-legend i.ok { background: var(--amber); }
+.sleep-trend-legend i.poor { background: var(--red); }
+.sleep-trend-legend i.unrated { background: var(--blue); opacity: .55; }
 .weight-trend-chart { display: flex; flex-direction: column; gap: 6px; }
 .weight-trend-svg { width: 100%; height: 140px; }
 .weight-trend-area-good { fill: var(--green-soft); }
@@ -5521,6 +5576,12 @@ input, select, textarea { font-family: inherit; }
   .crm-main > .card:has(> .mrl) { padding: 0; border: none; background: none; box-shadow: none; }
   .crm-main .mrl-text small { white-space: normal; }
   /* ---- Health ---- */
+  /* Sleep trend card: the title stacks above the target + 7/30 controls instead of being squeezed
+     onto two lines beside them. The target field gets phone-sized (16px stops iOS zooming in). */
+  .sleep-trend-card .card-title { flex-direction: column; align-items: stretch; gap: 10px; }
+  .sleep-trend-controls { justify-content: space-between; }
+  .sleep-target-field input { font-size: 16px; min-height: 40px; width: 64px; }
+  .sleep-trend-legend { margin-left: 0; }
   /* Period controls: select + date share one full-width row under the tab strip. */
   .health-period-controls { width: 100%; justify-content: space-between; }
   .health-period-controls .tj-period-nav { flex: 1; min-width: 0; justify-content: flex-end; }

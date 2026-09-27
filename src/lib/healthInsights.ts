@@ -1,5 +1,6 @@
 import type { AppData } from '../types';
 import { computeCalorieTarget, isLowGlucose } from './nutritionTargets';
+import { sleepHours } from './sleep';
 
 export type HealthPillar = 'Fitness' | 'Weight' | 'Sleep' | 'Medication';
 export type InsightSeverity = 'info' | 'warn';
@@ -77,18 +78,18 @@ export function computeHealthInsights(data: AppData): HealthInsight[] {
   // Poor sleep (single night or rolling debt) should downgrade today's training suggestion.
   const lastNight = data.sleepEntries.find(e => e.date === today);
   const targetSleep = data.settings.sleepTargetHours ?? 8;
-  if (lastNight && (lastNight.durationHours < targetSleep - 1.5 || (lastNight.quality ?? 10) <= POOR_SLEEP_QUALITY)) {
+  if (lastNight && (sleepHours(lastNight) < targetSleep - 1.5 || (lastNight.quality ?? 10) <= POOR_SLEEP_QUALITY)) {
     insights.push({
       id: 'recovery-single-night',
       pillar: 'Fitness',
       severity: 'warn',
       title: 'Recovery looked rough last night',
-      detail: `${lastNight.durationHours}h${lastNight.quality ? ` at quality ${lastNight.quality}/10` : ''} — today might be a better day for an easy session or rest instead of pushing intensity.`
+      detail: `${sleepHours(lastNight)}h${lastNight.quality ? ` at quality ${lastNight.quality}/10` : ''} — today might be a better day for an easy session or rest instead of pushing intensity.`
     });
   } else {
     const thisWeekSleep = data.sleepEntries.filter(e => e.date >= weekStart);
     if (thisWeekSleep.length >= 3) {
-      const debt = targetSleep * thisWeekSleep.length - thisWeekSleep.reduce((s, e) => s + e.durationHours, 0);
+      const debt = targetSleep * thisWeekSleep.length - thisWeekSleep.reduce((s, e) => s + sleepHours(e), 0);
       if (debt > SLEEP_DEBT_WARN_HOURS) {
         insights.push({
           id: 'recovery-debt',

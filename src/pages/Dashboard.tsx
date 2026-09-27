@@ -15,6 +15,7 @@ import { lastContactedDate, contactStatus } from '../lib/crmCadence';
 import { getEffectiveRoutineFilter, loadSavedRoutineFilter, matchesRoutineFilter, sortRoutines } from '../lib/habitRoutines';
 import { Badge, Card, Kpi, ProgressBar, formatCurrency, formatDate } from '../components/UI';
 import { useIsMobile } from '../hooks/useIsMobile';
+import { latestNight, sleepHours } from '../lib/sleep';
 
 type DailyLog = { totalTrades:number; dailyPL:number; dailyFees:number };
 
@@ -142,7 +143,7 @@ export function Dashboard({navigate}:{navigate:(page:string, tab?: string)=>void
   }).length;
   const upcomingCheckups = activeContacts.filter(c=>c.nextCheckup && c.nextCheckup>=today && c.nextCheckup<=in7Iso).length;
   const latestWeight = data.weightEntries.filter(e=>e.weight>0).sort((a,b)=>b.date.localeCompare(a.date))[0];
-  const latestSleep = data.sleepEntries.slice().sort((a,b)=>b.date.localeCompare(a.date))[0];
+  const latestSleep = latestNight(data.sleepEntries);
   const lowMeds = data.medications.filter(m=>m.active && m.pillsRemaining!=null && m.refillThreshold!=null && m.pillsRemaining<=m.refillThreshold).length;
   const thisYear = today.slice(0,4);
   const achievedThisYear = data.bucketList.filter(b=>b.status==='Achieved' && b.achievedAt?.startsWith(thisYear)).length;
@@ -268,12 +269,12 @@ export function Dashboard({navigate}:{navigate:(page:string, tab?: string)=>void
       <DashCard
         icon={<HeartPulse size={19}/>} title="Health" isMobile={isMobile}
         quiet={lowMeds === 0} expanded={expandedCards.has('health')} onToggle={()=>toggleCard('health')}
-        summary={`${latestSleep?`${latestSleep.durationHours.toFixed(1)}h sleep`:'No sleep logged'} · ${lowMeds?`${lowMeds} refill${lowMeds===1?'':'s'} needed`:'meds on track'}`}
+        summary={`${latestSleep?`${sleepHours(latestSleep).toFixed(1)}h sleep`:'No sleep logged'} · ${lowMeds?`${lowMeds} refill${lowMeds===1?'':'s'} needed`:'meds on track'}`}
         action={<button className="text-btn" onClick={()=>navigate('Health')}>Open <ArrowRight size={15}/></button>}
         orderStyle={slot(5, lowMeds)}
       >
         <div className="metric-pair"><span>Latest weight</span><b>{latestWeight?`${latestWeight.weight} ${data.settings.weightUnit ?? 'lb'}`:'—'}</b></div>
-        <div className="metric-pair"><span>Last night's sleep</span><b>{latestSleep?`${latestSleep.durationHours.toFixed(1)}h`:'—'}</b></div>
+        <div className="metric-pair"><span>Last night's sleep</span><b>{latestSleep?`${sleepHours(latestSleep).toFixed(1)}h`:'—'}</b></div>
         <div className="metric-pair"><span>Refills needed</span><b className={lowMeds?'negative':'positive'}>{lowMeds}</b></div>
       </DashCard>
       <DashCard
