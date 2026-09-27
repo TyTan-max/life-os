@@ -1,10 +1,13 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, ReactNode } from 'react';
-import { Calculator as CalculatorIcon, Calendar as CalendarIcon, ChevronDown, ChevronLeft, ChevronRight, ImagePlus, Minus, Plus, RotateCcw, StickyNote, Table2, TrendingDown, TrendingUp, Trash2, Upload, X } from 'lucide-react';
+import { Calculator as CalculatorIcon, Calendar as CalendarIcon, ChevronDown, ChevronLeft, ChevronRight, ImagePlus, Minus, PanelRightOpen, Plus, RotateCcw, StickyNote, Table2, TrendingDown, TrendingUp, Trash2, Upload, X } from 'lucide-react';
 import { useStore, newRecord } from '../store';
 import type { DailyLog, TradingScreenshot } from '../types';
 import { formatCurrency, formatCurrencyCompact, Modal } from '../components/UI';
 import { DatePicker } from '../components/DatePicker';
+import { DetailPanel } from '../components/DetailPanel';
+import { useContextMenu } from '../components/ContextMenu';
+import type { ContextMenuItem } from '../components/ContextMenu';
 import { MobileRecordList } from '../components/MobileRecordList';
 import { useIsMobile } from '../hooks/useIsMobile';
 import { useFabAction } from '../hooks/useFabAction';
@@ -947,14 +950,17 @@ function CalculatorPopup({ onClose }: { onClose: () => void }) {
   );
 }
 
+// Desktop: a right-hand day review panel (arrow keys step through days); phone: the same as a modal.
 function DayEditModal({
-  log, onClose, onSave, onDelete, onManageScreenshots
+  log, onClose, onSave, onDelete, onManageScreenshots, onPrev, onNext
 }: {
   log: DailyLog;
   onClose: () => void;
   onSave: (log: DailyLog) => void;
   onDelete: () => void;
   onManageScreenshots: () => void;
+  onPrev?: () => void;
+  onNext?: () => void;
 }) {
   const [form, setForm] = useState<DailyLog>(log);
   const net = netOf(form);
@@ -962,10 +968,12 @@ function DayEditModal({
   const setField = <K extends keyof DailyLog>(key: K, value: DailyLog[K]) => setForm(prev => ({ ...prev, [key]: value }));
 
   return (
-    <Modal
-      eyebrow="Life OS"
-      title={`Edit Day — ${formatFullDate(log.date)}`}
+    <DetailPanel
+      eyebrow="Trading Journal"
+      title={formatFullDate(log.date)}
       onClose={onClose}
+      onPrev={onPrev}
+      onNext={onNext}
       footer={
         <>
           <button type="button" className="btn ghost tj-day-edit-delete" onClick={onDelete}>Delete day</button>
@@ -992,10 +1000,19 @@ function DayEditModal({
         <b className={net >= 0 ? 'tj-text-green' : 'tj-text-neg'}>{formatCurrency(net)}</b>
         <span className={`tj-status tj-status-${status.toLowerCase()}`}>{status}</span>
       </div>
+      {(log.screenshots ?? []).length > 0 && (
+        <div className="tj-day-shot-strip">
+          {(log.screenshots ?? []).map((shot, i) => (
+            <button type="button" key={i} className="tj-day-shot" onClick={onManageScreenshots} aria-label={`Open screenshot ${i + 1}`}>
+              <img src={shot.src} alt={shot.label ?? `Screenshot ${i + 1}`} />
+            </button>
+          ))}
+        </div>
+      )}
       <button type="button" className="text-btn tj-day-edit-shots" onClick={onManageScreenshots}>
         <ImagePlus size={14} /> Manage screenshots ({(log.screenshots ?? []).length})
       </button>
-    </Modal>
+    </DetailPanel>
   );
 }
 
@@ -1122,6 +1139,7 @@ function MonthlyCalendarView({
       </div>
       {editingLog && (
         <DayEditModal
+          key={editingLog.id}
           log={editingLog}
           onClose={() => setEditingLogId(null)}
           onSave={updated => { onSaveLog(updated); setEditingLogId(null); }}
@@ -1321,6 +1339,28 @@ export function TradingJournal() {
   const [showCalculator, setShowCalculator] = useState(false);
   const screenshotLog = screenshotLogId ? logs.find(l => l.id === screenshotLogId) ?? null : null;
   const editingLog = editingLogId ? logs.find(l => l.id === editingLogId) ?? null : null;
+  // Right-click a day row (desktop): review, screenshots, set emotion, delete.
+  const { menu: contextMenu, openMenu } = useContextMenu();
+  const dayMenu = (l: DailyLog): ContextMenuItem[] => [
+    { label: 'Open day review', icon: PanelRightOpen, onSelect: () => setEditingLogId(l.id) },
+    { label: 'Screenshots…', icon: ImagePlus, onSelect: () => setScreenshotLogId(l.id) },
+    'separator',
+    { heading: 'Primary emotion' },
+    ...EMOTIONS.map(em => ({
+      label: `${em.emoji} ${em.value}`,
+      checked: l.emotion === em.value,
+      onSelect: () => patch(l.id, { emotion: l.emotion === em.value ? undefined : em.value })
+    })),
+    'separator',
+    { label: 'Delete day', icon: Trash2, danger: true, onSelect: () => removeLog(l.id) }
+  ];
+
+  // Arrow-key stepping in the day review panel follows the table's newest-first order.
+  const dayNeighbour = (step: 1 | -1) => {
+    const i = editingLogId ? sortedDesc.findIndex(l => l.id === editingLogId) : -1;
+    const next = i < 0 ? undefined : sortedDesc[i + step];
+    return next ? () => setEditingLogId(next.id) : undefined;
+  };
 
   const addScreenshots = async (id: string, files: FileList) => {
     const encoded: TradingScreenshot[] = await Promise.all(Array.from(files).map(async f => ({ src: await fileToCompressedDataUrl(f) })));
@@ -1617,7 +1657,7 @@ export function TradingJournal() {
               const status = statusOf(net);
               const shotCount = l.screenshots?.length ?? 0;
               return (
-                <tr key={l.id}>
+                <tr key={l.id} className={editingLogId === l.id ? 'tj-row-open' : undefined} onContextMenu={e => openMenu(e, dayMenu(l))}>
                   <td><DatePicker value={l.date} onChange={v => patch(l.id, { date: v })} /></td>
                   <td className="tj-td-compact"><NumberField className="tj-cell-input tj-num tj-num-trades" value={l.totalTrades} onChange={n => patch(l.id, { totalTrades: n })} min={0} /></td>
                   <td className="tj-td-compact"><NumberField className="tj-cell-input tj-num tj-num-pl" value={l.dailyPL} onChange={n => patch(l.id, { dailyPL: n })} decimals={2} /></td>
@@ -1640,7 +1680,10 @@ export function TradingJournal() {
                       <ImagePlus size={14} /> {shotCount || ''}
                     </button>
                   </td>
-                  <td><button type="button" className="icon-btn danger" onClick={() => removeLog(l.id)} aria-label="Delete day"><Trash2 size={14} /></button></td>
+                  <td className="tj-row-actions">
+                    <button type="button" className="icon-btn" onClick={() => setEditingLogId(l.id)} aria-label="Open day review" title="Open day review"><PanelRightOpen size={14} /></button>
+                    <button type="button" className="icon-btn danger" onClick={() => removeLog(l.id)} aria-label="Delete day"><Trash2 size={14} /></button>
+                  </td>
                 </tr>
               );
             })}
@@ -1660,16 +1703,21 @@ export function TradingJournal() {
           </button>
         </div>
       )}
+      {contextMenu}
       <button type="button" className="btn teal tj-add-row" onClick={addLog}><Plus size={16} /> Add day</button>
       {/* On mobile the 9-column grid is replaced by cards, so this modal is where the day's
           full field set gets edited — the same one the calendar view already uses. */}
       {editingLog && (
         <DayEditModal
+          key={editingLog.id}
           log={editingLog}
           onClose={() => setEditingLogId(null)}
           onSave={updated => { void upsert('dailyLogs', updated); setEditingLogId(null); }}
           onDelete={() => { removeLog(editingLog.id); setEditingLogId(null); }}
-          onManageScreenshots={() => { setScreenshotLogId(editingLog.id); setEditingLogId(null); }}
+          // Phone: two stacked modals is one too many, so the day closes. Desktop: the panel stays beside it.
+          onManageScreenshots={() => { setScreenshotLogId(editingLog.id); if (isMobile) setEditingLogId(null); }}
+          onPrev={dayNeighbour(-1)}
+          onNext={dayNeighbour(1)}
         />
       )}
       {screenshotLog && (

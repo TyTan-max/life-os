@@ -3,11 +3,14 @@ import type { ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import {
   ArrowDown01, ArrowDownAZ, ArrowDownWideNarrow, ArrowUp01, ArrowUpNarrowWide, ArrowUpZA, Check, ChevronDown, Copy, Dices, Eye, EyeOff,
-  LayoutGrid, List as ListIcon, ListTodo, Pencil, Plus, Search, Shuffle, Star, Trash2, Upload, X
+  Columns3, Info, LayoutGrid, List as ListIcon, ListTodo, Pencil, Table2, Plus, Search, Shuffle, Star, Trash2, Upload, X
 } from 'lucide-react';
 import { useStore, newRecord } from '../store';
 import type { CollectionName, CollectionRecord } from '../types';
 import { Card, EmptyState, Modal, MoneyInput, PageHeader, formatDate } from './UI';
+import { DetailPanel } from './DetailPanel';
+import { useContextMenu } from './ContextMenu';
+import type { ContextMenuItem } from './ContextMenu';
 import { DatePicker } from './DatePicker';
 import { TimeWheelPicker } from './TimeWheelPicker';
 import { useIsMobile } from '../hooks/useIsMobile';
@@ -782,7 +785,24 @@ export function CollectionPage<T extends CollectionRecord>({
   const [showDuplicates, setShowDuplicates] = useState(false);
   const [showDeleteAllConfirm, setShowDeleteAllConfirm] = useState(false);
   const [deletingAll, setDeletingAll] = useState(false);
-  const [view, setView] = useState<'gallery' | 'list' | 'review'>(gallery ? 'gallery' : 'list');
+  // Table and Board are desktop views; the chosen view is remembered per collection on this device.
+  type ViewMode = 'gallery' | 'list' | 'table' | 'board' | 'review';
+  const viewStorageKey = `lifeos.view.${collection}`;
+  const [view, setViewState] = useState<ViewMode>(() => {
+    try {
+      const saved = window.localStorage.getItem(viewStorageKey);
+      if (saved === 'table' || saved === 'board' || saved === 'list' || (saved === 'gallery' && gallery)) return saved;
+    } catch { /* storage unavailable */ }
+    return gallery ? 'gallery' : 'list';
+  });
+  const setView = (next: ViewMode) => {
+    setViewState(next);
+    if (next !== 'review') { try { window.localStorage.setItem(viewStorageKey, next); } catch { /* not remembered */ } }
+  };
+  const desktopView = !isMobile && (view === 'table' || view === 'board');
+  const [tableSort, setTableSort] = useState<{ key: string; dir: 1 | -1 } | null>(null);
+  const [boardDragId, setBoardDragId] = useState<string | null>(null);
+  const [boardOverCol, setBoardOverCol] = useState<string | null>(null);
   const [statusTab, setStatusTab] = useState('All');
   const [genreTab, setGenreTab] = useState<string | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -884,6 +904,33 @@ export function CollectionPage<T extends CollectionRecord>({
   const shuffleNow = () => { setOrderMode('shuffle'); setShuffleTick(t => t + 1); };
   const pickRandom = () => { if (records.length) setRandomPick(records[Math.floor(Math.random() * records.length)]); };
 
+  // Right-click menu on any record (desktop): open, edit, change status in place, delete.
+  const { menu: contextMenu, openMenu } = useContextMenu();
+  const statusOptions = statusFilter ? fields.find(f => f.key === statusFilter.key)?.options ?? [] : [];
+  const recordMenu = (record: T): ContextMenuItem[] => {
+    const items: ContextMenuItem[] = [];
+    if (gallery) items.push({ label: 'Open details', icon: Info, onSelect: () => setInfoRecord(record) });
+    items.push({ label: 'Edit…', icon: Pencil, onSelect: () => startEdit(record) });
+    if (statusFilter && statusOptions.length) {
+      const current = String(record[statusFilter.key] ?? '');
+      items.push('separator', { heading: 'Status' });
+      statusOptions.forEach(opt => items.push({
+        label: optLabel(opt),
+        checked: optValue(opt) === current,
+        onSelect: () => { if (optValue(opt) !== current) void upsert(collection, { ...record, [statusFilter.key]: optValue(opt) } as CollectionRecord); }
+      }));
+    }
+    items.push('separator', { label: 'Delete', icon: Trash2, danger: true, onSelect: () => void remove(collection, record.id) });
+    return items;
+  };
+
+  // Arrow-key browsing in the detail panel follows the order currently on screen.
+  const infoNeighbour = (step: 1 | -1) => {
+    if (!infoRecord) return undefined;
+    const i = orderedRecords.findIndex(r => r.id === infoRecord.id);
+    const next = i < 0 ? undefined : orderedRecords[i + step];
+    return next ? () => setInfoRecord(next) : undefined;
+  };
   const startAdd = () => { setForm({ ...defaults } as Partial<T>); setEditingId(null); setDuplicateError(null); setShowForm(true); };
   const startEdit = (record: T) => { setForm({ ...record }); setEditingId(record.id); setDuplicateError(null); setShowForm(true); };
   const cancel = () => { setShowForm(false); setEditingId(null); setForm({}); setDuplicateError(null); };
@@ -973,7 +1020,55 @@ export function CollectionPage<T extends CollectionRecord>({
   useFabAction(embedded ? null : fabPage ?? null, `Add ${noun.toLowerCase()}`, startAdd);
   const fabOwnsAdd = isMobile && !embedded && Boolean(fabPage);
 
-  const visibleCount = view === 'review' ? reviewRecords.length : orderedRecords.length;
+  // ---- Table view: every simple field as a sortable column; select fields edit in place. ----
+  const tableFields = fields.filter(f =>
+    ['text', 'number', 'money', 'select', 'multiselect', 'date', 'tags'].includes(f.type)
+    && f.key !== (autofill?.titleKey ?? '') && f.key !== 'title');
+  const sortValue = (r: T, key: string): string | number | null => {
+    const v = key === '__title' ? renderTitle(r) : (r as unknown as Record<string, unknown>)[key];
+    if (v === undefined || v === null || v === '') return null;
+    if (Array.isArray(v)) return v.length ? v.join(', ').toLowerCase() : null;
+    if (typeof v === 'number') return v;
+    return String(v).toLowerCase();
+  };
+  const tableRecords = useMemo(() => {
+    if (!tableSort) return orderedRecords;
+    const { key, dir } = tableSort;
+    return orderedRecords.slice().sort((a, b) => {
+      const va = sortValue(a, key); const vb = sortValue(b, key);
+      if (va === null && vb === null) return 0;
+      if (va === null) return 1;  // blanks always sink, whichever direction
+      if (vb === null) return -1;
+      return (typeof va === 'number' && typeof vb === 'number' ? va - vb : String(va).localeCompare(String(vb), undefined, { numeric: true })) * dir;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orderedRecords, tableSort]);
+  const cycleTableSort = (key: string) => setTableSort(cur =>
+    !cur || cur.key !== key ? { key, dir: 1 } : cur.dir === 1 ? { key, dir: -1 } : null);
+  const sortMark = (key: string) => tableSort?.key === key ? (tableSort.dir === 1 ? ' ↑' : ' ↓') : '';
+
+  // ---- Board view: one column per status; drag a card to change it. Ignores the status tabs
+  // (the columns ARE the statuses) but keeps genre + search filtering. ----
+  const boardRecords = useMemo(() => {
+    let list = allRecords;
+    if (genreFilter && genreTab) list = list.filter(r => ((r[genreFilter.key] as unknown as string[] | undefined) ?? []).includes(genreTab));
+    const term = searchQuery.trim().toLowerCase();
+    if (term) list = list.filter(r => renderTitle(r).toLowerCase().includes(term));
+    return list;
+  }, [allRecords, genreFilter, genreTab, searchQuery, renderTitle]);
+  const boardColumns = statusFilter && statusOptions.length ? (() => {
+    const known = statusOptions.map(optValue);
+    const cols = statusOptions.map(opt => ({ value: optValue(opt), label: optLabel(opt), items: boardRecords.filter(r => String(r[statusFilter.key] ?? '') === optValue(opt)) }));
+    const other = boardRecords.filter(r => !known.includes(String(r[statusFilter.key] ?? '')));
+    return other.length ? [...cols, { value: '', label: 'No status', items: other }] : cols;
+  })() : null;
+  const moveToStatus = (id: string, value: string) => {
+    const record = allRecords.find(r => r.id === id);
+    if (!record || !statusFilter || String(record[statusFilter.key] ?? '') === value) return;
+    void upsert(collection, { ...record, [statusFilter.key]: value || undefined } as CollectionRecord);
+  };
+
+  const visibleCount = view === 'review' ? reviewRecords.length : desktopView && view === 'board' ? boardRecords.length : orderedRecords.length;
 
   const toolbar = (statusFilter || genreFilter || gallery) ? (
     <div className="collection-toolbar">
@@ -996,7 +1091,7 @@ export function CollectionPage<T extends CollectionRecord>({
             <Search size={15} />
           </button>
         )}
-        {statusFilter && (
+        {statusFilter && !(desktopView && view === 'board') && (
           <div className="segmented">
             <button type="button" className={statusTab === 'All' ? 'on' : ''} onClick={() => setStatusTab('All')}>All</button>
             {statusFilter.groups.map(g => (
@@ -1055,7 +1150,13 @@ export function CollectionPage<T extends CollectionRecord>({
           </div>
           <div className="view-toggle-btns">
             <button type="button" className={view === 'gallery' ? 'on' : ''} onClick={() => setView('gallery')} aria-label="Gallery view"><LayoutGrid size={15} /></button>
-            <button type="button" className={view === 'list' ? 'on' : ''} onClick={() => setView('list')} aria-label="List view"><ListIcon size={15} /></button>
+            <button type="button" className={view === 'list' ? 'on' : ''} onClick={() => setView('list')} aria-label="List view" title="List"><ListIcon size={15} /></button>
+            {!isMobile && (
+              <button type="button" className={view === 'table' ? 'on' : ''} onClick={() => setView('table')} aria-label="Table view" title="Table — sort by any column"><Table2 size={15} /></button>
+            )}
+            {!isMobile && boardColumns && (
+              <button type="button" className={view === 'board' ? 'on' : ''} onClick={() => setView('board')} aria-label="Board view" title="Board — drag between statuses"><Columns3 size={15} /></button>
+            )}
             {needsReviewKey && (
               <button type="button" className={view === 'review' ? 'on' : ''} onClick={() => setView('review')} aria-label="Needs info">
                 <ListTodo size={15} />
@@ -1078,7 +1179,7 @@ export function CollectionPage<T extends CollectionRecord>({
     reviewRecords.length ? (
       <div className="record-list">
         {reviewRecords.map(record => (
-          <div className="record-row" key={record.id}>
+          <div className="record-row" key={record.id} onContextMenu={e => openMenu(e, recordMenu(record))}>
             <div onClick={() => startEdit(record)}>
               <span>
                 <b>{renderTitle(record)}</b>
@@ -1093,7 +1194,120 @@ export function CollectionPage<T extends CollectionRecord>({
       </div>
     ) : <EmptyState>Nothing needs info right now.</EmptyState>
   ) : orderedRecords.length ? (
-    gallery && view === 'gallery' ? (
+    desktopView && view === 'table' ? (
+      <div className="collection-table-wrap cp-table-wrap">
+        <table className="cp-table">
+          <thead>
+            <tr>
+              {gallery && <th className="cp-th-cover" />}
+              <th><button type="button" className="cp-sort" onClick={() => cycleTableSort('__title')}>{noun}{sortMark('__title')}</button></th>
+              {tableFields.map(f => (
+                <th key={f.key}><button type="button" className="cp-sort" onClick={() => cycleTableSort(f.key)}>{titleFromLabel(f.label)}{sortMark(f.key)}</button></th>
+              ))}
+              <th />
+            </tr>
+          </thead>
+          <tbody>
+            {tableRecords.map(record => {
+              const cover = gallery ? record[gallery.coverKey] as unknown as string | undefined : undefined;
+              return (
+                <tr
+                  key={record.id}
+                  className={`cp-row ${infoRecord?.id === record.id ? 'selected' : ''}`}
+                  onClick={() => (gallery ? setInfoRecord(record) : startEdit(record))}
+                  onContextMenu={e => openMenu(e, recordMenu(record))}
+                >
+                  {gallery && (
+                    <td className="cp-td-cover">
+                      <span className="cp-thumb" style={cover ? { backgroundImage: `url(${cover})` } : { background: gallery.coverAccent }} />
+                    </td>
+                  )}
+                  <td className="cp-td-title">{renderTitle(record)}</td>
+                  {tableFields.map(f => {
+                    const value = (record as unknown as Record<string, unknown>)[f.key];
+                    if (f.type === 'select' && f.options) {
+                      return (
+                        <td key={f.key} onClick={e => e.stopPropagation()}>
+                          <select
+                            className="cp-cell-select"
+                            value={String(value ?? '')}
+                            onChange={e => void upsert(collection, { ...record, [f.key]: e.target.value || undefined } as CollectionRecord)}
+                            aria-label={f.label}
+                          >
+                            <option value="">—</option>
+                            {f.options.map(opt => <option key={optValue(opt)} value={optValue(opt)}>{optLabel(opt)}</option>)}
+                          </select>
+                        </td>
+                      );
+                    }
+                    if (f.key === 'rating') {
+                      return (
+                        <td key={f.key} onClick={e => e.stopPropagation()}>
+                          <select
+                            className="cp-cell-select"
+                            value={value == null ? '' : String(value)}
+                            onChange={e => void upsert(collection, { ...record, rating: e.target.value ? Number(e.target.value) : undefined } as unknown as CollectionRecord)}
+                            aria-label="Rating"
+                          >
+                            <option value="">—</option>
+                            {[1, 2, 3, 4, 5].map(n => <option key={n} value={n}>{'★'.repeat(n)}</option>)}
+                          </select>
+                        </td>
+                      );
+                    }
+                    const display = f.type === 'date' && typeof value === 'string' && value ? formatDate(value) : formatFieldValue(value);
+                    return <td key={f.key} className={`${f.type === 'number' || f.type === 'money' ? 'cp-td-num' : ''} ${!display ? 'cp-td-empty' : ''}`} title={display ?? undefined}>{display ?? '—'}</td>;
+                  })}
+                  <td className="collection-table-actions" onClick={e => e.stopPropagation()}>
+                    <button className="icon-btn" onClick={() => startEdit(record)} aria-label={`Edit ${renderTitle(record)}`}><Pencil size={13} /></button>
+                    <button className="icon-btn danger" onClick={() => void remove(collection, record.id)} aria-label={`Delete ${renderTitle(record)}`}><Trash2 size={13} /></button>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    ) : desktopView && view === 'board' && boardColumns ? (
+      <div className="cp-board">
+        {boardColumns.map(col => (
+          <section
+            key={col.value || '__none'}
+            className={`cp-board-col ${boardOverCol === col.value && boardDragId ? 'drag-over' : ''}`}
+            onDragOver={e => { if (boardDragId) { e.preventDefault(); setBoardOverCol(col.value); } }}
+            onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setBoardOverCol(null); }}
+            onDrop={e => { e.preventDefault(); if (boardDragId) moveToStatus(boardDragId, col.value); setBoardDragId(null); setBoardOverCol(null); }}
+          >
+            <header className="cp-board-head"><span>{col.label}</span><span className="cp-board-count">{col.items.length}</span></header>
+            <div className="cp-board-list">
+              {col.items.map(record => {
+                const cover = gallery ? record[gallery.coverKey] as unknown as string | undefined : undefined;
+                const meta = gallery?.meta?.(record);
+                return (
+                  <button
+                    type="button"
+                    key={record.id}
+                    draggable
+                    className={`cp-board-card ${boardDragId === record.id ? 'dragging' : ''} ${infoRecord?.id === record.id ? 'selected' : ''}`}
+                    onDragStart={e => { setBoardDragId(record.id); e.dataTransfer.effectAllowed = 'move'; }}
+                    onDragEnd={() => { setBoardDragId(null); setBoardOverCol(null); }}
+                    onClick={() => (gallery ? setInfoRecord(record) : startEdit(record))}
+                    onContextMenu={e => openMenu(e, recordMenu(record))}
+                  >
+                    {gallery && <span className="cp-thumb" style={cover ? { backgroundImage: `url(${cover})` } : { background: gallery.coverAccent }} />}
+                    <span className="cp-board-card-text">
+                      <b>{renderTitle(record)}</b>
+                      {meta && <small>{meta}</small>}
+                    </span>
+                  </button>
+                );
+              })}
+              {!col.items.length && <p className="cp-board-empty">Drop here</p>}
+            </div>
+          </section>
+        ))}
+      </div>
+    ) : gallery && (view === 'gallery' || (isMobile && (view === 'table' || view === 'board'))) ? (
       <div className="gallery-grid">
         {orderedRecords.map(record => {
           const cover = record[gallery.coverKey] as unknown as string | undefined;
@@ -1102,7 +1316,7 @@ export function CollectionPage<T extends CollectionRecord>({
           const meta = gallery.meta?.(record);
           const label = renderTitle(record);
           return (
-            <div className="gallery-card" key={record.id}>
+            <div className={`gallery-card ${infoRecord?.id === record.id ? 'selected' : ''}`} key={record.id} onContextMenu={e => openMenu(e, recordMenu(record))}>
               <div className="gallery-cover-wrap">
                 <button
                   type="button"
@@ -1143,7 +1357,7 @@ export function CollectionPage<T extends CollectionRecord>({
           </thead>
           <tbody>
             {orderedRecords.map(record => (
-              <tr className="collection-table-row" key={record.id} onClick={() => startEdit(record)}>
+              <tr className="collection-table-row" key={record.id} onClick={() => startEdit(record)} onContextMenu={e => openMenu(e, recordMenu(record))}>
                 {leading && <td className="collection-table-leading">{leading(record)}</td>}
                 {table.columns.map(c => <td key={c.key} style={{ textAlign: c.align ?? 'left' }}>{c.render(record)}</td>)}
                 <td className="collection-table-actions" onClick={e => e.stopPropagation()}>
@@ -1158,7 +1372,7 @@ export function CollectionPage<T extends CollectionRecord>({
     ) : (
       <div className="record-list">
         {orderedRecords.map(record => (
-          <div className="record-row" key={record.id}>
+          <div className="record-row" key={record.id} onContextMenu={e => openMenu(e, recordMenu(record))}>
             <div className={leading ? 'record-row-main' : ''} onClick={() => startEdit(record)}>
               {leading && <span className="record-row-leading">{leading(record)}</span>}
               <span>
@@ -1232,11 +1446,14 @@ export function CollectionPage<T extends CollectionRecord>({
           onRemove={async ids => { for (const id of ids) await remove(collection, id); }}
         />
       )}
+      {contextMenu}
       {infoRecord && (
-        <Modal
-          eyebrow="Life OS"
+        <DetailPanel
+          eyebrow={title}
           title={renderTitle(infoRecord)}
           onClose={() => setInfoRecord(null)}
+          onPrev={infoNeighbour(-1)}
+          onNext={infoNeighbour(1)}
           footer={<>
             {/* The poster's hover-only delete overlay never appears on a touch screen, so on a
                 phone delete lives here (the Undo toast still covers a mistap). */}
@@ -1306,7 +1523,7 @@ export function CollectionPage<T extends CollectionRecord>({
               );
             })}
           </div>
-        </Modal>
+        </DetailPanel>
       )}
       {randomPick && (
         <Modal

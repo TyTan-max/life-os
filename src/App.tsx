@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import { Check, RefreshCw, Redo2, Save, Sparkles, Undo2 } from 'lucide-react';
+import React, { useCallback, useEffect, useState } from 'react';
+import { Check, RefreshCw, Redo2, Save, Search, Sparkles, Undo2 } from 'lucide-react';
 import { StoreProvider, useStore } from './store';
 import { NAV_SECTIONS } from './navigation';
 import { MobileNav } from './components/MobileNav';
@@ -19,6 +19,7 @@ import { HealthWellness } from './pages/HealthWellness';
 import { Travel } from './pages/Travel';
 import { PersonalCRM } from './pages/PersonalCRM';
 import { UndoToast } from './components/UndoToast';
+import { CommandPalette, PAGE_SHORTCUT_PAGES, ShortcutsSheet, isTypingTarget } from './components/CommandPalette';
 
 const PAGES: Record<string, React.ComponentType> = {
   Habits, Movies, Videogames, Books,
@@ -28,14 +29,53 @@ const PAGES: Record<string, React.ComponentType> = {
 };
 
 function Shell() {
-  const { loading, undo, redo, canUndo, canRedo, exportBackup, syncNow, syncStatus, syncError, lastSyncedAt, isSyncConfigured } = useStore();
+  const { updateSettings, data, loading, undo, redo, canUndo, canRedo, exportBackup, syncNow, syncStatus, syncError, lastSyncedAt, isSyncConfigured } = useStore();
   const [page, setPage] = useState('Dashboard');
   // A landing tab for pages that have their own internal tabs (currently just Second Brain) —
   // set alongside the page so a specific click-through (e.g. a goal from the Calendar) can open
   // straight to the relevant tab instead of always landing on that page's default view.
   const [navTab, setNavTab] = useState<string | undefined>(undefined);
   const [justSaved, setJustSaved] = useState(false);
-  const navigate = (next: string, tab?: string) => { setPage(next); setNavTab(tab); };
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  // A note to open in Second Brain; `n` changes on every request so re-picking the same note
+  // (or picking one while Second Brain is already mounted) still takes effect.
+  const [focusNote, setFocusNote] = useState<{ id: string; n: number } | undefined>(undefined);
+  const navigate = useCallback((next: string, tab?: string) => { setPage(next); setNavTab(tab); }, []);
+  const openNote = useCallback((id: string, workspaceId?: string) => {
+    if (workspaceId && workspaceId !== data?.settings?.activeSecondBrainWorkspaceId) {
+      void updateSettings({ activeSecondBrainWorkspaceId: workspaceId });
+    }
+    setPage('Second Brain');
+    setNavTab(undefined);
+    setFocusNote(prev => ({ id, n: (prev?.n ?? 0) + 1 }));
+  }, [data?.settings?.activeSecondBrainWorkspaceId, updateSettings]);
+
+  // Global shortcuts: Ctrl+K palette, Alt+1…9 pages, Ctrl+, Settings, ? cheat sheet.
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const mod = e.ctrlKey || e.metaKey;
+      const key = e.key.toLowerCase();
+      if (mod && !e.altKey && key === 'k') { e.preventDefault(); setShortcutsOpen(false); setPaletteOpen(o => !o); return; }
+      if (mod && !e.altKey && key === ',') { e.preventDefault(); navigate('Settings'); return; }
+      if (e.altKey && !mod && /^Digit[1-9]$/.test(e.code)) {
+        const target = PAGE_SHORTCUT_PAGES[Number(e.code.slice(5)) - 1];
+        if (target) { e.preventDefault(); navigate(target); }
+        return;
+      }
+      if (e.key === '?' && !mod && !e.altKey && !isTypingTarget(document.activeElement) && !document.querySelector('.modal-overlay')) {
+        e.preventDefault(); setPaletteOpen(false); setShortcutsOpen(true);
+      }
+    };
+    // Pages can open the palette too (e.g. Second Brain's "Jump to…" button).
+    const openPalette = () => { setShortcutsOpen(false); setPaletteOpen(true); };
+    window.addEventListener('keydown', handler);
+    window.addEventListener('lifeos:open-palette', openPalette);
+    return () => {
+      window.removeEventListener('keydown', handler);
+      window.removeEventListener('lifeos:open-palette', openPalette);
+    };
+  }, [navigate]);
 
   const saveNow = () => {
     exportBackup();
@@ -65,6 +105,9 @@ function Shell() {
     <div className="app-shell">
       <aside className="sidebar">
         <div className="sidebar-brand"><Sparkles size={20} /><span>Life OS</span></div>
+        <button type="button" className="sidebar-search" onClick={() => setPaletteOpen(true)} title="Command palette (Ctrl+K)">
+          <Search size={15} /><span>Search…</span><kbd>Ctrl K</kbd>
+        </button>
         <nav>
           {NAV_SECTIONS.map((section, index) => (
             <div className="nav-section" key={section.label || `section-${index}`}>
@@ -87,7 +130,7 @@ function Shell() {
       <main className="main-content">
         {page === 'Dashboard' ? <Dashboard navigate={navigate} />
           : page === 'Calendar' ? <Calendar navigate={navigate} />
-          : page === 'Second Brain' ? <SecondBrain initialTab={navTab as ParaTab | undefined} />
+          : page === 'Second Brain' ? <SecondBrain initialTab={navTab as ParaTab | undefined} focusNote={focusNote} />
           : Page ? <Page /> : null}
       </main>
       <div className="history-controls">
@@ -119,6 +162,16 @@ function Shell() {
         </button>
       </div>
       <MobileNav page={page} navigate={navigate} />
+      {paletteOpen && (
+        <CommandPalette
+          onClose={() => setPaletteOpen(false)}
+          navigate={navigate}
+          onOpenNote={openNote}
+          onShowShortcuts={() => setShortcutsOpen(true)}
+          onSave={saveNow}
+        />
+      )}
+      {shortcutsOpen && <ShortcutsSheet onClose={() => setShortcutsOpen(false)} />}
       <UndoToast />
     </div>
   );

@@ -227,7 +227,8 @@ function setSelectionOffsets(root: HTMLElement, start: number, end: number): voi
 // A field that switched to this editor from a plain <textarea> (or migrated data written as
 // bare text) won't have any markup at all — assigning that straight to innerHTML would collapse
 // every newline into a single space, since HTML doesn't render bare "\n" as a line break.
-function normalizeValue(value: string): string {
+// Older/imported notes are stored as plain text with newlines; the editor shows them as HTML.
+export function normalizeValue(value: string): string {
   return value.includes('<') ? value : plainTextToHtml(value);
 }
 

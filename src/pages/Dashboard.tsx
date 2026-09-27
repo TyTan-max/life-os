@@ -1,21 +1,24 @@
 import { useMemo, useState } from 'react';
 import {
   ArrowRight, Bell, BookOpen, Brain, Check, CheckCircle2, ChevronDown, Clapperboard,
-  Flame, Gamepad2, HeartPulse, LayoutGrid, ListTodo, NotebookPen, Plane, Quote as QuoteIcon, Sparkles, TrendingUp, Users, Wallet
+  AlarmClock, CircleCheck, Flame, Gamepad2, HeartPulse, ListTodo, NotebookPen, Plane, Quote as QuoteIcon, Sparkles, TrendingUp, Users, Wallet
 } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { useStore, newRecord } from '../store';
-import type { Habit, Note } from '../types';
+import type { Habit, Medication, Note, Task } from '../types';
 import { DEFAULT_WORKSPACE_ID } from '../storage';
-import { isLiabilityAccount } from './FinanceAccounts';
 import { actualSpendByCategory } from '../lib/budgetMath';
 import { computeDailyBrief } from '../lib/dailyBrief';
 import { getSessionVerse } from '../lib/bibleVerses';
 import { lastContactedDate, contactStatus } from '../lib/crmCadence';
 import { getEffectiveRoutineFilter, loadSavedRoutineFilter, matchesRoutineFilter, sortRoutines } from '../lib/habitRoutines';
-import { Badge, Card, Kpi, ProgressBar, formatCurrency, formatDate } from '../components/UI';
+import { Badge, Card, ProgressBar, formatCurrency, formatDate } from '../components/UI';
 import { useIsMobile } from '../hooks/useIsMobile';
+import { useContextMenu } from '../components/ContextMenu';
+import type { ContextMenuItem } from '../components/ContextMenu';
 import { latestNight, sleepHours } from '../lib/sleep';
+import { doseStatus, scheduledTimes, withDoseStatus } from '../lib/medications';
+import type { DoseStatus } from '../lib/medications';
 
 type DailyLog = { totalTrades:number; dailyPL:number; dailyFees:number };
 
@@ -28,6 +31,28 @@ function localIso(date = new Date()) {
   const month = String(date.getMonth() + 1).padStart(2,'0');
   const day = String(date.getDate()).padStart(2,'0');
   return `${year}-${month}-${day}`;
+}
+
+// "06:00" → "6:00 AM", matching how reminders and events show times elsewhere on the page.
+function fmtClock(hhmm?: string): string {
+  if (!hhmm) return 'Any time';
+  const [h, m] = hhmm.split(':').map(Number);
+  if (Number.isNaN(h)) return hhmm;
+  return `${((h + 11) % 12) + 1}:${String(m || 0).padStart(2, '0')} ${h >= 12 ? 'PM' : 'AM'}`;
+}
+
+function daysLate(due: string, today: string): number {
+  return Math.round((new Date(`${today}T00:00:00`).getTime() - new Date(`${due}T00:00:00`).getTime()) / 86400000);
+}
+
+// Every top-row stat opens the page it summarizes.
+function KpiLink({ label, value, caption, tone, onClick }: { label: string; value: ReactNode; caption: string; tone: string; onClick: () => void }) {
+  return (
+    // A zero is good news but not news — it stays grey so only live numbers draw the eye.
+    <button type="button" className={`card kpi tone-${value === 0 ? 'muted' : tone} dashboard-kpi-link`} onClick={onClick} aria-label={`${label}: ${value} — open`}>
+      <span>{label}</span><strong>{value}</strong><small>{caption}</small>
+    </button>
+  );
 }
 
 function scheduledDays(habit:Habit):number[] {
@@ -53,12 +78,22 @@ function currentWeekDates(date = new Date()) {
 // the top for having a live count also automatically stays expanded rather than hiding the
 // thing that made it urgent in the first place.
 function DashCard({
-  className, orderStyle, icon, title, quiet, isMobile, expanded, onToggle, summary, action, children
+  className, orderStyle, icon, title, quiet, isMobile, expanded, onToggle, summary, action, children, empty
 }: {
   className?: string; orderStyle?: React.CSSProperties; icon?: ReactNode; title: ReactNode;
   quiet: boolean; isMobile: boolean; expanded: boolean; onToggle: () => void;
   summary: ReactNode; action?: ReactNode; children: ReactNode;
+  /** Desktop: when set, the card has nothing to show and collapses to this one line. */
+  empty?: string | false;
 }) {
+  if (!isMobile && empty) {
+    return (
+      <Card className={`${className ?? ''} dash-card-empty`.trim()} style={orderStyle}>
+        <div className="card-title"><div>{icon}<h2>{title}</h2></div>{action}</div>
+        <p className="dash-empty-line">{empty}</p>
+      </Card>
+    );
+  }
   const collapsible = isMobile && quiet;
   // Collapsed quiet cards render as half-width tiles on a phone (see .dash-tile) — two per row
   // instead of one full-width strip each; expanding one widens it back to full width.
@@ -85,10 +120,11 @@ function DashCard({
 }
 
 export function Dashboard({navigate}:{navigate:(page:string, tab?: string)=>void}) {
-  const { data, upsert } = useStore();
+  const { data, upsert, toggleTask } = useStore();
   const isMobile = useIsMobile();
   const [verse] = useState(getSessionVerse);
   const [captureText, setCaptureText] = useState('');
+  const [captureFocused, setCaptureFocused] = useState(false);
   const today = localIso();
   const openTasks = data.tasks.filter(t=>t.status!=='Completed');
   const overdue = openTasks.filter(t=>t.dueDate<today);
@@ -114,9 +150,12 @@ export function Dashboard({navigate}:{navigate:(page:string, tab?: string)=>void
   const income = monthlyTransactions.filter(t=>t.type==='Income').reduce((s,t)=>s+t.amount,0);
   const expenses = monthlyTransactions.filter(t=>t.type==='Expense').reduce((s,t)=>s+t.amount,0);
   const activeAccounts = data.financeAccounts.filter(a=>a.status==='Active');
-  const totalAssets = activeAccounts.filter(a=>!isLiabilityAccount(a.type)).reduce((s,a)=>s+a.balance,0);
-  const totalLiabilities = activeAccounts.filter(a=>isLiabilityAccount(a.type)).reduce((s,a)=>s+a.balance,0);
-  const netWorth = totalAssets - totalLiabilities;
+  // Spendable today: bank + cash, minus what's on credit cards. Loans and investment/retirement
+  // accounts are left out — that money isn't available to use right now.
+  const LIQUID_TYPES = ['Checking', 'Savings', 'Cash'];
+  const availableCash = activeAccounts.filter(a=>LIQUID_TYPES.includes(a.type)).reduce((s,a)=>s+a.balance,0)
+    - activeAccounts.filter(a=>a.type==='Credit Card').reduce((s,a)=>s+a.balance,0);
+  const lockedInvestments = activeAccounts.filter(a=>a.type==='Investment' || a.type==='Retirement').reduce((s,a)=>s+a.balance,0);
   const monthBudgets = data.budgets.filter(b=>b.month===month);
   const spendByCategory = actualSpendByCategory(data.transactions, month);
   const overBudgetCount = monthBudgets.filter(b=>(spendByCategory.get(b.categoryId) ?? 0) > b.limit).length;
@@ -144,6 +183,12 @@ export function Dashboard({navigate}:{navigate:(page:string, tab?: string)=>void
   const upcomingCheckups = activeContacts.filter(c=>c.nextCheckup && c.nextCheckup>=today && c.nextCheckup<=in7Iso).length;
   const latestWeight = data.weightEntries.filter(e=>e.weight>0).sort((a,b)=>b.date.localeCompare(a.date))[0];
   const latestSleep = latestNight(data.sleepEntries);
+  // Today's scheduled medication doses — the one Health item you act on every day.
+  const doseRows = data.medications.flatMap(m => scheduledTimes(m, today).map(time => ({ med: m, time, status: doseStatus(m, today, time) })));
+  const dosesLeft = doseRows.filter(d => d.status === 'pending').length;
+  const toggleDose = (med: Medication, time: string, status: DoseStatus) =>
+    void upsert('medications', withDoseStatus(med, today, time, status === 'taken' ? 'pending' : 'taken'));
+  const billsTotal = upcomingBills.reduce((s, b) => s + b.amount, 0);
   const lowMeds = data.medications.filter(m=>m.active && m.pillsRemaining!=null && m.refillThreshold!=null && m.pillsRemaining<=m.refillThreshold).length;
   const thisYear = today.slice(0,4);
   const achievedThisYear = data.bucketList.filter(b=>b.status==='Achieved' && b.achievedAt?.startsWith(thisYear)).length;
@@ -165,7 +210,12 @@ export function Dashboard({navigate}:{navigate:(page:string, tab?: string)=>void
   },[data,openTasks,today]);
   const currentGoals = data.goals.filter(g=>g.status!=='Completed');
   const currentProjects = data.notes.filter(n=>n.paraType==='Project' && !n.archived && n.status!=='Completed');
-  const focus = [...[...overdue].sort((a,b)=>a.dueDate.localeCompare(b.dueDate)),...dueToday,...openTasks.filter(t=>t.dueDate>today).sort((a,b)=>a.dueDate.localeCompare(b.dueDate))];
+  const overdueSorted = [...overdue].sort((a,b)=>a.dueDate.localeCompare(b.dueDate));
+  const upcomingTasks = openTasks.filter(t=>t.dueDate>today).sort((a,b)=>a.dueDate.localeCompare(b.dueDate));
+  const focus = [...overdueSorted,...dueToday,...upcomingTasks];
+  const focusGroups = ([
+    ['Overdue', overdueSorted], ['Today', dueToday], ['Upcoming', upcomingTasks]
+  ] as const).filter(([, items]) => items.length);
   // Shared with the scheduled notification (notifications.ts) via computeDailyBrief, so the card
   // and the notification you get at your chosen time can never say different things.
   const brief = computeDailyBrief(data, today);
@@ -209,114 +259,185 @@ export function Dashboard({navigate}:{navigate:(page:string, tab?: string)=>void
     return next;
   });
 
-  return <>
-    <div className="welcome-row"><div><span className="eyebrow">{new Date().toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'}).toUpperCase()}</span><h1>Good {new Date().getHours()<12?'morning':new Date().getHours()<18?'afternoon':'evening'}, {data.settings.userName} 👋</h1><p>Your local command center is ready.</p><p className="dashboard-verse"><QuoteIcon size={14}/> "{verse.text}" <span>— {verse.reference}</span></p></div><Badge tone="success">Local-first</Badge></div>
-    <div className="kpi-grid five">
-      <Kpi label="Overdue" value={overdue.length} caption="tasks past due" tone={overdue.length>0?'red':'green'}/>
-      <Kpi label="Due today" value={dueToday.length} caption="scheduled today" tone={dueToday.length>0?'amber':'green'}/>
-      <button type="button" className={`card kpi tone-${habitPct>=50?'green':'amber'} dashboard-kpi-link`} onClick={()=>navigate('Habits')} aria-label="Open Habit tracker"><span>Habits today</span><strong>{habitPct}%</strong><small>{todayDone}/{habitsDueToday.length} scheduled habits completed</small></button>
-      <button type="button" className={`card kpi tone-${netWorth>=0?'green':'red'} dashboard-kpi-link`} onClick={()=>navigate('Finance')} aria-label="Open Finance"><span>Net worth</span><strong>{formatCurrency(netWorth)}</strong><small>{activeAccounts.length} active account{activeAccounts.length===1?'':'s'}</small></button>
-      <button type="button" className={`card kpi tone-${contactsNeedingAttention>0?'red':'green'} dashboard-kpi-link`} onClick={()=>navigate('Personal CRM')} aria-label="Open Personal CRM"><span>Reach out</span><strong>{contactsNeedingAttention}</strong><small>contact{contactsNeedingAttention===1?'':'s'} overdue or never contacted</small></button>
+  // Right-click a task in Today's focus (desktop): complete, snooze, open.
+  const { menu: contextMenu, openMenu } = useContextMenu();
+  const snooze = (task: Task, days: number) => {
+    const d = new Date(`${task.dueDate > today ? task.dueDate : today}T00:00:00`);
+    d.setDate(d.getDate() + days);
+    void upsert('tasks', { ...task, dueDate: localIso(d) });
+  };
+  const taskMenu = (task: Task): ContextMenuItem[] => [
+    { label: 'Mark complete', icon: CircleCheck, onSelect: () => void toggleTask(task) },
+    { label: 'Snooze to tomorrow', icon: AlarmClock, onSelect: () => snooze(task, 1) },
+    { label: 'Snooze 1 week', icon: AlarmClock, onSelect: () => snooze(task, 7) },
+    'separator',
+    { label: 'Open in Second Brain', icon: ArrowRight, onSelect: () => navigate('Second Brain', 'Tasks') }
+  ];
+
+  // How late / when, instead of the same red "Overdue" pill on every row.
+  const focusRow = (task: Task) => (
+    <div className="task-focus" key={task.id} onContextMenu={e=>openMenu(e, taskMenu(task))}>
+      <span className={`priority-dot ${task.priority.toLowerCase()}`}/>
+      <div><b>{task.title}</b><small>{task.project||task.category}</small></div>
+      <div className="focus-date">
+        {task.dueDate < today ? <span className="dash-late">{daysLate(task.dueDate, today)}d late</span>
+          : task.dueDate === today ? <Badge tone="warning">Today</Badge>
+          : <span className="dash-due">{formatDate(task.dueDate)}</span>}
+      </div>
     </div>
-    <div className="dashboard-grid">
-      {/* The centre FAB owns capture on mobile — this card would be a second door to the same
-          room, costing ~180px at the top of the scroll. */}
-      {!isMobile && (
-      <Card className="dashboard-quick-capture"><div className="card-title"><div><NotebookPen size={19}/><h2>Quick capture</h2></div></div>
-        <textarea
-          rows={6}
-          placeholder="Quick capture — dump a thought, link, or task…"
-          value={captureText}
-          onChange={e=>setCaptureText(e.target.value)}
-          onKeyDown={e=>{ if(e.key==='Enter'&&(e.ctrlKey||e.metaKey)){ e.preventDefault(); void capture(); } }}
-        />
-        <button type="button" className="btn primary small full" onClick={()=>void capture()} disabled={!captureText.trim()}>Capture to Second Brain</button>
-      </Card>
-      )}
-      {isMobile && (
-        // Phone: the brief, today's tasks and the habit checklist were three stacked cards
-        // (~900px, with the habit list scrolling inside the page scroll). One card, three tabs.
-        <Card className="dash-now" style={{ order: -200 }}>
-          <div className="segmented dash-now-tabs" role="tablist" aria-label="Now">
-            {/* Same icons the three desktop cards use, so the tabs read as those cards. */}
-            {([
-              ['Habits', 'Habits', Flame],
-              ['Tasks', "Today's Focus", CheckCircle2],
-              ['Brief', 'Brief', Sparkles]
-            ] as const).map(([key, label, Icon]) => (
-              <button type="button" key={key} role="tab" aria-selected={nowTab === key} className={nowTab === key ? 'on' : ''} onClick={() => chooseNowTab(key)}>
-                <Icon size={14} aria-hidden="true" />{label}
+  );
+
+  // Each card is built once and placed twice: a single urgency-ordered stack on a phone, three
+  // columns on desktop (act now · today · pulse) so the whole dashboard fits one widescreen view.
+  // One line until used; grows while focused or holding text, and the button appears once there's text.
+  const captureOpen = captureFocused || Boolean(captureText);
+  const headerCapture = (
+  <div className={`dash-header-capture ${captureOpen ? 'open' : 'compact'}`}>
+    <div className="dash-capture-row">
+      <NotebookPen size={16}/>
+      <textarea
+        rows={captureOpen ? 4 : 1}
+        placeholder="Quick capture to Second Brain…"
+        value={captureText}
+        onChange={e=>setCaptureText(e.target.value)}
+        onFocus={()=>setCaptureFocused(true)}
+        onBlur={()=>setCaptureFocused(false)}
+        onKeyDown={e=>{
+          if(e.key==='Enter'&&(e.ctrlKey||e.metaKey)){ e.preventDefault(); void capture(); }
+          if(e.key==='Escape'){ (e.target as HTMLTextAreaElement).blur(); }
+        }}
+      />
+    </div>
+    {captureText.trim() && <button type="button" className="btn primary small full" onMouseDown={e=>e.preventDefault()} onClick={()=>void capture()}>Capture to Second Brain <kbd className="sb-kbd">Ctrl Enter</kbd></button>}
+  </div>
+  );
+  const nowCard = (
+  <Card className="dash-now" style={{ order: -200 }}>
+    <div className="segmented dash-now-tabs" role="tablist" aria-label="Now">
+      {/* Same icons the three desktop cards use, so the tabs read as those cards. */}
+      {([
+        ['Habits', 'Habits', Flame],
+        ['Tasks', "Today's Focus", CheckCircle2],
+        ['Brief', 'Brief', Sparkles]
+      ] as const).map(([key, label, Icon]) => (
+        <button type="button" key={key} role="tab" aria-selected={nowTab === key} className={nowTab === key ? 'on' : ''} onClick={() => chooseNowTab(key)}>
+          <Icon size={14} aria-hidden="true" />{label}
+        </button>
+      ))}
+    </div>
+    {nowTab === 'Habits' && <>
+      <div className="dash-now-meta"><span>{habitPct}% today · {weekHabitPct}% this week{currentRoutineName ? ` · ${currentRoutineName}` : ''}</span><button className="text-btn" onClick={()=>navigate('Habits')}>Open <ArrowRight size={15}/></button></div>
+      <ProgressBar value={habitPct}/>
+      {habitsDueToday.length ? <div className="dashboard-habit-list dash-now-habits">{habitsDueToday.map(habit=>{const done=habit.checkins.includes(today);return <button type="button" className={`dashboard-habit-row ${done?'done':''}`} key={habit.id} onClick={()=>void toggleHabitToday(habit)} aria-pressed={done}><span className="dashboard-habit-check"><Check size={13}/></span><span><b>{habit.name}</b><small>{fmtClock(habit.reminderAt)}</small></span></button>})}</div> : <p className="muted dashboard-habit-empty">No active habits are scheduled today.</p>}
+    </>}
+    {nowTab === 'Tasks' && <>
+      <div className="dash-now-meta"><span>{overdue.length} overdue · {dueToday.length} due today</span><button className="text-btn" onClick={()=>navigate('Second Brain','Tasks')}>Open <ArrowRight size={15}/></button></div>
+      {focus.length ? <div className="dash-now-tasks">{focus.slice(0, 6).map(focusRow)}</div> : <p className="muted">Nothing urgent. Add a task or plan ahead.</p>}
+      {focus.length > 6 && <button className="text-btn dash-now-more" onClick={()=>navigate('Second Brain','Tasks')}>+{focus.length - 6} more <ArrowRight size={15}/></button>}
+    </>}
+    {nowTab === 'Brief' && <div className="brief-list">{brief.map((line,i)=><div key={line}><span>{i+1}</span><p>{line}</p></div>)}</div>}
+  </Card>
+  );
+  const remindersCard = <Card style={slot(2, nextReminders.length)}><div className="card-title"><div><Bell size={19}/><h2>Coming up</h2></div><button className="text-btn" onClick={()=>navigate('Calendar')}>Open <ArrowRight size={15}/></button></div>{nextReminders.length?<div className="scroll-list">{nextReminders.map(r=><div className="list-row" key={`${r.type}-${r.at}-${r.title}`}><div><b>{r.title}</b><small>{r.type}</small></div><span>{new Date(r.at).toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})}</span></div>)}</div>:<p className="muted">No upcoming reminders yet.</p>}</Card>;
+  const focusCard = (
+    <Card className="span-2" style={slot(3, overdue.length + dueToday.length)}>
+      <div className="card-title"><div><CheckCircle2 size={19}/><h2>Today's focus</h2></div><button className="text-btn" onClick={()=>navigate('Second Brain','Tasks')}>Open <ArrowRight size={15}/></button></div>
+      {focus.length ? (
+        <div className="scroll-list dash-focus-list">
+          {focusGroups.map(([label, items]) => (
+            <section key={label} className={`dash-focus-group ${label.toLowerCase()}`}>
+              <h3>{label} <span>{items.length}</span></h3>
+              {items.map(focusRow)}
+            </section>
+          ))}
+        </div>
+      ) : <p className="muted">Nothing urgent. Add a task or plan ahead.</p>}
+    </Card>
+  );
+  const habitCard = <Card className="span-2 dashboard-habit-card" style={slot(4, habitsDueToday.length - todayDone)}><div className="card-title"><div><Flame size={19}/><h2>Habit tracker</h2>{currentRoutineName && <Badge>{currentRoutineName}</Badge>}</div><button className="text-btn" onClick={()=>navigate('Habits')}>Open <ArrowRight size={15}/></button></div><div className="dashboard-habit-summary"><div><span>Today</span><b>{todayDone}/{habitsDueToday.length}</b></div><div><span>This week</span><b>{weekHabitPct}%</b></div></div><ProgressBar value={habitPct}/>{habitsDueToday.length?<div className="dashboard-habit-list scroll-list">{habitsDueToday.map(habit=>{const done=habit.checkins.includes(today);return <button type="button" className={`dashboard-habit-row ${done?'done':''}`} key={habit.id} onClick={()=>void toggleHabitToday(habit)}><span className="dashboard-habit-check"><Check size={13}/></span><span><b>{habit.name}</b><small>{fmtClock(habit.reminderAt)}</small></span></button>})}</div>:<p className="muted dashboard-habit-empty">No active habits are scheduled today. Open Habits to adjust your schedule.</p>}</Card>;
+  const healthCard = (
+      <DashCard
+        icon={<HeartPulse size={19}/>} title="Health" isMobile={isMobile}
+        quiet={lowMeds === 0 && dosesLeft === 0} expanded={expandedCards.has('health')} onToggle={()=>toggleCard('health')}
+        summary={`${dosesLeft ? `${dosesLeft} dose${dosesLeft===1?'':'s'} left` : 'Doses done'} · ${latestSleep?`${sleepHours(latestSleep).toFixed(1)}h sleep`:'No sleep logged'}${lowMeds?` · ${lowMeds} refill${lowMeds===1?'':'s'}`:''}`}
+        action={<button className="text-btn" onClick={()=>navigate('Health')}>Open <ArrowRight size={15}/></button>}
+        orderStyle={slot(5, lowMeds + dosesLeft)}
+        empty={!doseRows.length && !latestWeight && !latestSleep && !lowMeds && 'No doses today · no weight or sleep logged'}
+      >
+        {doseRows.length ? (
+          <div className="dash-doses">
+            {doseRows.map(d => (
+              <button
+                type="button"
+                key={`${d.med.id}-${d.time}`}
+                className={`dashboard-habit-row dash-dose ${d.status === 'taken' ? 'done' : ''} ${d.status === 'skipped' ? 'skipped' : ''}`}
+                onClick={() => toggleDose(d.med, d.time, d.status)}
+                aria-pressed={d.status === 'taken'}
+                title={d.status === 'taken' ? 'Taken — click to undo' : 'Mark as taken'}
+              >
+                <span className="dashboard-habit-check"><Check size={13}/></span>
+                <span><b>{d.med.name}</b><small>{fmtClock(d.time)}{d.status === 'skipped' ? ' · skipped' : d.med.dosage ? ` · ${d.med.dosage}` : ''}</small></span>
               </button>
             ))}
           </div>
-          {nowTab === 'Habits' && <>
-            <div className="dash-now-meta"><span>{habitPct}% today · {weekHabitPct}% this week{currentRoutineName ? ` · ${currentRoutineName}` : ''}</span><button className="text-btn" onClick={()=>navigate('Habits')}>Open <ArrowRight size={15}/></button></div>
-            <ProgressBar value={habitPct}/>
-            {habitsDueToday.length ? <div className="dashboard-habit-list dash-now-habits">{habitsDueToday.map(habit=>{const done=habit.checkins.includes(today);return <button type="button" className={`dashboard-habit-row ${done?'done':''}`} key={habit.id} onClick={()=>void toggleHabitToday(habit)} aria-pressed={done}><span className="dashboard-habit-check"><Check size={13}/></span><span><b>{habit.name}</b><small>{habit.reminderAt||'Any time'}</small></span></button>})}</div> : <p className="muted dashboard-habit-empty">No active habits are scheduled today.</p>}
-          </>}
-          {nowTab === 'Tasks' && <>
-            <div className="dash-now-meta"><span>{overdue.length} overdue · {dueToday.length} due today</span><button className="text-btn" onClick={()=>navigate('Second Brain','Tasks')}>Open <ArrowRight size={15}/></button></div>
-            {focus.length ? <div className="dash-now-tasks">{focus.slice(0, 6).map(task=><div className="task-focus" key={task.id}><span className={`priority-dot ${task.priority.toLowerCase()}`}/><div><b>{task.title}</b><small>{task.project||task.category}</small></div><div className="focus-date"><Badge tone={task.dueDate<today?'danger':task.dueDate===today?'warning':''}>{task.dueDate<today?'Overdue':task.dueDate===today?'Today':formatDate(task.dueDate)}</Badge></div></div>)}</div> : <p className="muted">Nothing urgent. Add a task or plan ahead.</p>}
-            {focus.length > 6 && <button className="text-btn dash-now-more" onClick={()=>navigate('Second Brain','Tasks')}>+{focus.length - 6} more <ArrowRight size={15}/></button>}
-          </>}
-          {nowTab === 'Brief' && <div className="brief-list">{brief.map((line,i)=><div key={line}><span>{i+1}</span><p>{line}</p></div>)}</div>}
-        </Card>
-      )}
-      {!isMobile && <Card className="span-2 smart-brief"><div className="card-title"><div><Sparkles size={19}/><h2>Smart daily brief</h2></div><Badge>Rule-based v0.4</Badge></div><div className="brief-list">{brief.map((line,i)=><div key={line}><span>{i+1}</span><p>{line}</p></div>)}</div></Card>}
-      <Card style={slot(2, nextReminders.length)}><div className="card-title"><div><Bell size={19}/><h2>Next reminders</h2></div></div>{nextReminders.length?<div className="scroll-list">{nextReminders.map(r=><div className="list-row" key={`${r.type}-${r.at}-${r.title}`}><div><b>{r.title}</b><small>{r.type}</small></div><span>{new Date(r.at).toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})}</span></div>)}</div>:<p className="muted">No upcoming reminders yet.</p>}</Card>
-      {!isMobile && <Card className="span-2" style={slot(3, overdue.length + dueToday.length)}><div className="card-title"><div><CheckCircle2 size={19}/><h2>Today's focus</h2></div><button className="text-btn" onClick={()=>navigate('Second Brain','Tasks')}>Open tasks <ArrowRight size={15}/></button></div>{focus.length?<div className="scroll-list">{focus.map(task=><div className="task-focus" key={task.id}><span className={`priority-dot ${task.priority.toLowerCase()}`}/><div><b>{task.title}</b><small>{task.project||task.category}</small></div><div className="focus-date"><Badge tone={task.dueDate<today?'danger':task.dueDate===today?'warning':''}>{task.dueDate<today?'Overdue':task.dueDate===today?'Today':formatDate(task.dueDate)}</Badge></div></div>)}</div>:<p className="muted">Nothing urgent. Add a task or plan ahead.</p>}</Card>}
-      {!isMobile && <Card className="span-2 dashboard-habit-card" style={slot(4, habitsDueToday.length - todayDone)}><div className="card-title"><div><Flame size={19}/><h2>Habit tracker</h2>{currentRoutineName && <Badge>{currentRoutineName}</Badge>}</div><button className="text-btn" onClick={()=>navigate('Habits')}>Open habits <ArrowRight size={15}/></button></div><div className="dashboard-habit-summary"><div><span>Today</span><b>{todayDone}/{habitsDueToday.length}</b></div><div><span>This week</span><b>{weekHabitPct}%</b></div></div><ProgressBar value={habitPct}/>{habitsDueToday.length?<div className="dashboard-habit-list scroll-list">{habitsDueToday.map(habit=>{const done=habit.checkins.includes(today);return <button type="button" className={`dashboard-habit-row ${done?'done':''}`} key={habit.id} onClick={()=>void toggleHabitToday(habit)}><span className="dashboard-habit-check"><Check size={13}/></span><span><b>{habit.name}</b><small>{habit.reminderAt||'Any time'}</small></span></button>})}</div>:<p className="muted dashboard-habit-empty">No active habits are scheduled today. Open Habits to adjust your schedule.</p>}</Card>}
-      <DashCard
-        icon={<HeartPulse size={19}/>} title="Health" isMobile={isMobile}
-        quiet={lowMeds === 0} expanded={expandedCards.has('health')} onToggle={()=>toggleCard('health')}
-        summary={`${latestSleep?`${sleepHours(latestSleep).toFixed(1)}h sleep`:'No sleep logged'} · ${lowMeds?`${lowMeds} refill${lowMeds===1?'':'s'} needed`:'meds on track'}`}
-        action={<button className="text-btn" onClick={()=>navigate('Health')}>Open <ArrowRight size={15}/></button>}
-        orderStyle={slot(5, lowMeds)}
-      >
-        <div className="metric-pair"><span>Latest weight</span><b>{latestWeight?`${latestWeight.weight} ${data.settings.weightUnit ?? 'lb'}`:'—'}</b></div>
-        <div className="metric-pair"><span>Last night's sleep</span><b>{latestSleep?`${sleepHours(latestSleep).toFixed(1)}h`:'—'}</b></div>
-        <div className="metric-pair"><span>Refills needed</span><b className={lowMeds?'negative':'positive'}>{lowMeds}</b></div>
+        ) : <p className="muted dash-doses-empty">No doses scheduled today.</p>}
+        <div className="dash-health-line">
+          <span>{latestWeight?`${latestWeight.weight} ${data.settings.weightUnit ?? 'lb'}`:'No weight'}</span>
+          <span>{latestSleep?`${sleepHours(latestSleep).toFixed(1)}h sleep`:'No sleep logged'}</span>
+          <span className={lowMeds?'negative':''}>{lowMeds?`${lowMeds} refill${lowMeds===1?'':'s'} needed`:'Refills OK'}</span>
+        </div>
       </DashCard>
+  );
+  const crmCard = (
       <DashCard
         icon={<Users size={19}/>} title="Personal CRM" isMobile={isMobile}
         quiet={contactsNeedingAttention + upcomingCheckups === 0} expanded={expandedCards.has('crm')} onToggle={()=>toggleCard('crm')}
         summary={`${activeContacts.length} active · ${contactsNeedingAttention?`${contactsNeedingAttention} need reach-out`:'all caught up'}`}
         action={<button className="text-btn" onClick={()=>navigate('Personal CRM')}>Open <ArrowRight size={15}/></button>}
+        empty={!activeContacts.length && 'No contacts yet'}
         orderStyle={slot(6, contactsNeedingAttention + upcomingCheckups)}
       >
         <div className="metric-pair"><span>Active contacts</span><b>{activeContacts.length}</b></div>
         <div className="metric-pair"><span>Need reach-out</span><b className={contactsNeedingAttention?'negative':'positive'}>{contactsNeedingAttention}</b></div>
         <div className="metric-pair"><span>Check-ups this week</span><b>{upcomingCheckups}</b></div>
       </DashCard>
+  );
+  const tradingCard = (
       <DashCard
         icon={<TrendingUp size={19}/>} title="Trading journal" isMobile={isMobile}
         quiet expanded={expandedCards.has('trading')} onToggle={()=>toggleCard('trading')}
         summary={`${tradingLogs.length} days logged · Net ${tradingPnl>=0?'+':''}${tradingPnl.toFixed(2)}`}
         action={<button className="text-btn" onClick={()=>navigate('Trading Journal')}>Open <ArrowRight size={15}/></button>}
+        empty={!tradingLogs.length && 'No trading days logged yet'}
         orderStyle={slot(7)}
       >
         <div className="metric-pair"><span>Current balance</span><b>{formatCurrency(tradingCurrentBalance)}</b></div>
         <div className="metric-pair"><span>Win rate</span><b>{tradingWinRate}%</b></div>
         <div className="metric-pair"><span>Net P/L</span><b className={tradingPnl >= 0 ? 'positive' : 'negative'}>{tradingPnl >= 0 ? '+' : ''}{tradingPnl.toFixed(2)}</b></div>
       </DashCard>
+  );
+  const travelCard = (
       <DashCard
         icon={<Plane size={19}/>} title="Travel & Bucket List" isMobile={isMobile}
         quiet expanded={expandedCards.has('travel')} onToggle={()=>toggleCard('travel')}
         summary={`${achievedThisYear} achieved this year`}
         action={<button className="text-btn" onClick={()=>navigate('Travel & Bucket List')}>Open <ArrowRight size={15}/></button>}
+        empty={!data.bucketList.length && 'No goals yet'}
         orderStyle={slot(8)}
       >
         <div className="metric-pair"><span>Achieved this year</span><b>{achievedThisYear}</b></div>
         {nextTrip ? <div className="metric-pair"><span>Next up</span><b>{nextTrip.title}</b></div> : <p className="muted">No trips planned yet.</p>}
       </DashCard>
+  );
+  const financeCard = (
       <DashCard
         className="span-2" icon={<Wallet size={19}/>} title="Finance overview" isMobile={isMobile}
         quiet={overBudgetCount + upcomingBills.length === 0} expanded={expandedCards.has('finance')} onToggle={()=>toggleCard('finance')}
-        summary={`${formatCurrency(netWorth)} net worth · ${overBudgetCount?`${overBudgetCount} over budget`:'on track'}`}
-        action={<button className="text-btn" onClick={()=>navigate('Finance')}>Open Finance <ArrowRight size={15}/></button>}
+        summary={`${formatCurrency(availableCash)} available · ${overBudgetCount?`${overBudgetCount} over budget`:'on track'}`}
+        action={<button className="text-btn" onClick={()=>navigate('Finance')}>Open <ArrowRight size={15}/></button>}
         orderStyle={slot(9, overBudgetCount + upcomingBills.length)}
       >
-        <div className="metric-pair"><span>Net worth</span><b className={netWorth>=0?'positive':'negative'}>{formatCurrency(netWorth)}</b></div>
+        <div className="metric-pair dash-networth" title="Checking + Savings + Cash, minus credit card balances"><span>Available cash{lockedInvestments ? <small>Excl. {formatCurrency(lockedInvestments)} in investments &amp; retirement</small> : null}</span><b className={availableCash>=0?'positive':'negative'}>{formatCurrency(availableCash)}</b></div>
         <div className="metric-pair"><span>This month's income</span><b className="positive">{formatCurrency(income)}</b></div>
         <div className="metric-pair"><span>This month's expenses</span><b className="negative">{formatCurrency(expenses)}</b></div>
         <div className="metric-pair total"><span>Net cash flow</span><b>{formatCurrency(income-expenses)}</b></div>
@@ -325,11 +446,13 @@ export function Dashboard({navigate}:{navigate:(page:string, tab?: string)=>void
           <Badge tone={upcomingBills.length?'warning':'success'}>{upcomingBills.length ? `${upcomingBills.length} bill${upcomingBills.length===1?'':'s'} due soon` : 'No bills due soon'}</Badge>
         </div>
       </DashCard>
+  );
+  const backlogCard = (
       <DashCard
-        className="span-2" icon={<ListTodo size={19}/>} title="Backlog" isMobile={isMobile}
+        icon={<ListTodo size={19}/>} title="Backlog" isMobile={isMobile}
         quiet={backlogNeedsReview === 0} expanded={expandedCards.has('backlog')} onToggle={()=>toggleCard('backlog')}
         summary={`${movies.filter(m=>m.status==='To Watch').length} to watch · ${books.filter(b=>b.status==='To Read').length} to read`}
-        action={backlogNeedsReview>0 ? <button className="text-btn" onClick={()=>navigate('Movies')}>{backlogNeedsReview} need info <ArrowRight size={15}/></button> : undefined}
+        action={<button className="text-btn" onClick={()=>navigate('Movies')}>{backlogNeedsReview>0 ? `${backlogNeedsReview} need info` : 'Open'} <ArrowRight size={15}/></button>}
         orderStyle={slot(10, backlogNeedsReview)}
       >
         <button type="button" className="backlog-row" onClick={()=>navigate('Movies')}>
@@ -345,20 +468,12 @@ export function Dashboard({navigate}:{navigate:(page:string, tab?: string)=>void
           <span className="backlog-row-counts"><b>{books.filter(b=>b.status==='To Read').length}</b> to read<span className="backlog-row-sep">·</span><b>{books.filter(b=>b.status==='Reading').length}</b> reading<span className="backlog-row-sep">·</span><b>{books.filter(b=>b.status==='Read').length}</b> read</span>
         </button>
       </DashCard>
-      <DashCard
-        icon={<ListTodo size={19}/>} title="To Do" isMobile={isMobile}
-        quiet expanded={expandedCards.has('goals')} onToggle={()=>toggleCard('goals')}
-        summary={`${openTasks.length} tasks · ${currentGoals.length} goals · ${currentProjects.length} projects`}
-        orderStyle={slot(11)}
-      >
-        <div className="metric-pair"><span>Tasks</span><b>{openTasks.length}</b></div>
-        <div className="metric-pair"><span>Goals</span><b>{currentGoals.length}</b></div>
-        <div className="metric-pair"><span>Projects</span><b>{currentProjects.length}</b></div>
-      </DashCard>
+  );
+  const secondBrainCard = (
       <DashCard
         className="span-2" icon={<Brain size={19}/>} title="Second Brain" isMobile={isMobile}
         quiet={sbDueProjects.length === 0} expanded={expandedCards.has('secondbrain')} onToggle={()=>toggleCard('secondbrain')}
-        summary={sbDueProjects.length ? `${sbDueProjects.length} project${sbDueProjects.length===1?'':'s'} due` : 'Nothing due right now'}
+        summary={`${sbDueProjects.length ? `${sbDueProjects.length} project${sbDueProjects.length===1?'':'s'} due` : 'Nothing due'} · ${openTasks.length} tasks · ${currentGoals.length} goals`}
         action={<button className="text-btn" onClick={()=>navigate('Second Brain')}>Open <ArrowRight size={15}/></button>}
         orderStyle={slot(12, sbDueProjects.length)}
       >
@@ -367,15 +482,38 @@ export function Dashboard({navigate}:{navigate:(page:string, tab?: string)=>void
           <span>Area to review</span>
           {sbSpotlightArea?<><b>{sbSpotlightArea.title||'Untitled'}</b><small>{sbSpotlightArea.standard||'No standard set yet.'}</small></>:<small>No areas yet — create one in Second Brain.</small>}
         </div>
+        <div className="sb-dash-counts">
+          <button type="button" onClick={()=>navigate('Second Brain','Tasks')}><b>{openTasks.length}</b> open tasks</button>
+          <button type="button" onClick={()=>navigate('Second Brain','Goals')}><b>{currentGoals.length}</b> goals</button>
+          <button type="button" onClick={()=>navigate('Second Brain','Projects')}><b>{currentProjects.length}</b> projects</button>
+        </div>
       </DashCard>
-      <DashCard
-        icon={<LayoutGrid size={19}/>} title="Placeholder" isMobile={isMobile}
-        quiet expanded={expandedCards.has('placeholder')} onToggle={()=>toggleCard('placeholder')}
-        summary="Reserved for a future card"
-        orderStyle={slot(13)}
-      >
-        <p className="muted">This spot is reserved for a future dashboard card.</p>
-      </DashCard>
+  );
+
+  return <>
+    <div className="welcome-row"><div><span className="eyebrow">{new Date().toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'}).toUpperCase()}</span><h1>Good {new Date().getHours()<12?'morning':new Date().getHours()<18?'afternoon':'evening'}, {data.settings.userName} 👋</h1><p className="dashboard-verse"><QuoteIcon size={14}/> "{verse.text}" <span>— {verse.reference}</span></p></div>{!isMobile && headerCapture}</div>
+    <div className={`kpi-grid five ${isMobile ? "" : "dash-kpis"}`}>
+      {/* Today only — longer-running numbers (net worth, reach-outs) live in their own cards below. */}
+      <KpiLink label="Overdue" value={overdue.length} caption={overdue.length ? 'tasks past due' : 'nothing late'} tone={overdue.length ? 'red' : 'green'} onClick={()=>navigate('Second Brain','Tasks')}/>
+      <KpiLink label="Due today" value={dueToday.length} caption="tasks scheduled today" tone={dueToday.length ? 'amber' : 'green'} onClick={()=>navigate('Second Brain','Tasks')}/>
+      <KpiLink label="Habits left" value={habitsDueToday.length - todayDone} caption={`of ${habitsDueToday.length} scheduled today`} tone={habitsDueToday.length - todayDone ? 'amber' : 'green'} onClick={()=>navigate('Habits')}/>
+      <KpiLink label="Meds due" value={dosesLeft} caption={doseRows.length ? `of ${doseRows.length} doses today` : 'none scheduled today'} tone={dosesLeft ? 'amber' : 'green'} onClick={()=>navigate('Health')}/>
+      <KpiLink label="Bills this week" value={upcomingBills.length} caption={upcomingBills.length ? `${formatCurrency(billsTotal)} due in 7 days` : 'nothing due in 7 days'} tone={upcomingBills.length ? 'amber' : 'green'} onClick={()=>navigate('Finance')}/>
     </div>
+    {contextMenu}
+    {isMobile ? (
+      <div className="dashboard-grid">
+        {nowCard}{remindersCard}{healthCard}{crmCard}{tradingCard}{travelCard}{financeCard}{backlogCard}{secondBrainCard}
+      </div>
+    ) : (
+      <div className="dash-cols">
+        <div className="dash-col dash-col-act"><h3 className="dash-col-label">Today</h3>{focusCard}{remindersCard}</div>
+        <div className="dash-col dash-col-today"><h3 className="dash-col-label">Routines &amp; plans</h3>{habitCard}{healthCard}{secondBrainCard}</div>
+        <div className="dash-col dash-pulse">
+          <h3 className="dash-col-label">Money &amp; life</h3>
+          {financeCard}{tradingCard}{crmCard}{travelCard}{backlogCard}
+        </div>
+      </div>
+    )}
   </>;
 }

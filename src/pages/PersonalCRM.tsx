@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import {
   Archive, Briefcase, Cake, CalendarCheck, CalendarDays, Camera, ChevronDown, ChevronLeft, ChevronRight, ChevronsUpDown, ChevronUp, CircleSlash, Gift, GraduationCap,
-  GripVertical, Handshake, Home, LayoutGrid, Link2, Mail, MapPin, Medal, MessageCircle, Pencil, Phone,
+  GripVertical, Handshake, Home, IdCard, LayoutGrid, Link2, Mail, MapPin, Medal, MessageCircle, Pencil, Phone,
   Plus, Search, Send, SlidersHorizontal, Sparkles, Star, Table2, Tag as TagIcon, Trash2, Upload, UserPlus, Users, Wrench, X
 } from 'lucide-react';
 import { useStore, newRecord } from '../store';
@@ -15,6 +15,10 @@ import { Sheet } from '../components/Sheet';
 import { useIsMobile, MOBILE_QUERY } from '../hooks/useIsMobile';
 import { useFabAction } from '../hooks/useFabAction';
 import { ListManagerModal } from '../components/ListManagerModal';
+import { DetailPanel } from '../components/DetailPanel';
+import { useContextMenu } from '../components/ContextMenu';
+import type { ContextMenuItem } from '../components/ContextMenu';
+import type { ContactTier } from '../types';
 import { SortableTh, toggleGridSort } from '../components/SortableTh';
 import type { GridSortState } from '../components/SortableTh';
 import type { Contact, ContactInteraction, ContactCategory, InteractionType } from '../types';
@@ -712,8 +716,26 @@ export function PersonalCRM() {
     </>
   );
 
+  // Right-click a contact (desktop): open, log, edit, change tier, delete.
+  const { menu: contextMenu, openMenu } = useContextMenu();
+  const contactMenu = (c: Contact): ContextMenuItem[] => [
+    { label: 'Open profile', icon: IdCard, onSelect: () => setSelectedContactId(c.id) },
+    { label: 'Log interaction…', icon: MessageCircle, onSelect: () => openQuickLog(c.id) },
+    { label: 'Edit details…', icon: Pencil, onSelect: () => startEditContact(c) },
+    'separator',
+    { heading: 'Tier' },
+    ...(['Inner Circle', 'Close', 'Extended'] as ContactTier[]).map(tier => ({
+      label: tier,
+      checked: c.tier === tier,
+      onSelect: () => { if (c.tier !== tier) void upsert('contacts', { ...c, tier }); }
+    })),
+    'separator',
+    { label: 'Delete…', icon: Trash2, danger: true, onSelect: () => requestDeleteContact(c) }
+  ];
+
   return (
     <>
+      {contextMenu}
       <PageHeader
         title="Personal CRM"
         subtitle="Keep track of the people in your life — birthdays, last contact, notes."
@@ -791,7 +813,7 @@ export function PersonalCRM() {
                       <div className="crm-card-grid">
                         {list.map(c => (
                           <div
-                            className={`crm-card ${dragContactId === c.id ? 'dragging' : ''} ${dragOverCardId === c.id && dragContactId !== null && dragContactId !== c.id ? 'drag-over' : ''}`}
+                            className={`crm-card ${dragContactId === c.id ? 'dragging' : ''} ${selectedContactId === c.id ? 'selected' : ''} ${dragOverCardId === c.id && dragContactId !== null && dragContactId !== c.id ? 'drag-over' : ''}`}
                             key={c.id}
                             draggable={!isMobile}
                             onDragStart={() => setDragContactId(c.id)}
@@ -803,6 +825,7 @@ export function PersonalCRM() {
                               setDragOverCardId(null);
                             }}
                             onDragEnd={() => { setDragContactId(null); setDragOverCardId(null); }}
+                            onContextMenu={e => openMenu(e, contactMenu(c))}
                           >
                             {/* Edit/Delete here only ever worked on :hover, which never fires on
                                 touch — silently unreachable on mobile with no fallback. Swipe
@@ -1522,7 +1545,7 @@ function PersonPageModal({
 
   return (
   <>
-    <Modal
+    <DetailPanel
       eyebrow="Personal CRM"
       title={contact.name}
       onClose={onClose}
@@ -1668,7 +1691,7 @@ function PersonPageModal({
           </div>
         ) : <EmptyState>No interactions logged yet.</EmptyState>}
       </div>
-    </Modal>
+    </DetailPanel>
     {photoPromptOpen && (
       <Modal
         eyebrow="Personal CRM"

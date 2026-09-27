@@ -1,13 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, ReactNode } from 'react';
 import {
-  Archive, ArchiveRestore, BookMarked, Check, ChevronDown, ChevronLeft, Clock, Code2, Command,
+  Archive, ArchiveRestore, BookMarked, Check, ChevronDown, ChevronLeft, Clock, Code2, Command, Compass, FolderKanban, Inbox, LayoutDashboard, PanelLeftClose, PanelLeftOpen, Target,
   CopyPlus, Layers, Lightbulb, Link2, ListChecks, Lock, LockOpen, Maximize2, Minimize2, Pencil, Pin, PinOff, Plus, Quote, Search, SquareStack, StickyNote, Trash2, TrendingUp,
   Vault as VaultIcon, X
 } from 'lucide-react';
 import { useStore, newRecord } from '../store';
 import type { BookActionItem, BookNoteRow, BookNoteStatus, BookQuoteRow, Frequency, Goal, GoalHorizon, GoalProgressMode, GoalStatus, Note, NoteImage, ParaProjectStatus, ParaType, Priority, ProjectBoardColumn, ProjectSubtask, ResourceKind, ReviewCadence, SecondBrainWorkspace, Task, TaskStatus } from '../types';
 import { DEFAULT_WORKSPACE_ID } from '../storage';
+import { useContextMenu } from '../components/ContextMenu';
+import type { ContextMenuItem } from '../components/ContextMenu';
 import { photoQualityPreset } from '../lib/photoQuality';
 import { generateId } from '../utils/id';
 import { Badge, Card, EmptyState, Kpi, Modal, PageHeader, ProgressBar, formatDate } from '../components/UI';
@@ -16,7 +18,7 @@ import type { SortState } from '../components/SortableTh';
 import { ListManagerModal } from '../components/ListManagerModal';
 import { Flashcards } from '../components/Flashcards';
 import { DatePicker } from '../components/DatePicker';
-import { RichTextEditor } from '../components/RichTextEditor';
+import { RichTextEditor, normalizeValue } from '../components/RichTextEditor';
 import type { RichTextEditorHandle } from '../components/RichTextEditor';
 import { useIsMobile, useIsMobileLandscape } from '../hooks/useIsMobile';
 import { useFabAction } from '../hooks/useFabAction';
@@ -136,6 +138,44 @@ function matchesResourceScope(n: Note, scope: ResourceScope): boolean {
   return n.resourceKind === scope;
 }
 
+type TriageTarget = 'Project' | 'Area' | 'Resource' | 'Archive';
+const TRIAGE_ACTIONS: { label: string; target: TriageTarget }[] = [
+  { label: 'Project', target: 'Project' }, { label: 'Area', target: 'Area' },
+  { label: 'Resource', target: 'Resource' }, { label: 'Archive', target: 'Archive' }
+];
+
+// Notes pasted or imported as Markdown keep "## Heading" / "- item" as literal characters,
+// since the editor stores HTML. Detect lines like that and turn them into real formatting.
+const MD_LINE = /^(#{1,3}) +\S|^[-*] +\S/;
+function hasMarkdownSyntax(html: string): boolean {
+  if (!html || !/[#*-]/.test(html)) return false;
+  const doc = new DOMParser().parseFromString(`<div>${normalizeValue(html)}</div>`, 'text/html');
+  return Array.from(doc.body.querySelectorAll('p')).some(p =>
+    p.innerHTML.split(/<br\s*\/?>/i).some(line => MD_LINE.test((new DOMParser().parseFromString(line, 'text/html').body.textContent ?? '').trim())));
+}
+function convertMarkdownSyntax(html: string): string {
+  const doc = new DOMParser().parseFromString(`<div id="root">${normalizeValue(html)}</div>`, 'text/html');
+  const root = doc.getElementById('root')!;
+  const out: string[] = [];
+  for (const node of Array.from(root.childNodes)) {
+    if (!(node instanceof HTMLElement) || node.tagName !== 'P') { out.push(node instanceof HTMLElement ? node.outerHTML : (node.textContent ?? '')); continue; }
+    let para: string[] = [];
+    let list: string[] = [];
+    const flushPara = () => { if (para.length) out.push(`<p>${para.join('<br>')}</p>`); para = []; };
+    const flushList = () => { if (list.length) out.push(`<ul>${list.map(li => `<li>${li}</li>`).join('')}</ul>`); list = []; };
+    for (const line of node.innerHTML.split(/<br\s*\/?>/i)) {
+      const text = (new DOMParser().parseFromString(line, 'text/html').body.textContent ?? '').trim();
+      const heading = /^(#{1,3}) +(.*)$/.exec(text);
+      const bullet = /^[-*] +(.*)$/.exec(text);
+      if (heading) { flushPara(); flushList(); out.push(`<h${heading[1].length}>${line.replace(/^\s*#{1,3}\s+/, '')}</h${heading[1].length}>`); }
+      else if (bullet) { flushPara(); list.push(line.replace(/^\s*[-*]\s+/, '')); }
+      else if (text) { flushList(); para.push(line); }
+    }
+    flushPara(); flushList();
+  }
+  return out.join('');
+}
+
 function matchesParaTab(n: Note, tab: ParaTab): boolean {
   if (tab === 'Archive') return Boolean(n.archived);
   if (n.archived) return false; // archived notes are hidden everywhere except the Archive tab
@@ -144,7 +184,7 @@ function matchesParaTab(n: Note, tab: ParaTab): boolean {
   // its own dedicated view — Book Notes have the Books tab for that, so keeping them out here
   // avoids listing the same notes in two places.
   if (tab === 'Overview') return n.resourceKind !== 'Book Note';
-  if (tab === 'Tasks') return false; // Tasks are real Task records, not notes — handled separately.
+  if (tab === 'Tasks' || tab === 'Goals' || tab === 'Flashcards') return false; // real Task/Goal/deck records, not notes — handled separately.
   if (tab === 'Inbox') return !n.paraType;
   if (tab === 'Projects') return n.paraType === 'Project';
   if (tab === 'Books') return n.paraType === 'Resource' && n.resourceKind === 'Book Note';
@@ -704,37 +744,8 @@ function LinkPickerModal({
   );
 }
 
-function CommandPalette({
-  notes, onPick, onClose
-}: { notes: Note[]; onPick: (id: string) => void; onClose: () => void }) {
-  const [query, setQuery] = useState('');
-  const q = query.trim().toLowerCase();
-  const filtered = q
-    ? notes.filter(n => n.title.toLowerCase().includes(q)).slice(0, 20)
-    : [...notes].sort((a, b) => (b.updatedAt ?? '').localeCompare(a.updatedAt ?? '')).slice(0, 8);
-  return (
-    <Modal eyebrow="Second Brain" title="Jump to note" onClose={onClose}>
-      <input
-        type="text"
-        autoFocus
-        className="sb-tags-input"
-        placeholder="Type a note title…"
-        value={query}
-        onChange={e => setQuery(e.target.value)}
-      />
-      <div className="sb-link-picker-list">
-        {filtered.length ? filtered.map(n => (
-          <button type="button" key={n.id} className="sb-link-picker-row" onClick={() => onPick(n.id)}>
-            <b>{n.title || 'Untitled'}</b>
-            <small>{n.paraType ?? 'Inbox'} · {snippet(n.body, 60)}</small>
-          </button>
-        )) : <EmptyState>No notes match.</EmptyState>}
-      </div>
-    </Modal>
-  );
-}
 
-export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
+export function SecondBrain({ initialTab, focusNote }: { initialTab?: ParaTab; focusNote?: { id: string; n: number } } = {}) {
   const { data, upsert, remove, toggleTask, updateSettings } = useStore();
   const isMobile = useIsMobile();
   const isLandscapePhone = useIsMobileLandscape();
@@ -765,7 +776,6 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
   const [projectEditOpen, setProjectEditOpen] = useState(false);
   const [manageWorkspacesOpen, setManageWorkspacesOpen] = useState(false);
   const [projectEditForm, setProjectEditForm] = useState<Partial<Note>>({});
-  const [paletteOpen, setPaletteOpen] = useState(false);
   const [taskFilter, setTaskFilter] = useState<TaskFilter>('Open');
   const [showTaskForm, setShowTaskForm] = useState(false);
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
@@ -787,6 +797,7 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
   const [resourceScope, setResourceScope] = useState<ResourceScope | null>(null);
   const [languageFilter, setLanguageFilter] = useState<string | null>(null);
   const [captureText, setCaptureText] = useState('');
+  const [captureFocused, setCaptureFocused] = useState(false);
   // Imperative handles onto the two RichTextEditor instances (a Project's own body, and
   // whichever subtask's notes field is open) — used to insert a [[Wikilink]] or an inline photo
   // at the cursor from outside the editor's own toolbar (the link picker, a compress-then-insert
@@ -978,6 +989,61 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
     setLanguageFilter(null);
     setSelectedId(null);
   };
+
+  // The left rail can collapse to an icon strip; remembered on this device.
+  const [navCollapsed, setNavCollapsedState] = useState(() => {
+    try { return window.localStorage.getItem('lifeos.sbNavCollapsed') === '1'; } catch { return false; }
+  });
+  const toggleNavCollapsed = () => setNavCollapsedState(prev => {
+    try { window.localStorage.setItem('lifeos.sbNavCollapsed', prev ? '0' : '1'); } catch { /* not remembered */ }
+    return !prev;
+  });
+
+  // Drag a note from the list onto Inbox / Projects / Areas / Archive in the left rail to refile it.
+  const [navDragNoteId, setNavDragNoteId] = useState<string | null>(null);
+  const [navDropTab, setNavDropTab] = useState<ParaTab | null>(null);
+  const NAV_DROP_TABS: ParaTab[] = ['Inbox', 'Projects', 'Areas', 'Archive'];
+  const refileNote = (n: Note, tab: ParaTab) => {
+    if (tab === 'Archive') {
+      if (!n.archived) void upsert('notes', { ...n, archived: true, archivedAt: new Date().toISOString() });
+      return;
+    }
+    const nextType: ParaType | undefined = tab === 'Projects' ? 'Project' : tab === 'Areas' ? 'Area' : undefined;
+    if (n.paraType === nextType && !n.archived) return;
+    const body = nextType && !n.body.trim() && PARA_TEMPLATES[nextType] ? PARA_TEMPLATES[nextType]! : n.body;
+    void upsert('notes', { ...n, paraType: nextType, body, archived: false, archivedAt: undefined });
+  };
+  const { menu: noteContextMenu, openMenu: openNoteMenu } = useContextMenu();
+  const noteMenu = (n: Note): ContextMenuItem[] => [
+    { label: 'Open', icon: StickyNote, onSelect: () => openNote(n) },
+    { label: 'Duplicate', icon: CopyPlus, onSelect: () => void duplicateNote(n) },
+    { label: n.pinned ? 'Unpin' : 'Pin to top', icon: n.pinned ? PinOff : Pin, onSelect: () => void upsert('notes', { ...n, pinned: !n.pinned }) },
+    'separator',
+    { heading: 'Move to' },
+    { label: 'Inbox', icon: Inbox, checked: !n.paraType && !n.archived, onSelect: () => refileNote(n, 'Inbox') },
+    { label: 'Projects', icon: FolderKanban, checked: n.paraType === 'Project' && !n.archived, onSelect: () => refileNote(n, 'Projects') },
+    { label: 'Areas', icon: Compass, checked: n.paraType === 'Area' && !n.archived, onSelect: () => refileNote(n, 'Areas') },
+    ...(n.archived ? [] : [{ label: 'Archive', icon: Archive, onSelect: () => refileNote(n, 'Archive') }]),
+    ...(n.locked ? [] : ['separator' as const, { label: 'Delete…', icon: Trash2, danger: true, onSelect: () => deleteNote(n.id) }])
+  ];
+
+  // Left-rail entries on desktop, with live counts (open tasks/goals; notes per PARA view).
+  const navItems = useMemo(() => {
+    const noteCount = (tab: ParaTab) => notes.filter(n => matchesParaTab(n, tab)).length;
+    const icons: Record<ParaTab, typeof Inbox> = {
+      Overview: LayoutDashboard, All: Layers, Inbox, Tasks: ListChecks, Goals: Target, Projects: FolderKanban,
+      Areas: Compass, Books: BookMarked, Flashcards: SquareStack, Archive
+    };
+    const order: ParaTab[] = ['Overview', 'All', 'Inbox', 'Tasks', 'Goals', 'Projects', 'Areas', 'Books', 'Flashcards', 'Archive'];
+    return order.map(tab => ({
+      tab,
+      icon: icons[tab],
+      count: tab === 'Overview' || tab === 'Flashcards' ? null
+        : tab === 'Tasks' ? data.tasks.filter(t => t.workspaceId === activeWorkspaceId && t.status !== 'Completed').length
+        : tab === 'Goals' ? data.goals.filter(g => g.workspaceId === activeWorkspaceId && g.status !== 'Completed').length
+        : noteCount(tab)
+    }));
+  }, [notes, data.tasks, data.goals, activeWorkspaceId]);
 
   const allTags = useMemo(() => {
     const set = new Set<string>();
@@ -1492,6 +1558,21 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
     patchNote(note.archived ? { archived: false, archivedAt: undefined } : { archived: true, archivedAt: new Date().toISOString() });
   };
 
+  // Inbox triage: file the open note, then move straight on to the next one in the list.
+  const triageNote = (target: TriageTarget) => {
+    if (!note) return;
+    const i = filteredNotes.findIndex(n => n.id === note.id);
+    const next = filteredNotes[i + 1] ?? filteredNotes[i - 1];
+    if (target === 'Archive') refileNote(note, 'Archive');
+    else {
+      const body = PARA_TEMPLATES[target] && !note.body.trim() ? PARA_TEMPLATES[target]! : note.body;
+      void upsert('notes', { ...note, paraType: target, body });
+    }
+    if (paraTab === 'Inbox' && !areaScopeId && !resourceScope) {
+      if (next && next.id !== note.id) openNote(next); else setSelectedId(null);
+    }
+  };
+
   // Inserted as plain [[Title]] text at the cursor inside the rich text body — the editor has no
   // idea what a wikilink is, it's just text to it, same as it always was inside the old textarea.
   const insertLink = (title: string) => {
@@ -1640,7 +1721,11 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
   // reading aid, not something that should carry over onto whatever note opens next.
   useEffect(() => { setSubtaskDraft(''); setEditingSubtaskId(null); setConfirmDeleteColumn(null); setEditorExpanded(false); }, [selectedId]);
 
-  // Cmd/Ctrl+K → jump-to-note palette, Cmd/Ctrl+N → new note, Esc → collapse expanded editor, else deselect note.
+  // Opening a note from the app-wide command palette.
+  useEffect(() => { if (focusNote) openNote(focusNote.id); }, [focusNote?.n]);
+
+  // Cmd/Ctrl+N → new note, Esc → collapse expanded editor, else deselect note. (Ctrl+K is the
+  // app-wide command palette, which searches notes too — the "Jump to…" button keeps this page's own.)
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       const mod = e.ctrlKey || e.metaKey;
@@ -1648,10 +1733,27 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
       const editing = target instanceof HTMLElement && (
         target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable
       );
-      if (mod && e.key.toLowerCase() === 'k') { e.preventDefault(); setPaletteOpen(true); return; }
       if (mod && e.key.toLowerCase() === 'n' && !editing) { e.preventDefault(); void createNote(); return; }
+      if (isMobile || document.querySelector('.modal-overlay, .cmdk-overlay, .ctx-menu')) {
+        if (e.key === 'Escape' && editorExpanded) setEditorExpanded(false);
+        return;
+      }
+      if (mod && e.shiftKey && e.key.toLowerCase() === 'a' && note) { e.preventDefault(); toggleArchive(); return; }
+      if (mod && e.key === '\\') { e.preventDefault(); toggleNavCollapsed(); return; }
+      if (!editing && !mod && !e.altKey) {
+        const onBody = !(document.activeElement instanceof HTMLButtonElement);
+        if ((e.key === 'j' || e.key === 'k') && filteredNotes.length) {
+          e.preventDefault();
+          const i = selectedId ? filteredNotes.findIndex(n => n.id === selectedId) : -1;
+          const next = e.key === 'j' ? filteredNotes[Math.min(filteredNotes.length - 1, i + 1)] : filteredNotes[Math.max(0, i < 0 ? 0 : i - 1)];
+          if (next) { openNote(next); document.querySelector('.sb-list-item.active')?.scrollIntoView({ block: 'nearest' }); }
+          return;
+        }
+        if (e.key === 'Enter' && onBody && !selectedId && filteredNotes[0]) { e.preventDefault(); openNote(filteredNotes[0]); return; }
+        if (note && !note.paraType && !note.archived && /^[1-4]$/.test(e.key)) { e.preventDefault(); triageNote(TRIAGE_ACTIONS[Number(e.key) - 1].target); return; }
+      }
       if (e.key === 'Escape' && editorExpanded) { setEditorExpanded(false); return; }
-      if (e.key === 'Escape' && !editing && !paletteOpen && !linkPickerOpen && selectedId) setSelectedId(null);
+      if (e.key === 'Escape' && !editing && !linkPickerOpen && selectedId) setSelectedId(null);
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
@@ -1735,21 +1837,72 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
         subtitle="Notes, ideas, and knowledge — organized with PARA, linked together with [[Note Title]]."
         action={
           <div className="sb-header-actions">
-            <button type="button" className="btn ghost" onClick={() => setPaletteOpen(true)} title="Jump to note (Ctrl+K)" aria-label="Jump to note">
-              {isMobile ? <Search size={17} /> : <><Command size={15} /> Jump to…</>}
+            <button type="button" className="btn ghost" onClick={() => window.dispatchEvent(new Event('lifeos:open-palette'))} title="Search everything (Ctrl+K)" aria-label="Search everything">
+              {isMobile ? <Search size={17} /> : <><Command size={15} /> Jump to… <kbd className="sb-kbd">Ctrl K</kbd></>}
             </button>
             {isMobile ? null : paraTab === 'Tasks' ? (
               <button className="btn primary" onClick={startAddTask}><Plus size={16} /> Add task</button>
             ) : paraTab === 'Goals' ? (
               <button className="btn primary" onClick={startAddGoal}><Plus size={16} /> Add goal</button>
-            ) : paraTab === 'Flashcards' ? null : (
+            ) : paraTab === 'Flashcards' || (paraTab === 'Archive' && !areaScopeId && !resourceScope) ? null : (
               <button className="btn primary" onClick={() => void createNote()}><Plus size={16} /> {newNoteLabel}</button>
             )}
           </div>
         }
       />
 
-      <div className="sb-workspace-row">
+      {/* Desktop: a persistent PARA tree on the left (workspaces, every tab with live counts)
+          replaces the two rows of pill tabs, so the page is nav · note list · editor side by side. */}
+      {noteContextMenu}
+      <div className={isMobile ? 'sb-layout' : `sb-layout with-nav ${navCollapsed ? 'nav-collapsed' : ''}`}>
+      {!isMobile && (
+        <nav className={`sb-nav ${navCollapsed ? 'collapsed' : ''}`} aria-label="Second Brain">
+          <button type="button" className="sb-nav-toggle" onClick={toggleNavCollapsed} title={navCollapsed ? 'Expand sidebar' : 'Collapse sidebar'} aria-label={navCollapsed ? 'Expand sidebar' : 'Collapse sidebar'} aria-expanded={!navCollapsed}>
+            {navCollapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
+          </button>
+          {workspaces.length > 1 && (
+            <div className="sb-nav-section">
+              <div className="sb-nav-heading">
+                <span>Workspaces</span>
+                <button type="button" className="icon-btn" onClick={() => setManageWorkspacesOpen(true)} title="Manage workspaces" aria-label="Manage workspaces"><Pencil size={12} /></button>
+              </div>
+              {workspaces.map(w => (
+                <button key={w.id} type="button" className={`sb-nav-item ${w.id === activeWorkspaceId ? 'on' : ''}`} onClick={() => switchWorkspace(w.id)} title={navCollapsed ? w.name : undefined}>
+                  <span className="sb-nav-dot" /><span className="sb-nav-initial">{w.name.slice(0, 1).toUpperCase()}</span><span className="sb-nav-label">{w.name}</span>
+                </button>
+              ))}
+            </div>
+          )}
+          <div className="sb-nav-section">
+            <div className="sb-nav-heading">
+              <span>Views</span>
+              {workspaces.length <= 1 && <button type="button" className="icon-btn" onClick={() => setManageWorkspacesOpen(true)} title="Manage workspaces" aria-label="Manage workspaces"><Pencil size={12} /></button>}
+            </div>
+            {navItems.map(({ tab, icon: Icon, count }) => (
+              <button
+                key={tab}
+                type="button"
+                className={`sb-nav-item ${paraTab === tab && !areaScopeId && !resourceScope && !(tab === 'All' && tagFilter) ? 'on' : ''} ${navDragNoteId && NAV_DROP_TABS.includes(tab) ? 'drop-target' : ''} ${navDropTab === tab ? 'drop-over' : ''}`}
+                onClick={() => changeTab(tab)}
+                title={navCollapsed ? (count ? `${tab} (${count})` : tab) : undefined}
+                onDragOver={e => { if (navDragNoteId && NAV_DROP_TABS.includes(tab)) { e.preventDefault(); setNavDropTab(tab); } }}
+                onDragLeave={() => setNavDropTab(cur => (cur === tab ? null : cur))}
+                onDrop={e => {
+                  e.preventDefault();
+                  const n = notes.find(x => x.id === navDragNoteId);
+                  if (n && NAV_DROP_TABS.includes(tab)) refileNote(n, tab);
+                  setNavDragNoteId(null); setNavDropTab(null);
+                }}
+              >
+                <Icon size={15} /><span className="sb-nav-label">{tab}</span>
+                {count != null && count > 0 && <span className="sb-nav-count">{count}</span>}
+              </button>
+            ))}
+          </div>
+        </nav>
+      )}
+      <div className="sb-main">
+      {isMobile && <div className="sb-workspace-row">
         <div className="sb-para-tabs">
           {workspaces.map(w => (
             <button
@@ -1765,10 +1918,10 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
         <button type="button" className="icon-btn" onClick={() => setManageWorkspacesOpen(true)} title="Manage workspaces" aria-label="Manage workspaces">
           <Pencil size={13} />
         </button>
-      </div>
+      </div>}
 
-      <div className="sb-toolbar">
-        <div className="sb-para-tabs">
+      <div className={`sb-toolbar ${isMobile ? '' : 'sb-toolbar-desktop'}`}>
+        {isMobile && <div className="sb-para-tabs">
           {PARA_TABS.map(tab => (
             <button
               key={tab}
@@ -1781,13 +1934,15 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
               {tab === 'Archive' ? <Archive size={14} /> : tab === 'Books' ? <BookMarked size={14} /> : tab === 'Flashcards' ? <SquareStack size={14} /> : tab}
             </button>
           ))}
-        </div>
-        {note?.paraType === 'Project' ? (
-          <div className="sb-view-toggle">
-            <button type="button" className={projectDetailTab === 'Board' ? 'on' : ''} onClick={() => setProjectDetailTab('Board')}>Board</button>
-            <button type="button" className={projectDetailTab === 'Notes' ? 'on' : ''} onClick={() => setProjectDetailTab('Notes')}>Notes</button>
+        </div>}
+        {!isMobile && (
+          <div className="sb-crumb">
+            <b>{areaScopeId ? (notes.find(n => n.id === areaScopeId)?.title || 'Area') : resourceScope ? String(resourceScope) : paraTab}</b>
+            {tagFilter && <span className="sb-crumb-tag">#{tagFilter}<button type="button" onClick={() => setTagFilter(null)} aria-label="Clear tag filter"><X size={11} /></button></span>}
           </div>
-        ) : paraTab === 'Projects' && !areaScopeId && (
+        )}
+        {/* Desktop always shows the status board beside the project list, so List/Board is a phone-only choice. */}
+        {isMobile && !note && paraTab === 'Projects' && !areaScopeId && (
           <div className="sb-view-toggle">
             <button type="button" className={projectView === 'List' ? 'on' : ''} onClick={() => setProjectView('List')}>List</button>
             <button type="button" className={projectView === 'Board' ? 'on' : ''} onClick={() => setProjectView('Board')}>Board</button>
@@ -1847,9 +2002,10 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                 <table className="grid-table sb-all-table">
                   <thead>
                     <tr>
-                      <SortableTh label="Pin" sortKey="pinned" state={tableSort} onSort={k => setTableSort(s => toggleSort(s, k, 'desc'))} />
                       <SortableTh label="Title" sortKey="title" state={tableSort} onSort={k => setTableSort(s => toggleSort(s, k))} />
                       <SortableTh label="Type" sortKey="type" state={tableSort} onSort={k => setTableSort(s => toggleSort(s, k))} />
+                      <th>Area</th>
+                      <th>Status</th>
                       <SortableTh label="Tags" sortKey="tags" state={tableSort} onSort={k => setTableSort(s => toggleSort(s, k))} />
                       <SortableTh label="Updated" sortKey="updated" state={tableSort} onSort={k => setTableSort(s => toggleSort(s, k, 'desc'))} />
                       <th />
@@ -1860,11 +2016,16 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                       const visibleTags = (n.tags ?? []).slice(0, 3);
                       const hiddenTagCount = (n.tags ?? []).length - visibleTags.length;
                       return (
-                        <tr key={n.id} onClick={() => openNote(n)} className="sb-table-row">
-                          <td className="sb-all-table-pin">{n.pinned && <Pin size={12} />}</td>
-                          <td className="sb-all-table-title">{n.title || 'Untitled'}</td>
+                        <tr key={n.id} onClick={() => openNote(n)} onContextMenu={e => openNoteMenu(e, noteMenu(n))} className="sb-table-row">
+                          <td className="sb-all-table-title">{n.pinned && <Pin size={12} className="sb-all-table-pin-icon" />}{n.title || 'Untitled'}</td>
                           <td>
                             <span className={`sb-type-pill tone-${noteTypeTone(n)}`}>{noteTypeLabel(n)}</span>
+                          </td>
+                          <td className="sb-all-table-muted">{(n.areaId && notes.find(a => a.id === n.areaId)?.title) || '—'}</td>
+                          <td className="sb-all-table-muted">
+                            {n.paraType === 'Project'
+                              ? <span className={`sb-status-pill status-${(n.status ?? 'Not Started').replace(/\s+/g, '-').toLowerCase()}`}>{n.status ?? 'Not Started'}</span>
+                              : n.resourceKind === 'Book Note' ? (n.bookStatus ?? 'Reading') : '—'}
                           </td>
                           <td>
                             {visibleTags.length ? (
@@ -1892,22 +2053,30 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
           </div>
         </div>
       ) : (
-      <div className={`sb-shell ${mobileHubActive ? 'sb-hub-active' : ''} ${mobileSplitActive ? 'sb-split-active' : ''}`}>
+      <div className={`sb-shell ${mobileHubActive ? 'sb-hub-active' : ''} ${mobileSplitActive ? 'sb-split-active' : ''} ${!isMobile && !note && (paraTab === 'Tasks' || paraTab === 'Goals') && !areaScopeId && !resourceScope ? 'sb-shell-wide' : ''}`}>
         <aside className="sb-sidebar">
           {/* The centre FAB already captures to this same inbox, so on a phone this box is a
               second door to the same room costing 113px at the top of the rail. */}
           {!isMobile && (
-          <div className="sb-quick-capture">
+          // One line until you use it — it grows while focused or holding text, and the button only appears once there's something to capture.
+          <div className={`sb-quick-capture ${captureFocused || captureText ? 'open' : 'compact'}`}>
             <textarea
-              rows={2}
-              placeholder="Quick capture — dump a thought, link, or task…"
+              rows={captureFocused || captureText ? 3 : 1}
+              placeholder="Quick capture to Inbox…"
               value={captureText}
               onChange={e => setCaptureText(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); void quickCapture(); } }}
+              onFocus={() => setCaptureFocused(true)}
+              onBlur={() => setCaptureFocused(false)}
+              onKeyDown={e => {
+                if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); void quickCapture(); }
+                if (e.key === 'Escape') { e.stopPropagation(); (e.target as HTMLTextAreaElement).blur(); }
+              }}
             />
-            <button type="button" className="btn primary small full" onClick={() => void quickCapture()} disabled={!captureText.trim()}>
-              Capture to Inbox
-            </button>
+            {captureText.trim() && (
+              <button type="button" className="btn primary small full" onMouseDown={e => e.preventDefault()} onClick={() => void quickCapture()}>
+                Capture to Inbox <kbd className="sb-kbd">Ctrl Enter</kbd>
+              </button>
+            )}
           </div>
           )}
           {(areaScopeId || resourceScope) && (
@@ -1967,8 +2136,12 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                 >
                   <button
                     type="button"
-                    className={`sb-list-item ${selectedId === n.id ? 'active' : ''}`}
+                    className={`sb-list-item ${selectedId === n.id ? 'active' : ''} ${navDragNoteId === n.id ? 'dragging' : ''}`}
                     onClick={() => (selectedId === n.id ? setSelectedId(null) : openNote(n))}
+                    draggable={!isMobile}
+                    onDragStart={e => { setNavDragNoteId(n.id); e.dataTransfer.effectAllowed = 'move'; }}
+                    onDragEnd={() => { setNavDragNoteId(null); setNavDropTab(null); }}
+                    onContextMenu={e => openNoteMenu(e, noteMenu(n))}
                   >
                     <div className="sb-list-item-row">
                       {n.resourceKind === 'Book Note' && (
@@ -2039,7 +2212,7 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
         </aside>
 
         <main className={editorClass}>
-          {paraTab === 'Projects' && projectView === 'Board' && !note && !areaScopeId ? (
+          {paraTab === 'Projects' && (projectView === 'Board' || !isMobile) && !note && !areaScopeId ? (
             <div className="sb-board">
               {PROJECT_STATUSES.map(status => {
                 const items = projectsForBoard.filter(p => (p.status ?? 'Not Started') === status);
@@ -2071,9 +2244,12 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                           <button type="button" className="sb-board-card-title" onClick={() => openNote(p)}>{p.title || 'Untitled'}</button>
                           {subtaskProgress(p) && <SubtaskProgressBar progress={subtaskProgress(p)!} size="small" />}
                           {p.dueDate && <span className={`sb-due-chip ${isProjectOverdue(p) ? 'overdue' : ''}`}>{formatDate(p.dueDate)}</span>}
-                          <select value={p.status ?? 'Not Started'} onChange={e => void upsert('notes', { ...p, status: e.target.value as ParaProjectStatus })}>
-                            {PROJECT_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
-                          </select>
+                          {/* Drag between columns on desktop; the dropdown is the touch fallback. */}
+                          {isMobile && (
+                            <select value={p.status ?? 'Not Started'} onChange={e => void upsert('notes', { ...p, status: e.target.value as ParaProjectStatus })}>
+                              {PROJECT_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+                            </select>
+                          )}
                         </div>
                       )) : <EmptyState>None</EmptyState>}
                     </div>
@@ -2357,18 +2533,24 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                 </button>
               )}
               <div className="sb-editor-toolbar">
-                <button type="button" className="icon-btn" onClick={() => patchNote({ pinned: !note.pinned })} title={note.pinned ? 'Unpin' : 'Pin'}>
+                <button type="button" className="icon-btn" onClick={() => patchNote({ pinned: !note.pinned })} title={note.pinned ? 'Unpin' : 'Pin to top of list'} aria-label={note.pinned ? 'Unpin' : 'Pin to top of list'}>
                   {note.pinned ? <PinOff size={15} /> : <Pin size={15} />}
                 </button>
-                <button type="button" className="icon-btn" onClick={toggleArchive} title={note.archived ? 'Unarchive' : 'Archive'}>
+                <button type="button" className="icon-btn" onClick={toggleArchive} title={note.archived ? 'Unarchive (Ctrl+Shift+A)' : 'Archive (Ctrl+Shift+A)'} aria-label={note.archived ? 'Unarchive' : 'Archive'}>
                   {note.archived ? <ArchiveRestore size={15} /> : <Archive size={15} />}
                 </button>
-                <button type="button" className="icon-btn" onClick={() => patchNote({ locked: !note.locked })} title={note.locked ? 'Unlock (allow deleting)' : 'Lock (prevent deleting)'}>
+                <button type="button" className="icon-btn" onClick={() => patchNote({ locked: !note.locked })} title={note.locked ? 'Unlock (allow deleting)' : 'Lock (prevent deleting)'} aria-label={note.locked ? 'Unlock' : 'Lock'}>
                   {note.locked ? <Lock size={15} /> : <LockOpen size={15} />}
                 </button>
                 <button type="button" className="icon-btn" onClick={() => void duplicateNote(note)} title="Duplicate note" aria-label="Duplicate note">
                   <CopyPlus size={15} />
                 </button>
+                {note.paraType === 'Project' && (
+                  <div className="sb-view-toggle sb-view-toggle-inline">
+                    <button type="button" className={projectDetailTab === 'Board' ? 'on' : ''} onClick={() => setProjectDetailTab('Board')}>Board</button>
+                    <button type="button" className="" onClick={() => setProjectDetailTab('Notes')}>Notes</button>
+                  </div>
+                )}
                 <span className="sb-editor-meta">
                   {note.archived ? `Archived ${formatDate(note.archivedAt)}` : `Updated ${formatDate(note.updatedAt)}`}
                 </span>
@@ -2376,7 +2558,7 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                   <Pencil size={15} />
                 </button>
                 {!note.locked && (
-                  <button type="button" className="icon-btn danger" onClick={() => deleteNote(note.id)} title="Delete note">
+                  <button type="button" className="icon-btn danger" onClick={() => deleteNote(note.id)} title="Delete note" aria-label="Delete note">
                     <Trash2 size={15} />
                   </button>
                 )}
@@ -2473,6 +2655,40 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
             // already the exact set the sidebar list to the left is showing, respecting whatever
             // tab/area/resource scope and search/tag/language filters are active — reusing it
             // here means this list can never drift out of sync with what the sidebar shows.
+            !isMobile ? (
+              paraTab === 'Books' && !areaScopeId && !resourceScope && filteredNotes.length ? (
+                <div className="sb-book-shelf">
+                  {filteredNotes.map(n => (
+                    <button type="button" key={n.id} className="sb-book-tile" onClick={() => openNote(n)} onContextMenu={e => openNoteMenu(e, noteMenu(n))}>
+                      <span className="sb-book-tile-cover" style={n.bookCoverArt ? { backgroundImage: `url(${n.bookCoverArt})` } : undefined}>
+                        {!n.bookCoverArt && <BookMarked size={22} />}
+                      </span>
+                      <b>{n.title || 'Untitled'}</b>
+                      <small>{[n.bookAuthor, n.bookStatus ?? 'Reading'].filter(Boolean).join(' · ')}</small>
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <div className="sb-pick-note">
+                  {filteredNotes.length ? (
+                    <>
+                      <StickyNote size={28} />
+                      <b>Select a note to open it</b>
+                      <p>
+                        {filteredNotes.length} note{filteredNotes.length === 1 ? '' : 's'} in this view.
+                        {paraTab === 'Inbox' && !areaScopeId && !resourceScope ? ' Open one and press 1–4 to file it as a Project, Area, Resource or Archive.' : ' Use J / K to move through the list.'}
+                      </p>
+                    </>
+                  ) : paraTab === 'Archive' || (paraTab === 'Inbox' && !query.trim() && !tagFilter) ? null : (
+                    <>
+                      <StickyNote size={28} />
+                      <b>Nothing here yet</b>
+                      <p>{emptyNotesMessage}</p>
+                    </>
+                  )}
+                </div>
+              )
+            ) : (
             <div className="sb-editor-empty-list">
               {filteredNotes.length ? (
                 <>
@@ -2507,6 +2723,7 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                 </>
               ) : <EmptyState>Nothing here yet — create a note to get started.</EmptyState>}
             </div>
+            )
           ) : (
             <>
               {isMobile && (
@@ -2515,7 +2732,7 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                 </button>
               )}
               <div className="sb-editor-toolbar">
-                <button type="button" className="icon-btn" onClick={() => patchNote({ pinned: !note.pinned })} title={note.pinned ? 'Unpin' : 'Pin'}>
+                <button type="button" className="icon-btn" onClick={() => patchNote({ pinned: !note.pinned })} title={note.pinned ? 'Unpin' : 'Pin to top of list'} aria-label={note.pinned ? 'Unpin' : 'Pin to top of list'}>
                   {note.pinned ? <PinOff size={15} /> : <Pin size={15} />}
                 </button>
                 <button
@@ -2527,19 +2744,26 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                     linkInsertRangeRef.current = sel && sel.rangeCount > 0 ? sel.getRangeAt(0).cloneRange() : null;
                     setLinkPickerOpen(true);
                   }}
-                  title="Link to another note"
+                  title="Link to another note — or type [[ in the text"
+                  aria-label="Link to another note"
                 >
                   <Link2 size={15} />
                 </button>
-                <button type="button" className="icon-btn" onClick={toggleArchive} title={note.archived ? 'Unarchive' : 'Archive'}>
+                <button type="button" className="icon-btn" onClick={toggleArchive} title={note.archived ? 'Unarchive (Ctrl+Shift+A)' : 'Archive (Ctrl+Shift+A)'} aria-label={note.archived ? 'Unarchive' : 'Archive'}>
                   {note.archived ? <ArchiveRestore size={15} /> : <Archive size={15} />}
                 </button>
-                <button type="button" className="icon-btn" onClick={() => patchNote({ locked: !note.locked })} title={note.locked ? 'Unlock (allow deleting)' : 'Lock (prevent deleting)'}>
+                <button type="button" className="icon-btn" onClick={() => patchNote({ locked: !note.locked })} title={note.locked ? 'Unlock (allow deleting)' : 'Lock (prevent deleting)'} aria-label={note.locked ? 'Unlock' : 'Lock'}>
                   {note.locked ? <Lock size={15} /> : <LockOpen size={15} />}
                 </button>
                 <button type="button" className="icon-btn" onClick={() => void duplicateNote(note)} title="Duplicate note" aria-label="Duplicate note">
                   <CopyPlus size={15} />
                 </button>
+                {note.paraType === 'Project' && (
+                  <div className="sb-view-toggle sb-view-toggle-inline">
+                    <button type="button" className={projectDetailTab === 'Board' ? 'on' : ''} onClick={() => setProjectDetailTab('Board')}>Board</button>
+                    <button type="button" className={projectDetailTab === 'Notes' ? 'on' : ''} onClick={() => setProjectDetailTab('Notes')}>Notes</button>
+                  </div>
+                )}
                 <span className="sb-editor-meta">
                   {note.archived ? `Archived ${formatDate(note.archivedAt)}` : `Updated ${formatDate(note.updatedAt)}`}
                 </span>
@@ -2548,15 +2772,32 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
                   className="icon-btn"
                   onClick={() => setEditorExpanded(e => !e)}
                   title={editorExpanded ? 'Shrink (Esc)' : 'Expand for easier reading'}
+                  aria-label={editorExpanded ? 'Shrink editor' : 'Expand editor'}
                 >
                   {editorExpanded ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
                 </button>
                 {!note.locked && (
-                  <button type="button" className="icon-btn danger" onClick={() => deleteNote(note.id)} title="Delete note">
+                  <button type="button" className="icon-btn danger" onClick={() => deleteNote(note.id)} title="Delete note" aria-label="Delete note">
                     <Trash2 size={15} />
                   </button>
                 )}
               </div>
+              {!note.paraType && !note.archived && (
+                <div className="sb-triage-bar" role="group" aria-label="File this note">
+                  <span>File as</span>
+                  {TRIAGE_ACTIONS.map((a, i) => (
+                    <button key={a.label} type="button" onClick={() => triageNote(a.target)}>
+                      <kbd className="sb-kbd">{i + 1}</kbd> {a.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {hasMarkdownSyntax(note.body) && (
+                <div className="sb-md-banner">
+                  <span>This note has Markdown-style text (like <code>## Heading</code>) that shows as plain characters.</span>
+                  <button type="button" className="btn ghost small" onClick={() => patchNote({ body: convertMarkdownSyntax(note.body) })}>Convert to formatting</button>
+                </div>
+              )}
               {note.resourceKind === 'Book Note' ? (
                 <TitleAutofillField
                   className="sb-title-input"
@@ -2814,6 +3055,8 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
         </main>
       </div>
       )}
+      </div>
+      </div>
 
       {linkPickerOpen && note && (
         <LinkPickerModal notes={notes.filter(n => n.id !== note.id)} onPick={insertLink} onClose={() => setLinkPickerOpen(false)} />
@@ -2829,13 +3072,6 @@ export function SecondBrain({ initialTab }: { initialTab?: ParaTab } = {}) {
           onDelete={deleteWorkspace}
           onClose={() => setManageWorkspacesOpen(false)}
           addPlaceholder="Workspace name…"
-        />
-      )}
-      {paletteOpen && (
-        <CommandPalette
-          notes={notes.filter(n => !n.archived)}
-          onPick={id => { openNote(id); setPaletteOpen(false); }}
-          onClose={() => setPaletteOpen(false)}
         />
       )}
       {showTaskForm && (

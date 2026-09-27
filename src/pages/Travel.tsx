@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ChangeEvent } from 'react';
 import {
-  AlertTriangle, ArrowUpDown, Check, ChevronLeft, ChevronRight, Image as ImageIcon, MapPin,
+  AlertTriangle, ArrowUpDown, Check, ChevronLeft, ChevronRight, Columns3, Image as ImageIcon, LayoutGrid, MapPin,
   Pencil, Plus, RotateCcw, Search, Sparkles, Trash2, Trophy, Upload, X
 } from 'lucide-react';
 import { useStore, newRecord } from '../store';
@@ -12,6 +12,8 @@ import { RichTextEditor } from '../components/RichTextEditor';
 import { generateId } from '../utils/id';
 import { useIsMobile } from '../hooks/useIsMobile';
 import { useFabAction } from '../hooks/useFabAction';
+import { useContextMenu } from '../components/ContextMenu';
+import type { ContextMenuItem } from '../components/ContextMenu';
 import { DISCOVERY_DECK, buildDeckPrompt, DECK_SYSTEM_PROMPT, parseDeckIdeas, type DeckIdea } from '../lib/bucketListDeck';
 import { complete, loadSavedEngine, ENGINE_LABELS, ENGINE_STORAGE_KEY, type Engine } from '../lib/aiEngine';
 import { coverQuery, isUnsplashConfigured, resolveCover, searchPhotos, type PhotoOption } from '../lib/unsplash';
@@ -492,6 +494,14 @@ export function Travel() {
     return sorted;
   }, [items, statusTab, categoryTab, search, sortBy]);
 
+  const filteredAllStatuses = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return items
+      .filter(i => !categoryTab || i.category === categoryTab)
+      .filter(i => !q || i.title.toLowerCase().includes(q) || (i.location ?? '').toLowerCase().includes(q))
+      .sort((a, b) => (a.order ?? 9999) - (b.order ?? 9999) || (b.updatedAt ?? '').localeCompare(a.updatedAt ?? ''));
+  }, [items, categoryTab, search]);
+
   // Dragging always works, regardless of which sort is currently active — starting a drag is a
   // clear enough signal of intent to take manual control that it switches to "Custom order"
   // itself, rather than requiring an extra click first and then having the drop immediately
@@ -566,6 +576,35 @@ export function Travel() {
     }
   };
 
+  // ---- Desktop views: Gallery (photo cards) or Board (Someday → Planning → Achieved). ----
+  const [layout, setLayoutState] = useState<'gallery' | 'board'>(() => {
+    try { return window.localStorage.getItem('lifeos.view.bucketList') === 'board' ? 'board' : 'gallery'; } catch { return 'gallery'; }
+  });
+  const setLayout = (next: 'gallery' | 'board') => {
+    setLayoutState(next);
+    try { window.localStorage.setItem('lifeos.view.bucketList', next); } catch { /* not remembered */ }
+  };
+  const boardMode = !isMobile && layout === 'board';
+  const [boardOver, setBoardOver] = useState<BucketListStatus | null>(null);
+  const moveToStatus = (id: string, status: BucketListStatus) => {
+    const item = items.find(i => i.id === id);
+    if (!item || item.status === status) return;
+    if (status === 'Achieved') patchItem(item, { status, achievedAt: item.achievedAt ?? localIso() });
+    else patchItem(item, { status });
+  };
+
+  // Right-click a goal (desktop): edit, move between statuses, delete.
+  const { menu: contextMenu, openMenu } = useContextMenu();
+  const goalMenu = (item: BucketListItem): ContextMenuItem[] => [
+    { label: 'Edit…', icon: Pencil, onSelect: () => startEdit(item) },
+    ...(item.status === 'Achieved' && !boardMode ? [{ label: 'View memory', icon: ImageIcon, onSelect: () => toggleFlip(item.id) }] : []),
+    'separator',
+    { heading: 'Status' },
+    ...STATUSES.map(st => ({ label: st, checked: item.status === st, onSelect: () => moveToStatus(item.id, st) })),
+    'separator',
+    { label: 'Delete…', icon: Trash2, danger: true, onSelect: () => deleteItem(item.id) }
+  ];
+
   const startAdd = () => { setFormItem(null); setShowForm(true); };
   useFabAction('Travel & Bucket List', 'Add goal', startAdd);
   const startEdit = (item: BucketListItem) => { setFormItem(item); setShowForm(true); };
@@ -608,12 +647,18 @@ export function Travel() {
         }
       />
 
-      <div className="bucket-toolbar">
-        <div className="segmented">
+      <div className={`bucket-toolbar ${isMobile ? "" : "has-view-toggle"}`}>
+        {!isMobile && (
+          <div className="view-toggle-btns">
+            <button type="button" className={layout === 'gallery' ? 'on' : ''} onClick={() => setLayout('gallery')} aria-label="Gallery view" title="Gallery"><LayoutGrid size={15} /></button>
+            <button type="button" className={layout === 'board' ? 'on' : ''} onClick={() => setLayout('board')} aria-label="Board view" title="Board — drag between statuses"><Columns3 size={15} /></button>
+          </div>
+        )}
+        {!boardMode && <div className="segmented">
           {STATUS_TABS.map(tab => (
             <button type="button" key={tab} className={statusTab === tab ? 'on' : ''} onClick={() => setStatusTab(tab)}>{tab}</button>
           ))}
-        </div>
+        </div>}
         <div className="bucket-chip-row">
           {CATEGORIES.map(cat => (
             <button
@@ -643,7 +688,55 @@ export function Travel() {
         </div>
       </div>
 
-      {filtered.length ? (
+      {contextMenu}
+      {boardMode ? (
+        <div className="bucket-board">
+          {STATUSES.map(st => {
+            // The board shows every status, so it ignores the status tab but keeps category + search.
+            const col = filteredAllStatuses.filter(i => i.status === st);
+            return (
+              <section
+                key={st}
+                className={`cp-board-col ${boardOver === st && dragId ? 'drag-over' : ''}`}
+                onDragOver={e => { if (dragId) { e.preventDefault(); setBoardOver(st); } }}
+                onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setBoardOver(null); }}
+                onDrop={e => { e.preventDefault(); if (dragId) moveToStatus(dragId, st); setDragId(null); setBoardOver(null); }}
+              >
+                <header className="cp-board-head"><span className={`bucket-status-pill status-${st.toLowerCase()}`}>{st}</span><span className="cp-board-count">{col.length}</span></header>
+                <div className="cp-board-list">
+                  {col.map(item => {
+                    const { done, total } = subtaskProgress(item);
+                    return (
+                      <button
+                        type="button"
+                        key={item.id}
+                        draggable
+                        className={`bucket-board-card ${dragId === item.id ? 'dragging' : ''}`}
+                        onDragStart={e => { setDragId(item.id); e.dataTransfer.effectAllowed = 'move'; }}
+                        onDragEnd={() => { setDragId(null); setBoardOver(null); }}
+                        onClick={() => startEdit(item)}
+                        onContextMenu={e => openMenu(e, goalMenu(item))}
+                      >
+                        <span className="bucket-board-cover" style={item.coverArt ? { backgroundImage: `url(${item.coverArt})` } : undefined} />
+                        <span className="bucket-board-body">
+                          <b>{item.title}</b>
+                          <small>
+                            {[item.category, item.location, item.costTier].filter(Boolean).join(' · ')}
+                            {item.targetDate && item.status !== 'Achieved' ? ` · Target ${formatDate(item.targetDate)}` : ''}
+                            {item.status === 'Achieved' && item.achievedAt ? ` · Achieved ${formatDate(item.achievedAt)}` : ''}
+                          </small>
+                          {total > 0 && <span className="bucket-board-progress"><ProgressBar value={(done / total) * 100} /><small>{done}/{total}</small></span>}
+                        </span>
+                      </button>
+                    );
+                  })}
+                  {!col.length && <p className="cp-board-empty">Drop here</p>}
+                </div>
+              </section>
+            );
+          })}
+        </div>
+      ) : filtered.length ? (
         <div className="bucket-grid">
           {filtered.map(item => {
             const flipped = flippedIds.has(item.id);
@@ -653,6 +746,7 @@ export function Travel() {
               <div
                 className={`bucket-card ${flipped ? 'flipped' : ''} ${featured ? 'featured' : ''} ${dragId === item.id ? 'dragging' : ''}`}
                 key={item.id}
+                onContextMenu={e => openMenu(e, goalMenu(item))}
                 onDragOver={e => e.preventDefault()}
                 onDrop={() => void handleDrop(item.id)}
               >

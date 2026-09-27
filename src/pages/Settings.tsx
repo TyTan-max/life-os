@@ -195,7 +195,7 @@ export function Settings() {
   return (
     <>
       <PageHeader title="Settings" />
-      <Card className="collection-form">
+      <Card className="collection-form settings-card">
         <div className="form-grid">
           <label><span>Name</span><input value={settings.userName} onChange={e => void updateSettings({ userName: e.target.value })} /></label>
           <label>
@@ -248,7 +248,7 @@ export function Settings() {
           </label>
         </div>
       </Card>
-      <Card>
+      <Card className="settings-card">
         <h2 className="section-title">Backup</h2>
         <p className="muted">Your data lives entirely in this browser's local storage. Export a backup regularly.</p>
         <div className="form-actions">
