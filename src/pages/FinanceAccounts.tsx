@@ -3,7 +3,8 @@ import { GripVertical, Link2, Pencil, Plus, Trash2 } from 'lucide-react';
 import { financeTradingDeposits, linkedTradingAccount, TRADING_LINK, tradingDeposited } from '../lib/trading';
 import { CollectionPage } from '../components/CollectionPage';
 import { useStore, newRecord } from '../store';
-import { Kpi, formatCurrency, MoneyInput } from '../components/UI';
+import { Kpi, formatCurrency, formatDate, MoneyInput } from '../components/UI';
+import { DatePicker } from '../components/DatePicker';
 import { NumberCell, NotesCell } from '../components/GridCells';
 import { ListManagerModal } from '../components/ListManagerModal';
 import { MobileRecordList } from '../components/MobileRecordList';
@@ -166,6 +167,12 @@ export function FinanceDebtGrid() {
               <label><span>Balance</span><MoneyInput value={editingDebt.balance} onChange={n => patch(editingDebt, { balance: n })} /></label>
               <label><span>Interest rate (%)</span><input type="number" inputMode="decimal" value={editingDebt.interestRate ?? 0} onChange={e => patch(editingDebt, { interestRate: Number(e.target.value) })} /></label>
               <label><span>Min. payment</span><MoneyInput value={editingDebt.minimumPayment ?? 0} onChange={n => patch(editingDebt, { minimumPayment: n })} /></label>
+              {editingDebt.type === 'Credit Card' && (
+                <>
+                  <label><span>Statement balance</span><MoneyInput value={editingDebt.statementBalance ?? 0} onChange={n => patch(editingDebt, { statementBalance: n || undefined })} /></label>
+                  <label><span>Payment due</span><DatePicker value={editingDebt.paymentDueDate ?? ''} onChange={v => patch(editingDebt, { paymentDueDate: v || undefined })} placeholder="Due date" allowClear /></label>
+                </>
+              )}
               <label>
                 <span>Status</span>
                 <select value={editingDebt.status} onChange={e => patch(editingDebt, { status: e.target.value as FinanceAccount['status'] })}>
@@ -204,6 +211,8 @@ export function FinanceDebtGrid() {
               <SortableTh label="Balance" sortKey="balance" state={sort} onSort={k => setSort(s => toggleGridSort(s, k, 'desc'))} />
               <SortableTh label="Interest Rate" sortKey="interestRate" state={sort} onSort={k => setSort(s => toggleGridSort(s, k, 'desc'))} />
               <SortableTh label="Min. Payment" sortKey="minPayment" state={sort} onSort={k => setSort(s => toggleGridSort(s, k, 'desc'))} />
+              <th>Statement</th>
+              <th>Due</th>
               <SortableTh label="Status" sortKey="status" state={sort} onSort={k => setSort(s => toggleGridSort(s, k))} />
               <th>Notes</th>
               <th />
@@ -240,6 +249,8 @@ export function FinanceDebtGrid() {
                 <td className="grid-td-compact"><NumberCell value={a.balance} onChange={n => patch(a, { balance: n })} min={0} decimals={2} /></td>
                 <td className="grid-td-compact"><NumberCell value={a.interestRate ?? 0} onChange={n => patch(a, { interestRate: n })} /></td>
                 <td className="grid-td-compact"><NumberCell value={a.minimumPayment ?? 0} onChange={n => patch(a, { minimumPayment: n })} min={0} decimals={2} /></td>
+                <td className="grid-td-compact">{a.type === 'Credit Card' ? <NumberCell value={a.statementBalance ?? 0} onChange={n => patch(a, { statementBalance: n || undefined })} min={0} decimals={2} /> : <span className="grid-static-cell">—</span>}</td>
+                <td className="grid-td-compact">{a.type === 'Credit Card' ? <DatePicker value={a.paymentDueDate ?? ''} onChange={v => patch(a, { paymentDueDate: v || undefined })} placeholder="Due…" allowClear /> : <span className="grid-static-cell">—</span>}</td>
                 <td>
                   <select className="grid-cell-select" value={a.status} onChange={e => patch(a, { status: e.target.value as FinanceAccount['status'] })}>
                     {STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
@@ -269,6 +280,12 @@ export function FinanceDebtGrid() {
       )}
     </>
   );
+}
+
+// "· Statement $428.52 due Sep 27" on a credit card that has one filled in.
+function statementLine(a: FinanceAccount): string {
+  if (a.type !== 'Credit Card' || !a.statementBalance || !a.paymentDueDate) return '';
+  return ` · Statement ${formatCurrency(a.statementBalance)} due ${formatDate(a.paymentDueDate)}`;
 }
 
 // Same definition as the Dashboard's "Available cash": spendable today.
@@ -333,6 +350,8 @@ export function FinanceAccounts() {
           { key: 'availableBalance', label: 'Available Balance', type: 'money' },
           { key: 'interestRate', label: 'Interest Rate / APY (%)', type: 'number' },
           { key: 'minimumPayment', label: 'Minimum Payment (debt accounts)', type: 'money' },
+          { key: 'statementBalance', label: 'Statement Balance (credit cards)', type: 'money' },
+          { key: 'paymentDueDate', label: 'Payment Due Date (credit cards)', type: 'date' },
           { key: 'costBasis', label: 'Cost Basis (investment accounts)', type: 'money' },
           { key: 'assetClass', label: 'Asset Class (investment accounts)', type: 'select', options: ASSET_CLASSES },
           { key: 'status', label: 'Status', type: 'select', options: ['Active', 'Closed', 'Frozen'] },
@@ -340,7 +359,7 @@ export function FinanceAccounts() {
         ]}
         defaults={{ name: '', type: 'Checking', balance: 0, status: 'Active' }}
         renderTitle={a => a.name}
-        renderSubtitle={a => `${a.type}${a.institution ? ` · ${a.institution}` : ''}${a.linkedTo === TRADING_LINK ? ' · linked to Trading Journal' : ''}${a.status !== 'Active' ? ` · ${a.status}` : ''}`}
+        renderSubtitle={a => `${a.type}${a.institution ? ` · ${a.institution}` : ''}${a.linkedTo === TRADING_LINK ? ' · linked to Trading Journal' : ''}${statementLine(a)}${a.status !== 'Active' ? ` · ${a.status}` : ''}`}
         sortBy={(a, b) => a.name.localeCompare(b.name)}
         groupBy={accountGroup}
         groupOrder={ACCOUNT_GROUP_ORDER}

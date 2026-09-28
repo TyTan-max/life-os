@@ -6,6 +6,7 @@ import { MonthYearPicker } from '../components/MonthYearPicker';
 import { billActiveDueDates, billOccurrences, isBillPaused } from '../lib/cashFlowForecast';
 import { missedPaymentDates } from '../lib/billPayments';
 import { detectSubscriptions } from '../lib/subscriptionDetector';
+import { cardPayments } from '../lib/cardPayments';
 
 type EventKind = 'Bill' | 'Subscription' | 'Payday';
 
@@ -109,6 +110,11 @@ export function FinanceCalendar() {
         }
       }
     }
+    // Credit card statement payments (a transfer, not spending — just what's due and whether it went out).
+    for (const p of cardPayments(data.financeAccounts, data.transactions, nowIso)) {
+      if (p.due < monthStartIso || p.due > monthEndIso) continue;
+      list.push({ kind: 'Bill', title: `${p.account.name} payment`, amount: p.amount, date: p.due, paid: p.state === 'paid', missed: p.state === 'missed', pending: p.state === 'pending' });
+    }
     for (const sub of detectedExpense) {
       if (sub.nextExpectedDate >= monthStartIso && sub.nextExpectedDate <= monthEndIso && !alreadyPaid(sub.merchant, sub.nextExpectedDate)) {
         list.push({ kind: 'Subscription', title: sub.merchant, amount: sub.monthlyEquivalent, date: sub.nextExpectedDate });
@@ -121,7 +127,7 @@ export function FinanceCalendar() {
     }
     return list;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data.bills, data.transactions, detectedExpense, detectedIncome, year, month]);
+  }, [data.bills, data.transactions, data.financeAccounts, detectedExpense, detectedIncome, year, month]);
 
   const eventsByDate = useMemo(() => {
     const map = new Map<string, CalEvent[]>();
@@ -148,6 +154,9 @@ export function FinanceCalendar() {
     }
     const startIso = toIso(start);
     const endIso = toIso(end);
+    for (const p of cardPayments(data.financeAccounts, data.transactions, startIso)) {
+      if (p.state === 'upcoming' && p.due <= endIso) list.push({ kind: 'Bill', title: `${p.account.name} payment`, amount: p.amount, date: p.due });
+    }
     for (const sub of detectedExpense) {
       if (sub.nextExpectedDate >= startIso && sub.nextExpectedDate <= endIso) {
         list.push({ kind: 'Subscription', title: sub.merchant, amount: sub.monthlyEquivalent, date: sub.nextExpectedDate });
@@ -159,7 +168,7 @@ export function FinanceCalendar() {
       }
     }
     return list.sort((a, b) => a.date.localeCompare(b.date)).slice(0, 10);
-  }, [data.bills, detectedExpense, detectedIncome]);
+  }, [data.bills, data.financeAccounts, data.transactions, detectedExpense, detectedIncome]);
 
   const jumpToDate = (iso: string) => {
     const d = new Date(`${iso}T12:00:00`);

@@ -127,6 +127,10 @@ export interface FinanceAccount extends BaseRecord {
   costBasis?: number;
   assetClass?: InvestmentAssetClass;
   minimumPayment?: number;
+  // Credit cards: the last statement's balance and its due date, typed in from the statement.
+  // `balance` stays the current balance (everything owed right now).
+  statementBalance?: number;
+  paymentDueDate?: string;
   order?: number;
   // 'tradingJournal': balance is always the Trading Journal's (total deposited + P/L), read-only.
   // ('manual' / unset: the balance you type in.)
