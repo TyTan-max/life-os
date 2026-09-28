@@ -304,7 +304,8 @@ export function FinanceAccounts() {
   const accounts = data.financeAccounts;
   const activeAccounts = accounts.filter(a => a.status !== 'Closed');
   const typeOptions = [...ACCOUNT_TYPES, ...(data.settings.customDebtTypes ?? [])];
-  const totalAssets = activeAccounts.filter(a => !isLiabilityAccount(a.type)).reduce((s, a) => s + a.balance, 0);
+  // Trading money isn't counted as yours (it can all be lost) until it's moved back to the bank.
+  const totalAssets = activeAccounts.filter(a => !isLiabilityAccount(a.type) && a.linkedTo !== TRADING_LINK).reduce((s, a) => s + a.balance, 0);
   const totalLiabilities = activeAccounts.filter(a => isLiabilityAccount(a.type)).reduce((s, a) => s + a.balance, 0);
   // Linked trading account: the journal knows every deposit right away, Finance only after the
   // month-end CSV import — say so rather than let the two silently disagree.
@@ -321,8 +322,8 @@ export function FinanceAccounts() {
       <div className="kpi-grid four calm-kpis">
         <Kpi label="Available cash" value={formatCurrency(availableCash)} caption="bank + cash − credit cards" tone={availableCash >= 0 ? 'green' : 'red'} />
         <Kpi label="Investments & retirement" value={formatCurrency(investedTotal)} caption="long-term, not for spending" tone="default" />
-        <Kpi label="Trading" value={formatCurrency(tradingAccount?.balance ?? 0)} caption={tradingAccount ? 'linked to Trading Journal' : 'no trading account'} tone="default" />
-        <Kpi label="Net worth" value={formatCurrency(totalAssets - totalLiabilities)} caption={`owe ${formatCurrency(totalLiabilities)} across ${activeAccounts.filter(a => isLiabilityAccount(a.type)).length} debt${activeAccounts.filter(a => isLiabilityAccount(a.type)).length === 1 ? '' : 's'}`} tone="blue" />
+        <Kpi label="Trading" value={formatCurrency(tradingAccount?.balance ?? 0)} caption={tradingAccount ? 'at risk · not counted as yours' : 'no trading account'} tone="default" />
+        <Kpi label="Net worth" value={formatCurrency(totalAssets - totalLiabilities)} caption={tradingAccount ? `not counting ${formatCurrency(tradingAccount.balance)} in trading` : `owe ${formatCurrency(totalLiabilities)} across ${activeAccounts.filter(a => isLiabilityAccount(a.type)).length} debt${activeAccounts.filter(a => isLiabilityAccount(a.type)).length === 1 ? '' : 's'}`} tone="blue" />
       </div>
       {tradingAccount && (
         <div className={`fa-linked-note ${pendingDeposits > 0.004 ? 'pending' : ''}`}>

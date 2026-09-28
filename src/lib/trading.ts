@@ -35,6 +35,14 @@ export function financeTradingDeposits(transactions: Transaction[], accountId: s
     .reduce((sum, t) => sum + t.amount, 0);
 }
 
+// Money that came back out of the trading account into the bank. Stored as a transfer *from* the
+// trading account; until it lands, trading money is treated as gone (it can all be lost), so this
+// is when it starts counting as yours again.
+export function isBackFromTrading(t: Transaction, tradingAccountId: string | undefined): boolean {
+  return Boolean(tradingAccountId) && t.type === 'Transfer' && t.accountId === tradingAccountId
+    && Boolean(t.transferAccountId) && t.transferAccountId !== tradingAccountId;
+}
+
 // Every reader of `data.financeAccounts` sees the linked account at its live journal balance.
 export function applyLinkedBalances(data: AppData): AppData {
   if (!data.financeAccounts.some(a => a.linkedTo === TRADING_LINK)) return data;

@@ -221,11 +221,20 @@ export function ImportTransactionsModal({
   const tradingAccountId = linkedTradingAccount(accounts)?.id;
   const tradingTransferFor = (r: { merchant: string; isIncome: boolean }) =>
     tradingAccountId && tradingAccountId !== accountId && !r.isIncome && TRADING_DEPOSIT_PATTERN.test(r.merchant) ? tradingAccountId : undefined;
+  // …and the same description arriving as a deposit is money coming back from trading.
+  const isTradingReturn = (r: { merchant: string; isIncome: boolean }) =>
+    Boolean(tradingAccountId && tradingAccountId !== accountId && r.isIncome && TRADING_DEPOSIT_PATTERN.test(r.merchant));
   const transferTargetFor = (r: { merchant: string; isIncome: boolean; isTransferLike: boolean }) =>
     tradingTransferFor(r) ?? (r.isTransferLike && transferToAccountId && transferToAccountId !== accountId ? transferToAccountId : undefined);
 
   const doImport = () => {
     const records = rowsToImport.map(r => {
+      if (isTradingReturn(r)) {
+        return newRecord<Transaction>({
+          date: r.date, merchant: r.merchant, amount: r.amount, type: 'Transfer',
+          accountId: tradingAccountId!, transferAccountId: accountId
+        });
+      }
       const transferTo = transferTargetFor(r);
       const asTransfer = Boolean(transferTo);
       return newRecord<Transaction>({
@@ -411,10 +420,11 @@ export function ImportTransactionsModal({
               </thead>
               <tbody>
                 {previewRows.slice(0, 50).map((r, i) => {
-                  const asTransfer = Boolean(transferTargetFor(r));
+                  const tradingReturn = isTradingReturn(r);
+                  const asTransfer = tradingReturn || Boolean(transferTargetFor(r));
                   const categoryId = asTransfer ? undefined : categoryFor(r.merchant, r.isIncome, r.csvCategory, r.amount);
                   const categoryLabel = categoryId ? categories.find(c => c.id === categoryId)?.name : undefined;
-                  const typeLabel = asTransfer ? 'Transfer' : (r.isIncome ? 'Income' : 'Expense');
+                  const typeLabel = tradingReturn ? 'Back from trading' : asTransfer ? 'Transfer' : (r.isIncome ? 'Income' : 'Expense');
                   const skippedRow = (r.isDuplicate && skipDuplicates) || (r.isLikelyPaymentReceived && skipLikelyPayments);
                   return (
                     <tr key={i} className={skippedRow ? 'import-row-skipped' : ''}>

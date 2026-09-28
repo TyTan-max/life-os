@@ -10,6 +10,7 @@ import { isLiabilityAccount } from './FinanceAccounts';
 import { FinanceLedger } from './FinanceLedger';
 import type { LedgerTab } from './FinanceLedger';
 import { IMPORT_REQUEST_EVENT } from '../lib/importRequest';
+import { isBackFromTrading, linkedTradingAccount } from '../lib/trading';
 import {
   actualSpendByCategory, billMonthlyEquivalent, formatMonthLabel, monthKey, monthlyIncome,
   rolloverAmount, shiftMonth, suggest502030
@@ -56,7 +57,7 @@ function smoothPath(coords: { x: number; y: number }[]): string {
   return d;
 }
 
-function TrendAreaChart({ points }: { points: TrendPoint[] }) {
+function TrendAreaChart({ points, partialLast = false }: { points: TrendPoint[]; partialLast?: boolean }) {
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
 
   if (points.length < 2) {
@@ -76,6 +77,9 @@ function TrendAreaChart({ points }: { points: TrendPoint[] }) {
   const coords = points.map((p, i) => ({ x: (i / (n - 1)) * 100, y: 6 + (1 - (p.value - min) / range) * 88 }));
   const linePath = smoothPath(coords);
   const areaPath = `${linePath} L ${coords[n - 1].x} 100 L ${coords[0].x} 100 Z`;
+  // An unfinished month draws its last stretch dashed: it isn't comparable to the full ones yet.
+  const solidPath = partialLast ? smoothPath(coords.slice(0, -1)) : linePath;
+  const lastA = coords[n - 2]; const lastB = coords[n - 1];
   const hovered = hoverIndex != null ? coords[hoverIndex] : null;
   const hoveredPoint = hoverIndex != null ? points[hoverIndex] : null;
   const showZeroLine = min < 0 && max > 0;
@@ -100,14 +104,15 @@ function TrendAreaChart({ points }: { points: TrendPoint[] }) {
           </defs>
           <path d={areaPath} className="trend-area-fill" />
           {showZeroLine && <line x1="0" y1={zeroY} x2="100" y2={zeroY} className="trend-zero-line" />}
-          <path d={linePath} fill="none" className="trend-line" />
+          <path d={solidPath} fill="none" className="trend-line" />
+          {partialLast && <line x1={lastA.x} y1={lastA.y} x2={lastB.x} y2={lastB.y} className="trend-line trend-line-partial" />}
           {hovered && <line x1={hovered.x} y1="0" x2={hovered.x} y2="100" className="trend-crosshair" />}
         </svg>
         {hovered && <div className="trend-dot" style={{ left: `${hovered.x}%`, top: `${hovered.y}%` }} />}
         {hovered && hoveredPoint && (
           <div className="trend-tooltip" style={{ left: `${hovered.x}%`, top: `${hovered.y}%` }}>
             <b className={hoveredPoint.value >= 0 ? 'positive' : 'negative'}>{formatCurrency(hoveredPoint.value)}</b>
-            <span>{hoveredPoint.label}</span>
+            <span>{hoveredPoint.label}{partialLast && hoverIndex === n - 1 ? ' (so far)' : ''}</span>
           </div>
         )}
       </div>
@@ -239,6 +244,13 @@ export function FinanceBudgets({ hideLedger = false }: { hideLedger?: boolean } 
   const remaining = totalPlanned - totalActual;
 
   const [trendRange, setTrendRange] = useState<6 | 12>(6);
+  // Money moved out to investment, retirement or the linked trading account — not spending, but
+  // no longer available either, so "left over" and "kept" subtract it.
+  const investingAccountIds = useMemo(
+    () => new Set(data.financeAccounts.filter(a => a.type === 'Investment' || a.type === 'Retirement' || a.linkedTo === 'tradingJournal').map(a => a.id)),
+    [data.financeAccounts]
+  );
+  const tradingAccountId = linkedTradingAccount(data.financeAccounts)?.id;
   const cashFlowTrend = useMemo(() => {
     const months: string[] = [];
     for (let i = trendRange - 1; i >= 0; i--) months.push(shiftMonth(month, -i));
@@ -247,13 +259,25 @@ export function FinanceBudgets({ hideLedger = false }: { hideLedger?: boolean } 
       const exp = transactions
         .filter(t => t.type === 'Expense' && t.date.startsWith(m))
         .reduce((s, t) => s + t.amount, 0);
-      return { label: formatMonthLabel(m).replace(/ \d{4}$/, ''), value: inc - exp };
+      // "Kept": what stayed in the bank — money moved to investing/trading is gone from here
+      // (trading can be lost entirely); money back from trading counts again once it lands.
+      const moved = transactions
+        .filter(t => t.type === 'Transfer' && t.date.startsWith(m) && t.transferAccountId && investingAccountIds.has(t.transferAccountId))
+        .reduce((s, t) => s + t.amount, 0);
+      const back = transactions
+        .filter(t => t.date.startsWith(m) && isBackFromTrading(t, tradingAccountId))
+        .reduce((s, t) => s + t.amount, 0);
+      return { label: formatMonthLabel(m).replace(/ \d{4}$/, ''), value: inc - exp - moved + back };
     });
-  }, [month, trendRange, transactions]);
-  const trendAvg = cashFlowTrend.length ? cashFlowTrend.reduce((s, p) => s + p.value, 0) / cashFlowTrend.length : 0;
+  }, [month, trendRange, transactions, investingAccountIds, tradingAccountId]);
+  // The month in progress isn't comparable to finished ones — leave it out of the average and
+  // the month-over-month change until it's over.
+  const trendPartial = month === monthKey();
+  const trendComplete = trendPartial ? cashFlowTrend.slice(0, -1) : cashFlowTrend;
+  const trendAvg = trendComplete.length ? trendComplete.reduce((s, p) => s + p.value, 0) / trendComplete.length : 0;
   const trendCurrent = cashFlowTrend[cashFlowTrend.length - 1]?.value ?? 0;
   const trendPrev = cashFlowTrend[cashFlowTrend.length - 2]?.value;
-  const trendDelta = trendPrev != null ? trendCurrent - trendPrev : null;
+  const trendDelta = trendPrev != null && !trendPartial ? trendCurrent - trendPrev : null;
 
   // Expenses Summary rolls categories up by budgetGroup so a dozen near-identical 50/30/20
   // placeholder rows collapse into a couple of totals; expand a group to see individual categories.
@@ -327,16 +351,14 @@ export function FinanceBudgets({ hideLedger = false }: { hideLedger?: boolean } 
     return list;
   }, [debtAccountsBase, debtSort]);
 
-  // Money moved out to investment, retirement or the linked trading account this period — not
-  // spending, but no longer available either, so "left over" subtracts it.
-  const investingAccountIds = useMemo(
-    () => new Set(data.financeAccounts.filter(a => a.type === 'Investment' || a.type === 'Retirement' || a.linkedTo === 'tradingJournal').map(a => a.id)),
-    [data.financeAccounts]
-  );
   const movedToInvesting = useMemo(() => transactions
     .filter(t => t.type === 'Transfer' && t.date.startsWith(period) && t.transferAccountId && investingAccountIds.has(t.transferAccountId))
     .reduce((s, t) => s + t.amount, 0),
   [transactions, period, investingAccountIds]);
+  const backFromTrading = useMemo(() => transactions
+    .filter(t => t.date.startsWith(period) && isBackFromTrading(t, tradingAccountId))
+    .reduce((s, t) => s + t.amount, 0),
+  [transactions, period, tradingAccountId]);
 
   // The Budgets page's ledger tabs, opened from the summary cards' "Open →" links.
   const [ledgerTab, setLedgerTab] = useState<LedgerTab>('Transactions');
@@ -440,7 +462,7 @@ export function FinanceBudgets({ hideLedger = false }: { hideLedger?: boolean } 
   // Income Summary → Income, Bills Summary → Bills, Expenses Summary → Expenses,
   // Debt Payments → Debts, Savings → Savings (required monthly contribution across goals). In year
   // view Bills/Debts/Savings are all ×12 annualized forecasts rather than literal period sums.
-  const totalCashLeftOver = income - cashFlowBillsTotal - totalActual - cashFlowDebtsTotal - cashFlowSavingsTotal - movedToInvesting;
+  const totalCashLeftOver = income - cashFlowBillsTotal - totalActual - cashFlowDebtsTotal - cashFlowSavingsTotal - movedToInvesting + backFromTrading;
 
   // Waterfall only maps Expenses (never mixed with Income/Bills/Debts/Savings) so its total
   // bar always matches what it visually represents — top categories by spend, rest bucketed.
@@ -615,7 +637,7 @@ export function FinanceBudgets({ hideLedger = false }: { hideLedger?: boolean } 
             <p className="muted mini-table-hint">
               {viewMode === 'year'
                 ? "Income minus spending, bills & subscriptions, debt payments, savings goals, and money moved to investing or trading — across the whole year."
-                : "Income minus spending, bills & subscriptions still to come, debt payments, savings goals, and money moved to investing or trading."}
+                : "Income minus spending, bills & subscriptions still to come, debt payments, savings goals, and money moved to investing or trading (plus anything back from trading)."}
               {viewMode === 'month' && billsExcludedFromCashFlow.length > 0 && (
                 <> {billsExcludedFromCashFlow.length} bill{billsExcludedFromCashFlow.length === 1 ? '' : 's'} already showing up in Expenses this month {billsExcludedFromCashFlow.length === 1 ? "isn't" : "aren't"} counted twice here.</>
               )}
@@ -630,6 +652,7 @@ export function FinanceBudgets({ hideLedger = false }: { hideLedger?: boolean } 
                   <tr><td>Debt payments</td><td>−{formatCurrency(cashFlowDebtsTotal)}</td></tr>
                   <tr><td>Savings goals</td><td>−{formatCurrency(cashFlowSavingsTotal)}</td></tr>
                   <tr title="Transfers to investment, retirement or trading accounts"><td>Moved to investing &amp; trading</td><td>−{formatCurrency(movedToInvesting)}</td></tr>
+                  {backFromTrading > 0 && <tr title="Transfers from the trading account back into the bank"><td>Back from trading</td><td>+{formatCurrency(backFromTrading)}</td></tr>}
                 </tbody>
                 <tfoot>
                   <tr>
@@ -698,20 +721,20 @@ export function FinanceBudgets({ hideLedger = false }: { hideLedger?: boolean } 
         <div className="budget-dashboard-col-wide">
           <Card className="budget-chart-card trend-card">
             <div className="trend-header-row">
-              <h2>Cash Flow Over Time</h2>
+              <h2 title="Income minus spending and money moved to investing or trading, plus anything back from trading — what stayed in your bank">Kept each month</h2>
               <div className="trend-range-toggle">
                 <button type="button" className={trendRange === 6 ? 'on' : ''} onClick={() => setTrendRange(6)}>Last 6 Months</button>
                 <button type="button" className={trendRange === 12 ? 'on' : ''} onClick={() => setTrendRange(12)}>Year to Date</button>
               </div>
             </div>
             <div className="trend-kpis">
-              <div className="trend-kpi"><span>This Month</span><b className={trendCurrent >= 0 ? 'positive' : 'negative'}>{formatCurrency(trendCurrent)}</b></div>
+              <div className="trend-kpi"><span>{trendPartial ? 'This month so far' : 'This month'}</span><b className={trendCurrent >= 0 ? 'positive' : 'negative'}>{formatCurrency(trendCurrent)}</b></div>
               <div className="trend-kpi"><span>Avg / mo</span><b className={trendAvg >= 0 ? 'positive' : 'negative'}>{formatCurrency(trendAvg)}</b></div>
               {trendDelta != null && (
                 <div className="trend-kpi"><span>vs Last Month</span><b className={trendDelta >= 0 ? 'positive' : 'negative'}>{trendDelta >= 0 ? '+' : ''}{formatCurrency(trendDelta)}</b></div>
               )}
             </div>
-            <TrendAreaChart points={cashFlowTrend} />
+            <TrendAreaChart points={cashFlowTrend} partialLast={trendPartial} />
           </Card>
 
           <Card className="budget-chart-card">

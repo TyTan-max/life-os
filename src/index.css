@@ -6605,3 +6605,6 @@ tr.recur-paused td:nth-child(4) { opacity: 1; }
 }
 .cal-event-chip.pending { opacity: 0.75; border-style: dashed; }
 .cal-legend-pending { color: var(--text-faint); }
+
+/* "Kept each month": the month in progress is drawn dashed */
+.trend-line-partial { stroke-dasharray: 3 3; opacity: 0.7; }
