@@ -12,7 +12,7 @@ import { useIsMobile } from '../hooks/useIsMobile';
 import { SortableTh, SortableThLabel, toggleGridSort } from '../components/SortableTh';
 import type { GridSortState } from '../components/SortableTh';
 import { billMonthlyEquivalent } from '../lib/budgetMath';
-import { isBillPaused } from '../lib/cashFlowForecast';
+import { isBillPaused, notStartedYet } from '../lib/cashFlowForecast';
 import { chargesToRecategorize, missedPaymentDates } from '../lib/billPayments';
 import { classifyRecurringKind } from '../lib/classifyRecurring';
 import { isLoanAccount } from './FinanceAccounts';
@@ -139,7 +139,14 @@ export function FinanceRecurringGrid({ kind }: { kind: RecurringKind }) {
   const pausedNow = (b: Bill) => isBillPaused(b, today);
   const activeItems = items.filter(b => !pausedNow(b));
   const pausedCount = items.length - activeItems.length;
-  const monthlyTotal = activeItems.reduce((s, b) => s + billMonthlyEquivalent(b), 0);
+  // What you actually pay each month: items that haven't started charging yet wait until they do.
+  const laterItems = activeItems.filter(b => notStartedYet(b, today));
+  const monthlyTotal = activeItems.filter(b => !laterItems.includes(b)).reduce((s, b) => s + billMonthlyEquivalent(b), 0);
+  const totalCaption = [
+    `${activeItems.length - laterItems.length} active`,
+    pausedCount ? `${pausedCount} paused` : '',
+    ...laterItems.map(b => `+ ${b.name} from ${formatDate(b.startDate && b.startDate > today ? b.startDate : b.nextDue)}`)
+  ].filter(Boolean).join(' · ');
   const dueThisWeek = activeItems.filter(b => b.nextDue >= today && b.nextDue <= weekAheadIso);
   const pause = (b: Bill, until?: string) => patch(b, { paused: true, pausedUntil: until });
   const [pauseMenu, setPauseMenu] = useState<{ id: string; anchor: DOMRect } | null>(null);
@@ -275,7 +282,7 @@ export function FinanceRecurringGrid({ kind }: { kind: RecurringKind }) {
     return (
       <>
         <div className="kpi-grid three">
-          <Kpi label={kind === 'Bill' ? 'Monthly Bills' : 'Monthly Subscriptions'} value={formatCurrency(monthlyTotal)} caption={`${activeItems.length} active${pausedCount ? ` · ${pausedCount} paused` : ''}`} tone="default" />
+          <Kpi label={kind === 'Bill' ? 'Monthly Bills' : 'Monthly Subscriptions'} value={formatCurrency(monthlyTotal)} caption={totalCaption} tone="default" />
           <Kpi label="Due This Week" value={dueThisWeek.length} caption={dueThisWeek.map(b => b.name).join(', ') || 'nothing due soon'} tone={dueThisWeek.length ? 'amber' : 'green'} />
           <Kpi label="On Autopay" value={autopayCount} caption={`of ${items.length}`} tone="blue" />
         </div>
@@ -371,7 +378,7 @@ export function FinanceRecurringGrid({ kind }: { kind: RecurringKind }) {
   return (
     <>
       <div className="kpi-grid three">
-        <Kpi label={kind === 'Bill' ? 'Monthly Bills' : 'Monthly Subscriptions'} value={formatCurrency(monthlyTotal)} caption={`${activeItems.length} active${pausedCount ? ` · ${pausedCount} paused` : ''}`} tone="default" />
+        <Kpi label={kind === 'Bill' ? 'Monthly Bills' : 'Monthly Subscriptions'} value={formatCurrency(monthlyTotal)} caption={totalCaption} tone="default" />
         <Kpi label="Due This Week" value={dueThisWeek.length} caption={dueThisWeek.map(b => b.name).join(', ') || 'nothing due soon'} tone={dueThisWeek.length ? 'amber' : 'green'} />
         <Kpi label="On Autopay" value={autopayCount} caption={`of ${items.length}`} tone="blue" />
       </div>

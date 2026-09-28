@@ -74,6 +74,16 @@ export function billOccurrences(bill: Bill, rangeStart: Date, rangeEnd: Date): D
 
 // A bill's `nextDue` only ever moves forward, so a due date earlier in the range that hasn't
 // been paid/imported yet would be missed by billOccurrences alone — step back one period too.
+// Hasn't started charging yet: a start date still ahead, or a first charge more than one period
+// away (e.g. a monthly plan with its first months prepaid). Not part of "what I pay each month" yet.
+export function notStartedYet(bill: Bill, todayIso: string): boolean {
+  if (bill.startDate && bill.startDate > todayIso) return true;
+  const prev = previousDue(bill);
+  if (!prev) return false;
+  const p = `${prev.getFullYear()}-${String(prev.getMonth() + 1).padStart(2, '0')}-${String(prev.getDate()).padStart(2, '0')}`;
+  return p > todayIso;
+}
+
 export function previousDue(bill: Bill): Date | null {
   if (bill.frequency === 'Once') return null;
   const d = new Date(`${bill.nextDue}T12:00:00`);

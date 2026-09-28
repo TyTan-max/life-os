@@ -1,7 +1,8 @@
 import { Fragment, useEffect, useMemo, useState } from 'react';
 import { ArrowRight, ChevronDown, ChevronLeft, ChevronRight, DollarSign, GripVertical, Lock, LockOpen, Pencil, Wand2, X } from 'lucide-react';
 import { useStore, newRecord } from '../store';
-import { Card, Kpi, formatCurrency, formatDate, Modal } from '../components/UI';
+import { Card, Kpi, formatCurrency, formatDate, Modal, MoneyInput } from '../components/UI';
+import { DatePicker } from '../components/DatePicker';
 import { NumberCell } from '../components/GridCells';
 import { SortableTh, toggleSort } from '../components/SortableTh';
 import type { SortState } from '../components/SortableTh';
@@ -11,12 +12,14 @@ import { FinanceLedger } from './FinanceLedger';
 import type { LedgerTab } from './FinanceLedger';
 import { IMPORT_REQUEST_EVENT } from '../lib/importRequest';
 import { isBackFromTrading, linkedTradingAccount } from '../lib/trading';
+import { nonPayCategoryIds, paydaysIn, PAY_FREQUENCIES, SIDE_HUSTLE_CATEGORY } from '../lib/paySchedule';
+import type { Payday } from '../lib/paySchedule';
 import {
   actualSpendByCategory, billMonthlyEquivalent, formatMonthLabel, monthKey, monthlyIncome,
   rolloverAmount, shiftMonth, suggest502030
 } from '../lib/budgetMath';
-import { billActiveDueDates, isBillPaused } from '../lib/cashFlowForecast';
-import type { Bill, Budget, BudgetGroup, FinanceCategory, FinanceGoal } from '../types';
+import { billActiveDueDates, isBillPaused, notStartedYet } from '../lib/cashFlowForecast';
+import type { Bill, Budget, BudgetGroup, FinanceCategory, FinanceGoal, PaySchedule } from '../types';
 
 type BudgetViewMode = 'month' | 'year';
 
@@ -162,7 +165,7 @@ function HorizontalWaterfallChart({ items, total, totalLabel }: { items: Waterfa
 }
 
 export function FinanceBudgets({ hideLedger = false }: { hideLedger?: boolean } = {}) {
-  const { data, upsert, remove } = useStore();
+  const { data, upsert, remove, updateSettings } = useStore();
   const [month, setMonth] = useState(monthKey());
   const [viewMode, setViewMode] = useState<BudgetViewMode>('month');
   const { budgets, financeCategories: categories, transactions } = data;
@@ -267,13 +270,13 @@ export function FinanceBudgets({ hideLedger = false }: { hideLedger?: boolean } 
       const back = transactions
         .filter(t => t.date.startsWith(m) && isBackFromTrading(t, tradingAccountId))
         .reduce((s, t) => s + t.amount, 0);
-      return { label: formatMonthLabel(m).replace(/ \d{4}$/, ''), value: inc - exp - moved + back };
+      return { key: m, label: formatMonthLabel(m).replace(/ \d{4}$/, ''), value: inc - exp - moved + back };
     });
   }, [month, trendRange, transactions, investingAccountIds, tradingAccountId]);
   // The month in progress isn't comparable to finished ones — leave it out of the average and
   // the month-over-month change until it's over.
-  const trendPartial = month === monthKey();
-  const trendComplete = trendPartial ? cashFlowTrend.slice(0, -1) : cashFlowTrend;
+  const trendPartial = month >= monthKey(); // this month, or a future one
+  const trendComplete = cashFlowTrend.filter(p => p.key < monthKey());
   const trendAvg = trendComplete.length ? trendComplete.reduce((s, p) => s + p.value, 0) / trendComplete.length : 0;
   const trendCurrent = cashFlowTrend[cashFlowTrend.length - 1]?.value ?? 0;
   const trendPrev = cashFlowTrend[cashFlowTrend.length - 2]?.value;
@@ -387,7 +390,8 @@ export function FinanceBudgets({ hideLedger = false }: { hideLedger?: boolean } 
   const todayIso = new Date().toLocaleDateString('en-CA');
   const pausedNow = (b: Bill) => isBillPaused(b, todayIso);
   const billsOnlyTotal = upcomingBillsBase.filter(b => !pausedNow(b)).reduce((s, b) => s + b.amount, 0);
-  const subscriptionsTotal = upcomingSubscriptionsBase.filter(b => !pausedNow(b)).reduce((s, b) => s + b.amount, 0);
+  const startsLater = (b: Bill) => notStartedYet(b, todayIso);
+  const subscriptionsTotal = upcomingSubscriptionsBase.filter(b => !pausedNow(b) && !startsLater(b)).reduce((s, b) => s + b.amount, 0);
 
   const monthExpenseTransactions = useMemo(
     () => transactions.filter(t => t.type === 'Expense' && t.date.startsWith(month)),
@@ -489,6 +493,43 @@ export function FinanceBudgets({ hideLedger = false }: { hideLedger?: boolean } 
     });
     return list;
   }, [incomeRowsBase, incomeSort]);
+
+  // ---- Paychecks (scheduled) and side hustle (only once it arrives) ----
+  const paySchedules = useMemo(() => data.settings.paySchedules ?? [], [data.settings.paySchedules]);
+  const notPayIds = useMemo(() => nonPayCategoryIds(categories), [categories]);
+  const monthPaydays = useMemo<Payday[]>(() => {
+    if (viewMode !== 'month' || !paySchedules.length) return [];
+    const [y, m] = month.split('-').map(Number);
+    const end = `${month}-${String(new Date(y, m, 0).getDate()).padStart(2, '0')}`;
+    return paydaysIn(paySchedules, `${month}-01`, end, transactions, todayIso, notPayIds);
+  }, [viewMode, paySchedules, month, transactions, todayIso, notPayIds]);
+  const payStillToCome = monthPaydays.filter(p => p.state === 'upcoming' || p.state === 'pending');
+  const payStillToComeTotal = payStillToCome.reduce((s, p) => s + p.schedule.amount, 0);
+  // Budgets plan on two paychecks a month; a third (biweekly, twice a year) is extra.
+  const extraPaydays = paySchedules.flatMap(s => {
+    if (s.frequency !== 'Biweekly') return [];
+    const mine = monthPaydays.filter(p => p.schedule.id === s.id);
+    return mine.length > 2 ? mine.slice(2) : [];
+  });
+  const sideHustleId = categories.find(c => c.name.toLowerCase() === SIDE_HUSTLE_CATEGORY.toLowerCase())?.id;
+  const sideHustle = useMemo(() => {
+    if (!sideHustleId) return null;
+    const since = new Date(`${todayIso}T12:00:00`); since.setDate(since.getDate() - 30);
+    const sinceIso = since.toISOString().slice(0, 10);
+    const hustle = transactions.filter(t => t.type === 'Income' && t.categoryId === sideHustleId);
+    if (!hustle.length) return { last30: 0, avg: 0 };
+    const last30 = hustle.filter(t => t.date >= sinceIso && t.date <= todayIso).reduce((s, t) => s + t.amount, 0);
+    const thisMonth = todayIso.slice(0, 7);
+    const months = [shiftMonth(thisMonth, -1), shiftMonth(thisMonth, -2), shiftMonth(thisMonth, -3)];
+    const avg = months.reduce((s, m) => s + hustle.filter(t => t.date.startsWith(m)).reduce((a, t) => a + t.amount, 0), 0) / 3;
+    return { last30, avg };
+  }, [sideHustleId, transactions, todayIso]);
+  const [showPayEditor, setShowPayEditor] = useState(false);
+  const savePaySchedules = (next: PaySchedule[]) => void updateSettings({ paySchedules: next });
+  const patchPay = (id: string, p: Partial<PaySchedule>) => savePaySchedules(paySchedules.map(s => (s.id === id ? { ...s, ...p } : s)));
+  const addPaySchedule = () => savePaySchedules([...paySchedules, {
+    id: crypto.randomUUID(), name: paySchedules.length ? 'Paycheck' : 'Job', amount: 0, frequency: 'Biweekly', firstPayday: todayIso
+  }]);
 
   const [savingsSort, setSavingsSort] = useState<SortState<'name' | 'target' | 'saved' | 'remaining' | 'monthly'>>({ key: 'name', dir: 'asc' });
   const sortedGoalRows = useMemo(() => {
@@ -662,6 +703,12 @@ export function FinanceBudgets({ hideLedger = false }: { hideLedger?: boolean } 
                 </tfoot>
               </table>
             </div>
+            {payStillToComeTotal > 0 && (
+              <p className="leftover-expected" title="Scheduled paychecks not received yet — not counted in Left over until they land">
+                + {formatCurrency(payStillToComeTotal)} expected pay still to come ({payStillToCome.map(p => formatDate(p.date)).join(', ')})
+                <span>→ <b className={totalCashLeftOver + payStillToComeTotal >= 0 ? 'positive' : 'negative'}>{formatCurrency(totalCashLeftOver + payStillToComeTotal)}</b> by month end</span>
+              </p>
+            )}
           </Card>
           <Card className="worksheet-card">
             <div className="card-title"><div><h2>Income</h2></div>{ledgerLink('Income')}</div>
@@ -684,6 +731,31 @@ export function FinanceBudgets({ hideLedger = false }: { hideLedger?: boolean } 
                 </table>
               </div>
             ) : <p className="muted empty-state">No income logged {viewMode === 'year' ? 'this year' : 'this month'}.</p>}
+            {viewMode === 'month' && (
+              <div className="pay-block">
+                {monthPaydays.length > 0 && (
+                  <ul className="pay-days">
+                    {monthPaydays.map(p => (
+                      <li key={`${p.schedule.id}-${p.date}`} className={`pay-day ${p.state}`}>
+                        <span className="pay-day-date">{formatDate(p.date)}</span>
+                        <span className="pay-day-name">{p.schedule.name}</span>
+                        <span className="pay-day-state">{p.state === 'received' ? '✓ received' : p.state === 'missed' ? '⚠ not found' : p.state === 'pending' ? '◌ waiting for import' : 'expected'}</span>
+                        <b>{formatCurrency(p.state === 'received' && p.transaction ? p.transaction.amount : p.schedule.amount)}</b>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {extraPaydays.length > 0 && (
+                  <p className="pay-note">3 paydays this month — the {extraPaydays.map(p => formatDate(p.date)).join(', ')} check is extra. Budgets plan on two.</p>
+                )}
+                {sideHustle && (sideHustle.last30 > 0 || sideHustle.avg > 0) && (
+                  <p className="pay-note">Side hustle: {formatCurrency(sideHustle.last30)} last 30 days · avg {formatCurrency(sideHustle.avg)}/mo (not planned on)</p>
+                )}
+                <button type="button" className="text-btn pay-edit" onClick={() => setShowPayEditor(true)}>
+                  <Pencil size={12} /> {paySchedules.length ? 'Pay schedule' : 'Set up pay schedule'}
+                </button>
+              </div>
+            )}
           </Card>
           <Card className="worksheet-card">
             <div className="card-title"><div><h2>Bills</h2></div>{ledgerLink('Bills')}</div>
@@ -920,8 +992,8 @@ export function FinanceBudgets({ hideLedger = false }: { hideLedger?: boolean } 
                 </thead>
                 <tbody>
                   {upcomingSubscriptions.map(b => (
-                    <tr key={b.id} className={pausedNow(b) ? 'recur-paused' : undefined}>
-                      <td>{b.name}{pausedNow(b) && <span className="recur-paused-mini">Paused</span>}</td>
+                    <tr key={b.id} className={pausedNow(b) || startsLater(b) ? 'recur-paused' : undefined}>
+                      <td>{b.name}{pausedNow(b) ? <span className="recur-paused-mini">Paused</span> : startsLater(b) && <span className="recur-paused-mini recur-later-mini" title="Not charging yet — left out of the total until it starts">Starts later</span>}</td>
                       <td>{formatDate(b.nextDue)}</td>
                       <td>{formatCurrency(recurringDisplayAmount(b))}</td>
                     </tr>
@@ -940,6 +1012,36 @@ export function FinanceBudgets({ hideLedger = false }: { hideLedger?: boolean } 
       </div>
 
       {!hideLedger && <FinanceLedger tab={ledgerTab} onTabChange={setLedgerTab} />}
+
+      {showPayEditor && (
+        <Modal
+          eyebrow="Finance"
+          title="Pay schedule"
+          onClose={() => setShowPayEditor(false)}
+          footer={<>
+            <button type="button" className="btn ghost" onClick={addPaySchedule}>+ Add paycheck</button>
+            <button type="button" className="btn primary" onClick={() => setShowPayEditor(false)}>Done</button>
+          </>}
+        >
+          <p className="muted pay-editor-hint">Only guaranteed pay goes here. Side hustle and other irregular money count once they arrive — they're never planned on.</p>
+          {!paySchedules.length && <p className="muted">No paychecks yet.</p>}
+          {paySchedules.map(s => (
+            <div className="pay-editor" key={s.id}>
+              <label><span>Name</span><input type="text" value={s.name} onChange={e => patchPay(s.id, { name: e.target.value })} placeholder="e.g. New job" /></label>
+              <label><span>Take-home per check</span><MoneyInput value={s.amount} onChange={n => patchPay(s.id, { amount: n })} /></label>
+              <label>
+                <span>How often</span>
+                <select value={s.frequency} onChange={e => patchPay(s.id, { frequency: e.target.value as PaySchedule['frequency'] })}>
+                  {PAY_FREQUENCIES.map(f => <option key={f} value={f}>{f === 'Biweekly' ? 'Every 2 weeks' : f === 'Semimonthly' ? 'Twice a month (15th & last day)' : f}</option>)}
+                </select>
+              </label>
+              <label><span>{s.frequency === 'Semimonthly' ? 'Starting' : 'First payday'}</span><DatePicker value={s.firstPayday} onChange={v => v && patchPay(s.id, { firstPayday: v })} /></label>
+              <label className="pay-editor-wide"><span>Shows on your statement as (optional)</span><input type="text" value={s.matchText ?? ''} onChange={e => patchPay(s.id, { matchText: e.target.value || undefined })} placeholder="e.g. the employer's name — helps match deposits" /></label>
+              <button type="button" className="text-btn danger pay-editor-remove" onClick={() => savePaySchedules(paySchedules.filter(x => x.id !== s.id))}>Remove</button>
+            </div>
+          ))}
+        </Modal>
+      )}
 
       {showEditBudgets && (
         <Modal

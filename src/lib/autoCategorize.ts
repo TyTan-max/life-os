@@ -22,6 +22,8 @@ const RULES: CategoryRule[] = [
   { pattern: /tuition|university|college|student loan payment/i, category: 'Education' },
   { pattern: /gift|donation|charity|gofundme/i, category: 'Gifts & Donations' },
   { pattern: /payroll|paycheck|salary|direct deposit/i, category: 'Salary' },
+  // A plain cash/check deposit isn't a paycheck — usually side-hustle money.
+  { pattern: /\b(mobile|remote|atm|branch|cash|check|counter)\s+deposit\b|^deposit\b/i, category: 'Side hustle' },
   { pattern: /freelance|invoice payment|contract payment/i, category: 'Freelance' },
   { pattern: /dividend|interest earned|capital gain/i, category: 'Investment Income' }
 ];

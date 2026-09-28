@@ -702,6 +702,20 @@ export interface Settings {
   // Deposits added with the Trading Journal's "+ Deposit" button (each also raises the total).
   tradingDepositLog?: { date: string; amount: number }[];
   tradingPresetLabels?: string[];
+  // Scheduled paychecks (see lib/paySchedule). Irregular income is never scheduled.
+  paySchedules?: PaySchedule[];
+}
+
+export interface PaySchedule {
+  id: string;
+  name: string;
+  /** Expected take-home per paycheck. */
+  amount: number;
+  frequency: 'Weekly' | 'Biweekly' | 'Semimonthly' | 'Monthly';
+  /** The first payday; the schedule repeats from here. */
+  firstPayday: string;
+  /** Optional: text the deposit shows on the bank statement (e.g. the employer's name). */
+  matchText?: string;
 }
 
 export interface TradingScreenshot {

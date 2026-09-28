@@ -7,6 +7,7 @@ import { billActiveDueDates, billOccurrences, isBillPaused } from '../lib/cashFl
 import { missedPaymentDates } from '../lib/billPayments';
 import { detectSubscriptions } from '../lib/subscriptionDetector';
 import { cardPayments } from '../lib/cardPayments';
+import { nonPayCategoryIds, paydaysIn } from '../lib/paySchedule';
 
 type EventKind = 'Bill' | 'Subscription' | 'Payday';
 
@@ -72,7 +73,13 @@ export function FinanceCalendar() {
     () => detectSubscriptions(data.transactions, 'Expense').filter(s => !data.bills.some(b => sameName(b.name, s.merchant))),
     [data.transactions, data.bills]
   );
-  const detectedIncome = useMemo(() => detectSubscriptions(data.transactions, 'Income'), [data.transactions]);
+  // A pay schedule, once set up, replaces guessing paydays from past deposits.
+  const paySchedules = data.settings.paySchedules ?? [];
+  const notPayIds = useMemo(() => nonPayCategoryIds(data.financeCategories), [data.financeCategories]);
+  const detectedIncome = useMemo(
+    () => ((data.settings.paySchedules ?? []).length ? [] : detectSubscriptions(data.transactions, 'Income')),
+    [data.transactions, data.settings.paySchedules]
+  );
 
   const events = useMemo(() => {
     const list: CalEvent[] = [];
@@ -110,6 +117,9 @@ export function FinanceCalendar() {
         }
       }
     }
+    for (const p of paydaysIn(paySchedules, monthStartIso, monthEndIso, data.transactions, nowIso, notPayIds)) {
+      list.push({ kind: 'Payday', title: p.schedule.name, amount: p.state === 'received' && p.transaction ? p.transaction.amount : p.schedule.amount, date: p.date, paid: p.state === 'received', missed: p.state === 'missed', pending: p.state === 'pending' });
+    }
     // Credit card statement payments (a transfer, not spending — just what's due and whether it went out).
     for (const p of cardPayments(data.financeAccounts, data.transactions, nowIso)) {
       if (p.due < monthStartIso || p.due > monthEndIso) continue;
@@ -127,7 +137,7 @@ export function FinanceCalendar() {
     }
     return list;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data.bills, data.transactions, data.financeAccounts, detectedExpense, detectedIncome, year, month]);
+  }, [data.bills, data.transactions, data.financeAccounts, data.settings.paySchedules, notPayIds, detectedExpense, detectedIncome, year, month]);
 
   const eventsByDate = useMemo(() => {
     const map = new Map<string, CalEvent[]>();
@@ -154,6 +164,9 @@ export function FinanceCalendar() {
     }
     const startIso = toIso(start);
     const endIso = toIso(end);
+    for (const p of paydaysIn(paySchedules, startIso, endIso, data.transactions, startIso, notPayIds)) {
+      if (p.state === 'upcoming') list.push({ kind: 'Payday', title: p.schedule.name, amount: p.schedule.amount, date: p.date });
+    }
     for (const p of cardPayments(data.financeAccounts, data.transactions, startIso)) {
       if (p.state === 'upcoming' && p.due <= endIso) list.push({ kind: 'Bill', title: `${p.account.name} payment`, amount: p.amount, date: p.due });
     }
@@ -168,7 +181,7 @@ export function FinanceCalendar() {
       }
     }
     return list.sort((a, b) => a.date.localeCompare(b.date)).slice(0, 10);
-  }, [data.bills, data.financeAccounts, data.transactions, detectedExpense, detectedIncome]);
+  }, [data.bills, data.financeAccounts, data.transactions, data.settings.paySchedules, notPayIds, detectedExpense, detectedIncome]);
 
   const jumpToDate = (iso: string) => {
     const d = new Date(`${iso}T12:00:00`);
