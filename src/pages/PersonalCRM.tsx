@@ -2,7 +2,7 @@ import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import {
   Archive, Bell, Briefcase, Cake, CalendarCheck, CalendarDays, Camera, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronsUpDown, ChevronUp, CircleSlash, Clock, GraduationCap,
-  GripVertical, Handshake, Home, IdCard, LayoutGrid, Link2, Mail, MapPin, Medal, MessageCircle, Pencil, Phone,
+  GripVertical, Handshake, Home, IdCard, LayoutGrid, Link2, Mail, MapPin, Medal, MessageCircle, Pencil, Phone, Plus,
   Search, Send, SlidersHorizontal, Sparkles, Star, Table2, Tag as TagIcon, Trash2, Upload, UserPlus, Users, Wrench, X
 } from 'lucide-react';
 import { useStore, newRecord } from '../store';
@@ -163,13 +163,6 @@ function initials(name: string): string {
   return (parts[0][0] + (parts[1]?.[0] ?? '')).toUpperCase();
 }
 
-const AVATAR_PALETTE = ['#4f5bd5', '#0f9488', '#c47a05', '#e5484d', '#7c4fd6', '#2563eb', '#1a8a53', '#d6409f'];
-function avatarColorFor(id: string): string {
-  let hash = 0;
-  for (let i = 0; i < id.length; i++) hash = (hash * 31 + id.charCodeAt(i)) | 0;
-  return AVATAR_PALETTE[Math.abs(hash) % AVATAR_PALETTE.length];
-}
-
 // A real photo when one's been set, falling back to the colored-initials avatar otherwise —
 // used everywhere a contact's avatar shows up (card, table row, detail header) so all three
 // stay in sync with a single rendering rule. "card" reuses the card grid's own avatar class
@@ -180,7 +173,7 @@ function ContactAvatar({ contact, size }: { contact: Pick<Contact, 'id' | 'name'
     return <img className={className} src={contact.photoUrl} alt="" />;
   }
   return (
-    <span className={className} style={{ background: avatarColorFor(contact.id) }}>
+    <span className={`${className} initials`}>
       {initials(contact.name)}
     </span>
   );
@@ -355,6 +348,7 @@ const TAG_EXAMPLE_GROUPS: { label: string; examples: string[] }[] = [
 ];
 
 type CrmView = 'Overview' | 'Details' | 'Calendar' | 'Reach out';
+type OverviewGroup = 'Category' | 'Company' | 'Role';
 const CRM_VIEWS: { key: CrmView; icon: typeof LayoutGrid }[] = [
   { key: 'Overview', icon: LayoutGrid },
   { key: 'Details', icon: Table2 },
@@ -384,6 +378,16 @@ export function PersonalCRM() {
   const [showManageCategories, setShowManageCategories] = useState(false);
   const [showFilterSheet, setShowFilterSheet] = useState(false);
   const [tagFilter, setTagFilter] = useState<string>('All');
+  // Overview's sections: by category (default), company, or role. Remembered per browser.
+  const [groupBy, setGroupByState] = useState<OverviewGroup>(() => {
+    try { const v = localStorage.getItem('crm-group-by'); if (v === 'Company' || v === 'Role') return v; } catch { /* storage unavailable */ }
+    return 'Category';
+  });
+  const setGroupBy = (g: OverviewGroup) => { setGroupByState(g); try { localStorage.setItem('crm-group-by', g); } catch { /* ignore */ } };
+  const [showBdayQuickAdd, setShowBdayQuickAdd] = useState(false);
+  // Rows stay in the quick-add list after a date is picked, so the list doesn't jump.
+  const [bdayQuickTouched, setBdayQuickTouched] = useState<Set<string>>(() => new Set());
+  const [bulkTier, setBulkTier] = useState<ContactTier>('Close');
   // "All" shows the full fixed preset roster (even 0-count tags) plus any ad-hoc tags in use;
   // "Used" shows that same set ranked by actual usage, busiest first.
   // Defaults to "Used" on a phone: a sheet listing 14 categories where most read 0 is mostly
@@ -511,13 +515,17 @@ export function PersonalCRM() {
   const groupedByTag = useMemo(() => {
     const map = new Map<string, Contact[]>();
     for (const c of tagFilteredContacts) {
-      const cat = c.category ?? 'Uncategorized';
+      const cat = groupBy === 'Company' ? (c.company || 'No company')
+        : groupBy === 'Role' ? (c.role || 'No role')
+        : (c.category ?? 'Uncategorized');
       if (!map.has(cat)) map.set(cat, []);
       map.get(cat)!.push(c);
     }
     for (const list of map.values()) list.sort((a, b) => (a.order ?? 9999) - (b.order ?? 9999));
-    return Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0]));
-  }, [tagFilteredContacts]);
+    // "No company" / "No role" / "Uncategorized" sink to the bottom.
+    const last = (k: string) => (k === 'No company' || k === 'No role' || k === 'Uncategorized' ? 1 : 0);
+    return Array.from(map.entries()).sort((a, b) => last(a[0]) - last(b[0]) || a[0].localeCompare(b[0]));
+  }, [tagFilteredContacts, groupBy]);
 
   // Drag-to-reorder helper shared by Overview (scoped to one category's own id list) and Details
   // (scoped to the whole currently-filtered/sorted table) — reindexes just the ids handed to it,
@@ -582,6 +590,26 @@ export function PersonalCRM() {
   // Details table: columns nobody has data for stay hidden (like Finance's Notes column).
   const showSocialCol = activeContacts.some(c => c.linkedin || c.instagram || c.facebook);
   const showAddressCol = activeContacts.some(c => c.address || c.city || c.region);
+  // Everyone at the same company says nothing per row — the table notes it once instead.
+  const sharedCompany = activeContacts.length > 1 && activeContacts.every(c => c.company && c.company === activeContacts[0].company)
+    ? activeContacts[0].company : undefined;
+  const remindersCount = activeContacts.filter(c => remindersOn(c)).length;
+  const missingBirthdays = activeContacts.filter(c => !c.birthday);
+  // Next birthday on file, however far off (the Reach out list only looks 3 weeks ahead).
+  const nextBirthday = useMemo(() => activeContacts
+    .filter(c => c.birthday)
+    .map(c => ({ contact: c, days: daysUntilNextBirthday(c.birthday!, today) ?? 999 }))
+    .sort((a, b) => a.days - b.days)[0], [activeContacts, today]);
+  // Categories with people whose reminders are off — where a bulk "turn on" makes sense.
+  const bulkReminderCategories = tagCounts
+    .filter(([, n]) => n > 0)
+    .map(([cat]) => ({ cat, list: activeContacts.filter(c => c.category === cat && !remindersOn(c)) }))
+    .filter(x => x.list.length > 0);
+  const turnOnReminders = (list: Contact[], tier: ContactTier) => {
+    for (const c of list) {
+      void upsert('contacts', { ...c, tier, reachOut: REACH_OUT_DEFAULT_CATEGORIES.has(c.category ?? '') ? undefined : true, snoozedUntil: undefined });
+    }
+  };
   const overdueCount = activeContacts.filter(c => statusByContact.get(c.id)?.status === 'Overdue').length;
   const dueSoonCount = activeContacts.filter(c => statusByContact.get(c.id)?.status === 'Due soon').length;
   const neverCount = activeContacts.filter(c => statusByContact.get(c.id)?.status === 'Never contacted').length;
@@ -625,9 +653,9 @@ export function PersonalCRM() {
   }, [bdayMonth, bdayYear, activeContacts, today, statusByContact]);
 
   const jumpToNextBirthday = () => {
-    if (!upcomingBirthdays.length) { setView('Calendar'); return; }
+    if (!nextBirthday) { setView('Calendar'); return; }
     const target = new Date(`${today}T00:00:00`);
-    target.setDate(target.getDate() + upcomingBirthdays[0].days);
+    target.setDate(target.getDate() + nextBirthday.days);
     setBdayMonth(target.getMonth());
     setBdayYear(target.getFullYear());
     setView('Calendar');
@@ -784,7 +812,7 @@ export function PersonalCRM() {
           <button
             type="button"
             key={tag}
-            className={`crm-tag-row ${tagFilter === tag ? 'active' : ''}`}
+            className={`crm-tag-row ${tagFilter === tag ? 'active' : ''} ${count === 0 ? 'empty' : ''}`}
             onClick={() => { setTagFilter(tagFilter === tag ? 'All' : tag); onPick?.(); }}
           >
             <span className="crm-tag-count">{count}</span>
@@ -849,9 +877,16 @@ export function PersonalCRM() {
           </div>
           <div className="crm-sidebar-block">
             <h3 className="crm-sidebar-title">Birthdays</h3>
-            <button type="button" className="crm-sidebar-btn" onClick={jumpToNextBirthday}>
-              <Cake size={15} /> {upcomingBirthdays.length ? `Next — ${upcomingBirthdays[0].contact.name}` : 'Next'}
-            </button>
+            {nextBirthday ? (
+              <button type="button" className="crm-sidebar-btn" onClick={jumpToNextBirthday}>
+                <Cake size={15} /> <span>{nextBirthday.contact.name} <small className="muted">{nextBirthday.days === 0 ? 'today' : nextBirthday.days === 1 ? 'tomorrow' : `in ${nextBirthday.days}d`}</small></span>
+              </button>
+            ) : <p className="muted crm-sidebar-empty">No birthdays added yet.</p>}
+            {missingBirthdays.length > 0 && (
+              <button type="button" className="crm-sidebar-btn" onClick={() => setShowBdayQuickAdd(true)}>
+                <Plus size={15} /> Add birthdays <span className="crm-tag-count crm-sidebar-count">{missingBirthdays.length}</span>
+              </button>
+            )}
           </div>
         </aside>
         )}
@@ -879,12 +914,24 @@ export function PersonalCRM() {
             </div>
           )}
 
-          <div className="segmented crm-view-tabs">
-            {CRM_VIEWS.map(({ key, icon: Icon }) => (
-              <button type="button" key={key} className={view === key ? 'on' : ''} onClick={() => setView(key)}>
-                <Icon size={14} /> {key}
-              </button>
-            ))}
+          <div className="crm-view-bar">
+            <div className="segmented crm-view-tabs">
+              {CRM_VIEWS.map(({ key, icon: Icon }) => (
+                <button type="button" key={key} className={view === key ? 'on' : ''} onClick={() => setView(key)}>
+                  <Icon size={14} /> {key}
+                </button>
+              ))}
+            </div>
+            {view === 'Overview' && activeContacts.length > 0 && (
+              <label className="crm-group-by">
+                <span>Group by</span>
+                <select value={groupBy} onChange={e => setGroupBy(e.target.value as OverviewGroup)}>
+                  <option value="Category">Category</option>
+                  <option value="Company">Company</option>
+                  <option value="Role">Role</option>
+                </select>
+              </label>
+            )}
           </div>
 
 
@@ -892,7 +939,7 @@ export function PersonalCRM() {
             groupedByTag.length ? (
               <div className="crm-overview">
                 {groupedByTag.map(([tag, list]) => {
-                  const Icon = categoryIcon(tag);
+                  const Icon = groupBy === 'Company' ? Briefcase : groupBy === 'Role' ? IdCard : categoryIcon(tag);
                   return (
                     <div className="crm-group" key={tag}>
                       <div className="crm-group-head">
@@ -989,13 +1036,17 @@ export function PersonalCRM() {
                   empty={contacts.length ? 'No contacts match your filters.' : 'No contacts yet — add your first one.'}
                 />
               ) : sortedDetailsContacts.length ? (
+                <>
+                {sharedCompany && <p className="crm-table-note"><Briefcase size={12} /> Everyone here is at {sharedCompany}</p>}
                 <div className="grid-table-wrap grid-table-scroll">
                   <table className="grid-table">
                     <thead>
                       <tr>
                         <th className="grid-drag-col" />
                         <SortableTh label="Name" sortKey="name" state={detailsSort} onSort={k => setDetailsSort(s => toggleGridSort(s, k))} />
-                        <th className="sortable-th">
+                        <SortableTh label="Last contact" sortKey="lastContact" state={detailsSort} onSort={k => setDetailsSort(s => toggleGridSort(s, k, 'desc'))} />
+                        <th>Status</th>
+                        {!sharedCompany && <th className="sortable-th">
                           {/* Same split as the Role header: label is a filter dropdown, arrow icon
                               is the normal alphabetical toggle sort. */}
                           <span className="sortable-th-inner role-th-inner">
@@ -1018,7 +1069,7 @@ export function PersonalCRM() {
                               {detailsSort?.key === 'company' ? (detailsSort.dir === 'asc' ? <ChevronUp size={11} /> : <ChevronDown size={11} />) : <ChevronsUpDown size={11} />}
                             </span>
                           </span>
-                        </th>
+                        </th>}
                         <th className="sortable-th">
                           {/* Split header: the label itself is a filter dropdown (narrows to one exact
                               role), while the arrow icon keeps the normal alphabetical toggle sort —
@@ -1050,8 +1101,6 @@ export function PersonalCRM() {
                         {showSocialCol && <SortableTh label="Social profiles" sortKey="socialProfiles" state={detailsSort} onSort={k => setDetailsSort(s => toggleGridSort(s, k, 'desc'))} />}
                         {showAddressCol && <SortableTh label="Address" sortKey="address" state={detailsSort} onSort={k => setDetailsSort(s => toggleGridSort(s, k))} />}
                         <SortableTh label="Category" sortKey="category" state={detailsSort} onSort={k => setDetailsSort(s => toggleGridSort(s, k))} />
-                        <th>Status<br /><small>Computed</small></th>
-                        <SortableTh label="Last contact" sortKey="lastContact" state={detailsSort} onSort={k => setDetailsSort(s => toggleGridSort(s, k, 'desc'))} />
                         <th />
                       </tr>
                     </thead>
@@ -1083,13 +1132,15 @@ export function PersonalCRM() {
                               </span>
                             </td>
                             <td><button type="button" className="text-btn" onClick={() => setSelectedContactId(c.id)}>{c.name}</button></td>
-                            <td className="grid-td-compact">
+                            <td>{info.lastDate ? formatDate(info.lastDate) : <span className="grid-static-cell">Never</span>}</td>
+                            <td>{info.status === 'Off' ? <span className="grid-static-cell">Off</span> : <><Badge tone={STATUS_BADGE_TONE[info.status]}>{info.status}</Badge> <span className="crm-tier-inline">{c.tier}</span></>}</td>
+                            {!sharedCompany && <td className="grid-td-compact">
                               <input
                                 type="text" className="grid-cell-input autosize" placeholder="Add company…"
                                 style={{ width: `${autosizeCh(c.company ?? '', 'Add company…')}ch` }}
                                 value={c.company ?? ''} onChange={e => patchContact(c, { company: e.target.value || undefined })}
                               />
-                            </td>
+                            </td>}
                             <td className="grid-td-compact">
                               <input
                                 type="text" className="grid-cell-input autosize" placeholder="Add role…"
@@ -1125,8 +1176,6 @@ export function PersonalCRM() {
                                 {allCategories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
                               </select>
                             </td>
-                            <td>{info.status === 'Off' ? <span className="grid-static-cell">Reminders off</span> : <><Badge tone={STATUS_BADGE_TONE[info.status]}>{info.status}</Badge> <span className="crm-tier-inline">{c.tier}</span></>}</td>
-                            <td>{info.lastDate ? formatDate(info.lastDate) : <span className="grid-static-cell">Never</span>}</td>
                             <td className="grid-row-actions">
                               <button type="button" className="icon-btn" onClick={() => startEditContact(c)} aria-label={`Edit ${c.name}`}><Pencil size={13} /></button>
                               <button type="button" className="icon-btn danger" onClick={() => requestDeleteContact(c)} aria-label={`Delete ${c.name}`}><Trash2 size={13} /></button>
@@ -1137,6 +1186,7 @@ export function PersonalCRM() {
                     </tbody>
                   </table>
                 </div>
+                </>
               ) : <EmptyState><Users size={22} /> {contacts.length ? 'No contacts match your filters.' : 'No contacts yet — add your first one.'}</EmptyState>}
             </Card>
           )}
@@ -1155,7 +1205,12 @@ export function PersonalCRM() {
                 </div>
               </div>
               {!bdayWeeks.some(w => w.some(cell => cell.inMonth && (cell.contacts.length || cell.checkups.length || cell.dues.length))) && (
-                <p className="crm-cal-empty">Nothing this month. Add birthdays or check-up dates in a contact's details to see them here.</p>
+                <p className="crm-cal-empty">
+                  Nothing this month.
+                  {missingBirthdays.length > 0
+                    ? <> <button type="button" className="text-btn" onClick={() => setShowBdayQuickAdd(true)}>Add birthdays</button> for {missingBirthdays.length} contact{missingBirthdays.length === 1 ? '' : 's'} to see them here.</>
+                    : ' Birthdays and check-ups show up here.'}
+                </p>
               )}
               <div className="calendar-grid crm-bday-grid">
                 <div className="calendar-grid-row calendar-grid-header">
@@ -1197,12 +1252,12 @@ export function PersonalCRM() {
 
           {view === 'Reach out' && (
             <>
-              <div className="kpi-grid four calm-kpis">
+              {remindersCount > 0 && <div className="kpi-grid four calm-kpis">
                 <Kpi label="Contacts" value={activeContacts.length} caption={`${activeContacts.filter(c => remindersOn(c)).length} with reach-out reminders`} tone="default" />
                 <Kpi label="Overdue" value={overdueCount} caption="past their cadence" tone={overdueCount ? 'red' : 'muted'} />
                 <Kpi label="Due soon" value={dueSoonCount} caption="in the last stretch of their cadence" tone={dueSoonCount ? 'amber' : 'muted'} />
                 <Kpi label="Never contacted" value={neverCount} caption="past their first due date" tone={neverCount ? 'red' : 'muted'} />
-              </div>
+              </div>}
               <Card className="crm-weekly-digest">
                 <div className="card-title"><div><Sparkles size={17} /><h2>Reach Out</h2></div></div>
                 {reachOutList.length || upcomingBirthdays.length ? (
@@ -1248,7 +1303,28 @@ export function PersonalCRM() {
                       </div>
                     )}
                   </div>
-                ) : <EmptyState>You're all caught up — nobody's overdue or due soon.</EmptyState>}
+                ) : remindersCount > 0 ? <EmptyState>You're all caught up — nobody's overdue or due soon.</EmptyState> : null}
+                {remindersCount === 0 && (
+                  <div className="crm-reach-setup">
+                    <p><b>No one has reach-out reminders on yet.</b> Turn them on and people show up here when it's been a while.</p>
+                    {bulkReminderCategories.length > 0 && (
+                      <div className="crm-reach-setup-row">
+                        <label className="crm-tier-picker">
+                          <span>Every</span>
+                          <select value={bulkTier} onChange={e => setBulkTier(e.target.value as ContactTier)}>
+                            {TIER_OPTIONS.map(o => <option key={o.tier} value={o.tier}>{o.label}</option>)}
+                          </select>
+                        </label>
+                        {bulkReminderCategories.map(({ cat, list }) => (
+                          <button type="button" key={cat} className="btn ghost small" onClick={() => turnOnReminders(list, bulkTier)}>
+                            <Bell size={13} /> Turn on for {cat} ({list.length})
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    <small className="muted">Or per person: open a contact and flip "Remind me to stay in touch".</small>
+                  </div>
+                )}
               </Card>
             </>
           )}
@@ -1592,6 +1668,34 @@ export function PersonalCRM() {
         </Modal>
       )}
 
+      {showBdayQuickAdd && (
+        <Modal
+          eyebrow="Personal CRM"
+          title="Add birthdays"
+          onClose={() => setShowBdayQuickAdd(false)}
+          footer={<button type="button" className="btn primary" onClick={() => setShowBdayQuickAdd(false)}>Done</button>}
+        >
+          <p className="muted crm-bday-quick-hint">Pick a date for anyone you know. Each one saves as soon as it's set; skip the rest.</p>
+          <div className="crm-bday-quick">
+            {activeContacts.filter(c => !c.birthday || bdayQuickTouched.has(c.id)).sort((a, b) => a.name.localeCompare(b.name)).map(c => (
+              <div className="crm-bday-quick-row" key={c.id}>
+                <ContactAvatar contact={c} size="small" />
+                <span>{c.name}</span>
+                <DatePicker
+                  value={c.birthday ? `${c.birthYear ?? 2000}-${c.birthday}` : undefined}
+                  onChange={iso => {
+                    const [y, m, d] = iso.split('-');
+                    setBdayQuickTouched(prev => new Set(prev).add(c.id));
+                    void upsert('contacts', { ...c, birthday: `${m}-${d}`, birthYear: Number(y) });
+                  }}
+                  placeholder="Birthday"
+                />
+              </div>
+            ))}
+          </div>
+        </Modal>
+      )}
+
       {showFilterSheet && (
         <Sheet title="Filter by category" onClose={() => setShowFilterSheet(false)}>
           <div className="crm-filter-sheet">
@@ -1607,6 +1711,11 @@ export function PersonalCRM() {
             <button type="button" className="btn ghost small" onClick={() => { setShowFilterSheet(false); jumpToNextBirthday(); }}>
               <Cake size={13} /> Birthdays
             </button>
+            {missingBirthdays.length > 0 && (
+              <button type="button" className="btn ghost small" onClick={() => { setShowFilterSheet(false); setShowBdayQuickAdd(true); }}>
+                <Plus size={13} /> Add birthdays
+              </button>
+            )}
           </div>
         </Sheet>
       )}
@@ -1766,7 +1875,9 @@ function PersonPageModal({
           )}
           <div className="crm-person-head-line">
             {status.status !== 'Off' && <Badge tone={STATUS_BADGE_TONE[status.status]}>{status.status}</Badge>}
-            <span className="crm-contact-tier">{contact.nextCheckup ? `Next check-up ${formatDate(contact.nextCheckup)}` : 'No check-up scheduled'}</span>
+            {contact.nextCheckup
+              ? <span className="crm-contact-tier">Next check-up {formatDate(contact.nextCheckup)}</span>
+              : status.status !== 'Off' && <span className="crm-contact-tier">No check-up scheduled</span>}
             {status.lastDate && <span className="muted">Last contact {relativeDay(status.lastDate, today).toLowerCase()}</span>}
           </div>
           <div className="crm-person-head-facts">
@@ -1774,7 +1885,7 @@ function PersonPageModal({
             {contact.email && <span><Mail size={13} /> {contact.email}</span>}
             {contact.phone && <span><Phone size={13} /> {contact.phone}</span>}
             {(contact.address || contact.city || contact.region) && <span><MapPin size={13} /> {contact.address || [contact.city, contact.region].filter(Boolean).join(', ')}</span>}
-            {contact.birthday && <span><Cake size={13} /> {contact.birthday}{age != null ? ` · ${age} years old` : ''}</span>}
+            {contact.birthday && <span><Cake size={13} /> {formatBirthdayOnly(contact.birthday)}{age != null ? ` · ${age} years old` : ''}</span>}
             {socials.some(([, url]) => url) && (
               <span className="crm-person-socials">
                 <Link2 size={13} />

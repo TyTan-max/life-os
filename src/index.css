@@ -6562,3 +6562,28 @@ tr.recur-paused td:nth-child(4) { opacity: 1; }
 .crm-feed-search input::-webkit-search-cancel-button { display: none; }
 .crm-feed-search .icon-btn { width: 20px; height: 20px; }
 .crm-feed-hits { margin: 0 0 8px; font-size: 12px; color: var(--text-faint); }
+
+/* CRM scan 2 */
+.crm-card-avatar.initials, .crm-contact-avatar.initials {
+  background: color-mix(in srgb, var(--accent) 16%, var(--surface)); color: color-mix(in srgb, var(--accent) 70%, var(--text));
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, transparent);
+}
+.crm-view-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.crm-view-bar .crm-view-tabs { margin-bottom: 0; }
+.crm-view-bar { margin-bottom: 14px; }
+.crm-group-by { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-faint); }
+.crm-group-by select { padding: 4px 8px; border: 1px solid var(--border); border-radius: 7px; background: var(--surface); color: var(--text); font: inherit; font-size: 12.5px; }
+.crm-table-note { display: flex; align-items: center; gap: 6px; margin: 0 0 10px; font-size: 12px; color: var(--text-faint); }
+.crm-tag-row.empty:not(.active) { opacity: 0.45; }
+.crm-tag-row.empty:not(.active):hover { opacity: 0.8; }
+.crm-sidebar-count { margin-left: auto; }
+.crm-reach-setup { display: grid; gap: 10px; }
+.crm-reach-setup p { margin: 0; font-size: 13.5px; color: var(--text-muted); }
+.crm-reach-setup-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.crm-reach-setup-row .crm-tier-picker { margin: 0; }
+.crm-reach-setup small { font-size: 12px; }
+.crm-cal-empty .text-btn { padding: 0; font-size: inherit; }
+.crm-bday-quick-hint { margin: 0 0 10px; font-size: 12.5px; }
+.crm-bday-quick { display: grid; gap: 6px; max-height: min(60vh, 520px); overflow-y: auto; overscroll-behavior: contain; }
+.crm-bday-quick-row { display: grid; grid-template-columns: 26px 1fr minmax(130px, 160px); align-items: center; gap: 10px; padding: 4px 2px; font-size: 13.5px; }
+.crm-bday-quick-row > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
