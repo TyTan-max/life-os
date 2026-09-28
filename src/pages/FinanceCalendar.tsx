@@ -18,6 +18,8 @@ interface CalEvent {
   paid?: boolean;
   /** Was due, the imported data covers it, and no matching charge was found. */
   missed?: boolean;
+  /** Was due, but the imported transactions don't reach that far yet — can't say either way. */
+  pending?: boolean;
 }
 
 const normName = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -75,6 +77,7 @@ export function FinanceCalendar() {
     const list: CalEvent[] = [];
     const monthStartIso = toIso(monthStart);
     const monthEndIso = toIso(monthEnd);
+    const nowIso = toIso(new Date());
     const recurring: { kind: EventKind; name: string; type: 'Expense' | 'Income' }[] = [
       ...data.bills.map(b => ({ kind: (b.kind === 'Subscription' ? 'Subscription' : 'Bill') as EventKind, name: b.name, type: 'Expense' as const })),
       ...detectedExpense.map(s => ({ kind: 'Subscription' as EventKind, name: s.merchant, type: 'Expense' as const })),
@@ -94,7 +97,10 @@ export function FinanceCalendar() {
       const missed = new Set(missedPaymentDates(bill, data.transactions));
       for (const occ of billActiveDueDates(bill, monthStart, monthEnd)) {
         const date = toIso(occ);
-        if (!alreadyPaid(bill.name, date)) list.push({ kind, title: bill.name, amount: bill.amount, date, missed: missed.has(date) });
+        if (alreadyPaid(bill.name, date)) continue;
+        const isMissed = missed.has(date);
+        const pending = !isMissed && date < nowIso && !(bill.paidOverrides ?? []).includes(date);
+        list.push({ kind, title: bill.name, amount: bill.amount, date, missed: isMissed, pending });
       }
       // Missed dates further back than one period still belong on their day.
       for (const date of missed) {
@@ -169,6 +175,7 @@ export function FinanceCalendar() {
         <span className="cal-legend-item"><i className="cal-dot kind-payday" />Payday</span>
         <span className="cal-legend-item cal-legend-paid">✓ paid</span>
         <span className="cal-legend-item cal-legend-missed">⚠ no payment found</span>
+        <span className="cal-legend-item cal-legend-pending">◌ waiting for import</span>
       </div>
 
       <div className="cal-layout">
@@ -204,7 +211,7 @@ export function FinanceCalendar() {
                     {dayEvents.length > 0 && (
                       <div className="cal-cell-events">
                         {dayEvents.map((e, i) => (
-                          <span key={i} className={`cal-event-chip kind-${e.kind.toLowerCase()} ${e.paid ? 'paid' : ''} ${e.missed ? 'missed' : ''}`} title={`${e.title} · ${formatCurrency(e.amount)}${e.paid ? ' · paid' : e.missed ? ' · no payment found' : ''}`}>{e.paid ? '✓ ' : e.missed ? '⚠ ' : ''}{e.title}</span>
+                          <span key={i} className={`cal-event-chip kind-${e.kind.toLowerCase()} ${e.paid ? 'paid' : ''} ${e.missed ? 'missed' : ''} ${e.pending ? 'pending' : ''}`} title={`${e.title} · ${formatCurrency(e.amount)}${e.paid ? ' · paid' : e.missed ? ' · no payment found' : e.pending ? ' · waiting for import' : ''}`}>{e.paid ? '✓ ' : e.missed ? '⚠ ' : e.pending ? '◌ ' : ''}{e.title}</span>
                         ))}
                       </div>
                     )}
@@ -223,7 +230,7 @@ export function FinanceCalendar() {
                 {selectedEvents.map((e, i) => (
                   <div className="cal-upcoming-row" key={i}>
                     <i className={`cal-dot kind-${e.kind.toLowerCase()}`} />
-                    <div className="cal-upcoming-text"><b>{e.title}</b><small>{e.paid ? 'Paid' : e.missed ? 'No payment found' : e.kind} · {formatCurrency(e.amount)}</small></div>
+                    <div className="cal-upcoming-text"><b>{e.title}</b><small>{e.paid ? 'Paid' : e.missed ? 'No payment found' : e.pending ? 'Waiting for import' : e.kind} · {formatCurrency(e.amount)}</small></div>
                   </div>
                 ))}
               </div>

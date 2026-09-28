@@ -1,4 +1,4 @@
-import { Fragment, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import { ArrowRight, ChevronDown, ChevronLeft, ChevronRight, DollarSign, GripVertical, Lock, LockOpen, Pencil, Wand2, X } from 'lucide-react';
 import { useStore, newRecord } from '../store';
 import { Card, Kpi, formatCurrency, formatDate, Modal } from '../components/UI';
@@ -9,6 +9,7 @@ import { MonthYearPicker } from '../components/MonthYearPicker';
 import { isLiabilityAccount } from './FinanceAccounts';
 import { FinanceLedger } from './FinanceLedger';
 import type { LedgerTab } from './FinanceLedger';
+import { IMPORT_REQUEST_EVENT } from '../lib/importRequest';
 import {
   actualSpendByCategory, billMonthlyEquivalent, formatMonthLabel, monthKey, monthlyIncome,
   rolloverAmount, shiftMonth, suggest502030
@@ -339,6 +340,12 @@ export function FinanceBudgets({ hideLedger = false }: { hideLedger?: boolean } 
 
   // The Budgets page's ledger tabs, opened from the summary cards' "Open →" links.
   const [ledgerTab, setLedgerTab] = useState<LedgerTab>('Transactions');
+  // An import request (stale-data banner) needs the Transactions grid showing to open its dialog.
+  useEffect(() => {
+    const onRequest = () => setLedgerTab('Transactions');
+    window.addEventListener(IMPORT_REQUEST_EVENT, onRequest);
+    return () => window.removeEventListener(IMPORT_REQUEST_EVENT, onRequest);
+  }, []);
   const openLedger = (tab: LedgerTab) => {
     setLedgerTab(tab);
     requestAnimationFrame(() => document.getElementById('finance-ledger')?.scrollIntoView({ behavior: 'smooth', block: 'start' }));

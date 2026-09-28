@@ -13,7 +13,7 @@ import { SortableTh, SortableThLabel, toggleGridSort } from '../components/Sorta
 import type { GridSortState } from '../components/SortableTh';
 import { billMonthlyEquivalent } from '../lib/budgetMath';
 import { isBillPaused } from '../lib/cashFlowForecast';
-import { missedPaymentDates } from '../lib/billPayments';
+import { chargesToRecategorize, missedPaymentDates } from '../lib/billPayments';
 import { classifyRecurringKind } from '../lib/classifyRecurring';
 import { isLoanAccount } from './FinanceAccounts';
 import type { AmountHistoryEntry, Bill, BillFrequency, FinanceAccount, FinanceCategory, RecurringKind } from '../types';
@@ -215,6 +215,10 @@ export function FinanceRecurringGrid({ kind }: { kind: RecurringKind }) {
       }
     }
     void upsert('bills', next);
+    // Setting a category files this item's past charges under it too (import does the rest).
+    if ('categoryId' in p && next.categoryId) {
+      for (const t of chargesToRecategorize(next, data.transactions)) void upsert('transactions', { ...t, categoryId: next.categoryId });
+    }
   };
 
   const addItem = () => {

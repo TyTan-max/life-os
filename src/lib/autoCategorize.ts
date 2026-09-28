@@ -4,6 +4,8 @@ interface CategoryRule {
 }
 
 const RULES: CategoryRule[] = [
+  // Before the rest: an ATM line's location text could otherwise trip a store/brand rule.
+  { pattern: /atm withdrawal|atm w\/d|cash withdrawal/i, category: 'Cash' },
   { pattern: /walmart|target|kroger|safeway|whole foods|trader joe|costco|aldi|publix|grocery/i, category: 'Groceries' },
   { pattern: /restaurant|starbucks|chipotle|mcdonald|wendy|taco bell|doordash|uber eats|grubhub|dining|cafe|coffee/i, category: 'Dining Out' },
   { pattern: /shell|chevron|exxon|bp gas|gas station|circle k|uber|lyft|taxi|parking|transit|metro/i, category: 'Transportation' },

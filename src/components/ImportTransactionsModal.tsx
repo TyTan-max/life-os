@@ -4,7 +4,8 @@ import { parseCSV, normalizeCsvDate, parseCsvAmount, isCreditCardPaymentMerchant
 import { suggestCategory, lookupMerchantCategoryId } from '../lib/autoCategorize';
 import { linkedTradingAccount, TRADING_DEPOSIT_PATTERN } from '../lib/trading';
 import { newRecord } from '../store';
-import type { FinanceAccount, FinanceCategory, Transaction } from '../types';
+import { billCategoryForCharge } from '../lib/billPayments';
+import type { Bill, FinanceAccount, FinanceCategory, Transaction } from '../types';
 
 type AmountMode = 'single' | 'split';
 
@@ -30,12 +31,14 @@ function duplicateKey(accountId: string, date: string, amount: number, merchant:
 }
 
 export function ImportTransactionsModal({
-  accounts, categories, existingTransactions, merchantCategoryMap, onImport, onClose
+  accounts, categories, existingTransactions, merchantCategoryMap, bills = [], onImport, onClose
 }: {
   accounts: FinanceAccount[];
   categories: FinanceCategory[];
   existingTransactions: Transaction[];
   merchantCategoryMap: Record<string, string>;
+  /** A charge matching one of these gets that bill/subscription's category, before anything else. */
+  bills?: Bill[];
   onImport: (transactions: Transaction[]) => void;
   onClose: () => void;
 }) {
@@ -175,8 +178,13 @@ export function ImportTransactionsModal({
   // strongest signal since it's a deliberate choice; (2) the bank/card issuer's own category for
   // this row, if the file has one and it maps to something here; (3) the generic keyword rules,
   // for files with no category column or one that doesn't match anything.
-  const categoryFor = (merchant: string, isIncome: boolean, csvCategory: string) => {
+  const categoryFor = (merchant: string, isIncome: boolean, csvCategory: string, amount: number) => {
     const kind = isIncome ? 'income' : 'expense';
+    // (0) A payment for one of your bills/subscriptions files under that item's own category.
+    if (!isIncome) {
+      const billCat = billCategoryForCharge(bills, merchant, amount);
+      if (billCat && categories.some(c => c.id === billCat)) return billCat;
+    }
     const mappedId = lookupMerchantCategoryId(merchant, merchantCategoryMap);
     if (mappedId) {
       const mapped = categories.find(c => c.id === mappedId && c.kind === kind);
@@ -227,7 +235,7 @@ export function ImportTransactionsModal({
         type: asTransfer ? 'Transfer' : (r.isIncome ? 'Income' : 'Expense'),
         accountId,
         transferAccountId: transferTo,
-        categoryId: asTransfer ? undefined : categoryFor(r.merchant, r.isIncome, r.csvCategory)
+        categoryId: asTransfer ? undefined : categoryFor(r.merchant, r.isIncome, r.csvCategory, r.amount)
       });
     });
     onImport(records);
@@ -404,7 +412,7 @@ export function ImportTransactionsModal({
               <tbody>
                 {previewRows.slice(0, 50).map((r, i) => {
                   const asTransfer = Boolean(transferTargetFor(r));
-                  const categoryId = asTransfer ? undefined : categoryFor(r.merchant, r.isIncome, r.csvCategory);
+                  const categoryId = asTransfer ? undefined : categoryFor(r.merchant, r.isIncome, r.csvCategory, r.amount);
                   const categoryLabel = categoryId ? categories.find(c => c.id === categoryId)?.name : undefined;
                   const typeLabel = asTransfer ? 'Transfer' : (r.isIncome ? 'Income' : 'Expense');
                   const skippedRow = (r.isDuplicate && skipDuplicates) || (r.isLikelyPaymentReceived && skipLikelyPayments);

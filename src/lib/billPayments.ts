@@ -26,6 +26,28 @@ export function paymentMatches(bill: Bill, t: Transaction): boolean {
   return Math.abs(t.amount - bill.amount) <= Math.max(3, bill.amount * 0.15);
 }
 
+// A bill/subscription's own category, for a charge that is one of its payments. Name has to
+// match and the amount has to be close to the current price or one it used to be.
+export function billCategoryForCharge(bills: Bill[], merchant: string, amount: number): string | undefined {
+  const m = norm(merchant);
+  if (!m) return undefined;
+  const hit = bills.find(bill => {
+    if (!bill.categoryId) return false;
+    const n = norm(bill.name);
+    if (!n || !(n.includes(m) || m.includes(n))) return false;
+    const prices = [bill.amount, ...(bill.priceHistory ?? []).map(h => h.amount), ...(bill.amountHistory ?? []).map(h => h.amount)];
+    return prices.some(p => Math.abs(amount - p) <= Math.max(3, p * 0.15));
+  });
+  return hit?.categoryId;
+}
+
+/** Past expense charges that belong to this bill but sit in a different category. */
+export function chargesToRecategorize(bill: Bill, transactions: Transaction[]): Transaction[] {
+  if (!bill.categoryId) return [];
+  return transactions.filter(t => t.type === 'Expense' && t.categoryId !== bill.categoryId
+    && billCategoryForCharge([bill], t.merchant, t.amount) === bill.categoryId);
+}
+
 function paidAround(bill: Bill, dueIso: string, transactions: Transaction[]): boolean {
   const due = toDate(dueIso).getTime();
   return transactions.some(t => {

@@ -1,4 +1,8 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
+import { Upload, X } from 'lucide-react';
+import { useStore } from '../store';
+import { formatDate } from '../components/UI';
+import { requestImport } from '../lib/importRequest';
 import { FinanceAccounts, FinanceDebtGrid } from './FinanceAccounts';
 import { FinanceBudgets } from './FinanceBudgets';
 import { FinanceCalendar } from './FinanceCalendar';
@@ -10,6 +14,39 @@ import { useIsMobile } from '../hooks/useIsMobile';
 import { useFabAction } from '../hooks/useFabAction';
 
 type FinanceTab = 'Budgets' | 'Accounts' | 'Calendar';
+
+// Everything this month (spending, left over, paid/missed bills) is only as fresh as the last
+// import. Once the newest transaction is a week old, say so — until the next import, or dismissed.
+const STALE_DAYS = 7;
+const STALE_DISMISS_KEY = 'finance-stale-dismissed';
+
+function StaleImportBanner({ onImport }: { onImport: () => void }) {
+  const { data } = useStore();
+  const now = new Date();
+  const todayIso = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  const latest = useMemo(
+    () => data.transactions.reduce((max, t) => (t.date <= todayIso && t.date > max ? t.date : max), ''),
+    [data.transactions, todayIso]
+  );
+  const [dismissedFor, setDismissedFor] = useState<string | null>(() => {
+    try { return localStorage.getItem(STALE_DISMISS_KEY); } catch { return null; }
+  });
+  if (!latest || dismissedFor === latest) return null;
+  const days = Math.round((new Date(`${todayIso}T12:00:00`).getTime() - new Date(`${latest}T12:00:00`).getTime()) / 86_400_000);
+  if (days < STALE_DAYS) return null;
+  const dismiss = () => {
+    setDismissedFor(latest);
+    try { localStorage.setItem(STALE_DISMISS_KEY, latest); } catch { /* ignore */ }
+  };
+  return (
+    <div className="finance-stale" role="status">
+      <Upload size={15} className="finance-stale-icon" />
+      <span><b>Newest transaction is from {formatDate(latest)}</b> — {days} days ago.<span className="finance-stale-more"> This month's spending and bill checks don't include anything since.</span></span>
+      <button type="button" className="btn primary small" onClick={onImport}>Import CSV</button>
+      <button type="button" className="icon-btn" onClick={dismiss} aria-label="Hide until the next import" title="Hide until the next import"><X size={14} /></button>
+    </div>
+  );
+}
 
 const TABS: FinanceTab[] = ['Budgets', 'Accounts', 'Calendar'];
 
@@ -53,6 +90,7 @@ export function Finance() {
             ))}
           </div>
         </div>
+        <StaleImportBanner onImport={() => { setMobileTab('Transactions'); requestImport(); }} />
 
         {mobileTab === 'Transactions' && <FinanceTransactions autoAdd={pendingAdd} onAutoAdded={() => setPendingAdd(false)} />}
         {mobileTab === 'Budgets' && <FinanceBudgets hideLedger />}
@@ -77,6 +115,7 @@ export function Finance() {
           ))}
         </div>
       </div>
+      <StaleImportBanner onImport={() => { setTab('Budgets'); requestImport(); }} />
 
       {tab === 'Budgets' && <FinanceBudgets />}
       {tab === 'Accounts' && <FinanceAccounts />}

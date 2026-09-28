@@ -14,6 +14,7 @@ import { useFabAction } from '../hooks/useFabAction';
 import { formatCurrency, formatDate, Modal, MoneyInput } from '../components/UI';
 import { suggestCategory, lookupMerchantCategoryId, normalizeMerchantKey } from '../lib/autoCategorize';
 import { reconcileTransferBalances } from '../lib/transferBalance';
+import { IMPORT_REQUEST_EVENT, takeImportRequest } from '../lib/importRequest';
 import { isLiabilityAccount } from './FinanceAccounts';
 import { CORE_TRANSACTION_TYPES } from '../types';
 import type { FinanceAccount, FinanceCategory, Transaction, TransactionType } from '../types';
@@ -281,6 +282,14 @@ export function FinanceTransactions({ typeFilter, autoAdd, onAutoAdded }: {
     onAutoAdded?.();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoAdd]);
+  // "Import" pressed elsewhere (the stale-data banner): open the import dialog here.
+  useEffect(() => {
+    if (typeFilter === 'Income') return;
+    if (takeImportRequest()) setShowImport(true);
+    const onRequest = () => { if (takeImportRequest()) setShowImport(true); };
+    window.addEventListener(IMPORT_REQUEST_EVENT, onRequest);
+    return () => window.removeEventListener(IMPORT_REQUEST_EVENT, onRequest);
+  }, [typeFilter]);
 
   const addAccount = (name: string) => {
     void upsert('financeAccounts', newRecord<FinanceAccount>({ name, type: 'Checking', balance: 0, status: 'Active' }));
@@ -550,6 +559,7 @@ export function FinanceTransactions({ typeFilter, autoAdd, onAutoAdded }: {
             categories={categories}
             existingTransactions={data.transactions}
             merchantCategoryMap={merchantCategoryMap}
+            bills={data.bills}
             onImport={importTransactions}
             onClose={() => setShowImport(false)}
           />
@@ -846,6 +856,7 @@ export function FinanceTransactions({ typeFilter, autoAdd, onAutoAdded }: {
           categories={categories}
           existingTransactions={data.transactions}
           merchantCategoryMap={merchantCategoryMap}
+          bills={data.bills}
           onImport={importTransactions}
           onClose={() => setShowImport(false)}
         />
