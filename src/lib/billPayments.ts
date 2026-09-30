@@ -1,5 +1,5 @@
 import type { Bill, Transaction } from '../types';
-import { isBillPaused, previousDue } from './cashFlowForecast';
+import { isBillPaused, notStartedYet, previousDue } from './cashFlowForecast';
 
 // "Was this bill actually paid?" — answered only from imported transactions, and only for due
 // dates the imported data can speak to. Due dates after the newest imported transaction (minus a
@@ -85,6 +85,8 @@ function dueDatesBetween(bill: Bill, fromIso: string, toIso: string): string[] {
 
 /** Due dates that should have been paid by now but have no matching charge. Newest first. */
 export function missedPaymentDates(bill: Bill, transactions: Transaction[], today = new Date()): string[] {
+  // Prepaid or not started yet (e.g. first months paid up front): nothing was due.
+  if (notStartedYet(bill, iso(today))) return [];
   const through = importedThrough(bill, transactions);
   if (!through) return [];
   const cutoff = iso(new Date(Math.min(toDate(through).getTime() - POST_LAG_DAYS * DAY, today.getTime())));

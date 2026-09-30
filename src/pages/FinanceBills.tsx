@@ -460,7 +460,7 @@ export function FinanceRecurringGrid({ kind }: { kind: RecurringKind }) {
                       value={b.startDate ?? ''}
                       onChange={v => patch(b, { startDate: v })}
                       placeholder="+ start date"
-                      displayLabel={b.startDate ? `Started ${formatDate(b.startDate)}` : undefined}
+                      displayLabel={b.startDate ? `${b.startDate > today ? 'Starts' : 'Started'} ${formatDate(b.startDate)}` : undefined}
                       allowClear
                     />
                   </div>
