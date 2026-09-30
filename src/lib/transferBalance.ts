@@ -11,6 +11,8 @@ function directionalDelta(account: FinanceAccount, amount: number, incoming: boo
 
 function transferEffect(t: Transaction | null): { fromId: string; toId: string; amount: number } | null {
   if (!t || t.type !== 'Transfer' || !t.accountId || !t.transferAccountId) return null;
+  // Imported transfers never moved a balance, so there's nothing to apply or undo.
+  if (!t.balanceApplied) return null;
   if (t.accountId === t.transferAccountId) return null;
   if (!(t.amount > 0)) return null;
   return { fromId: t.accountId, toId: t.transferAccountId, amount: t.amount };
@@ -47,7 +49,10 @@ export function reconcileTransferBalances(
     if (Math.abs(delta) < 0.005) continue;
     const account = accounts.find(a => a.id === id);
     if (!account) continue;
-    updated.push({ ...account, balance: Math.round((account.balance + delta) * 100) / 100, lastSyncedAt: new Date().toISOString() });
+    // Adjust the typed base, not the shown balance (which already includes newer transactions).
+    const { baseBalance, effectiveBalance, activityCount, ...rest } = account;
+    void effectiveBalance; void activityCount;
+    updated.push({ ...rest, balance: Math.round(((baseBalance ?? account.balance) + delta) * 100) / 100, lastSyncedAt: new Date().toISOString() });
   }
   return updated;
 }

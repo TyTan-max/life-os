@@ -1,5 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import type { AppData, CollectionName, CollectionRecord, Settings, Task } from './types';
+import type { AppData, CollectionName, CollectionRecord, FinanceAccount, Settings, Task } from './types';
 import {
   addTombstones, applySyncSnapshot, clearTombstones, deleteRecord, getSyncSnapshot, loadAll, makeRecord,
   normalizeData, putRecord, replaceAll, replaceCollection, resetToSeed, saveSettings
@@ -10,6 +10,7 @@ import type { SyncSnapshot } from './lib/syncMerge';
 import { startBrowserReminderLoop, syncScheduledNotifications } from './notifications';
 import { registerCustomDebtTypes } from './pages/FinanceAccounts';
 import { applyLinkedBalances } from './lib/trading';
+import { applyAccountActivity, toStoredAccount } from './lib/accountActivity';
 import { rolledForwardDue } from './lib/billPayments';
 import { advanceDueDate } from './lib/budgetMath';
 import { setActiveCurrency } from './components/UI';
@@ -166,7 +167,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }, [data, loading]);
 
   const upsert = useCallback(async <K extends CollectionName>(collection: K, record: AppData[K][number]) => {
-    const updated = { ...record, updatedAt:new Date().toISOString() } as AppData[K][number];
+    // Accounts are read with newer transactions applied; save the typed balance, not the shown one.
+    const now = new Date();
+    const todayIso = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    const stored = collection === 'financeAccounts' ? toStoredAccount(record as FinanceAccount, todayIso) : record;
+    const updated = { ...stored, updatedAt:now.toISOString() } as AppData[K][number];
     const before = dataRef.current[collection] as CollectionRecord[];
     let after: CollectionRecord[] = before;
     setData(current => {
@@ -363,7 +368,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }, [undo, redo]);
 
   // The trading account in Finance mirrors the Trading Journal (see lib/trading.ts).
-  const liveData = useMemo(() => applyLinkedBalances(data), [data]);
+  const liveData = useMemo(() => applyAccountActivity(applyLinkedBalances(data)), [data]);
 
   const value = useMemo<Store>(() => ({
     data: liveData, loading, upsert, remove, updateSettings, toggleTask, exportBackup, importBackup, reset,

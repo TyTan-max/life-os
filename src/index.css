@@ -1242,9 +1242,8 @@ input, select, textarea { font-family: inherit; }
 .finance-overview-flags { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
 
 .backlog-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
+  display: grid;
+  gap: 6px;
   width: 100%;
   border: none;
   background: transparent;
@@ -1259,9 +1258,11 @@ input, select, textarea { font-family: inherit; }
 .backlog-row:hover { background: var(--surface-hover); border-radius: 8px; }
 .backlog-row-label { display: flex; align-items: center; gap: 8px; font-size: 13.5px; font-weight: 600; }
 .backlog-row-label svg { color: var(--accent); flex-shrink: 0; }
-.backlog-row-counts { font-size: 12.5px; color: var(--text-muted); display: flex; align-items: center; gap: 6px; }
-.backlog-row-counts b { color: var(--text); font-weight: 650; }
-.backlog-row-sep { color: var(--text-faint); }
+.backlog-row-counts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.backlog-row-counts > span { display: flex; flex-direction: column; min-width: 0; line-height: 1.2; }
+.backlog-row-counts b { color: var(--text); font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.backlog-row-counts small { font-size: 11px; color: var(--text-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.backlog-row-counts .zero b { color: var(--text-faint); font-weight: 600; }
 
 /* Forms */
 .collection-form { margin-bottom: 16px; }
@@ -6330,8 +6331,6 @@ body.has-detail-panel .history-controls { right: calc(var(--detail-w) + 20px); }
 .sb-dash-counts b { color: var(--text); }
 .dash-col-today .dash-doses { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 /* Backlog in the narrow left column: label above its counts instead of squeezed beside them. */
-.dash-col-act .backlog-row { flex-wrap: wrap; row-gap: 2px; }
-.dash-col-act .backlog-row-counts { white-space: nowrap; font-size: 12px; }
 .dash-networth > span { display: flex; flex-direction: column; gap: 1px; }
 .dash-networth small { font-size: 11px; font-weight: 400; color: var(--text-faint); }
 
@@ -6360,8 +6359,6 @@ body.has-detail-panel .history-controls { right: calc(var(--detail-w) + 20px); }
 .dash-card-empty { padding-bottom: 14px; }
 .dash-empty-line { margin: 0; font-size: 12.5px; color: var(--text-faint); }
 /* Backlog at half width in Money & life. */
-.dash-pulse .backlog-row { flex-wrap: wrap; row-gap: 2px; }
-.dash-pulse .backlog-row-counts { white-space: nowrap; font-size: 12px; }
 
 /* ---- Trading account link ---- */
 .tj-deposit-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: -2px 0 6px; font-size: 12px; }

@@ -262,7 +262,7 @@ export function FinanceTransactions({ typeFilter, autoAdd, onAutoAdded }: {
   };
 
   const addTransaction = () => {
-    const record = newRecord<Transaction>({ date: today, merchant: '', amount: 0, type: typeFilter ?? 'Expense' });
+    const record = newRecord<Transaction>({ date: today, merchant: '', amount: 0, type: typeFilter ?? 'Expense', balanceApplied: true });
     void upsert('transactions', record);
     // Desktop edits inline in the grid, so there's nothing to open there — this only matters
     // on mobile, where "add" would otherwise create a blank row and strand it in the list with

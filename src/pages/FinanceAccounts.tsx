@@ -99,6 +99,8 @@ export function FinanceDebtGrid() {
 
   const patch = (account: FinanceAccount, p: Partial<FinanceAccount>) => {
     const next = { ...account, ...p, lastSyncedAt: new Date().toISOString() };
+    // A balance typed in is a fresh reading from the bank: today is its "as of" date.
+    if ('balance' in p) Object.assign(next, { balanceAsOf: todayLocalIso(), baseBalance: undefined, effectiveBalance: undefined, activityCount: undefined });
     // A paid-off debt doesn't accrue interest or owe a minimum payment anymore.
     if ('balance' in p && next.balance <= 0) {
       next.interestRate = 0;
@@ -282,6 +284,17 @@ export function FinanceDebtGrid() {
   );
 }
 
+function todayLocalIso(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+// "· as of Sep 27 + 3 newer" — where a tracked balance comes from.
+function asOfLine(a: FinanceAccount): string {
+  if (!a.balanceAsOf || a.linkedTo === TRADING_LINK) return '';
+  return ` · as of ${formatDate(a.balanceAsOf)}${a.activityCount ? ` + ${a.activityCount} newer` : ''}`;
+}
+
 // "· Statement $428.52 due Sep 27" on a credit card that has one filled in.
 function statementLine(a: FinanceAccount): string {
   if (a.type !== 'Credit Card' || !a.statementBalance || !a.paymentDueDate) return '';
@@ -348,6 +361,7 @@ export function FinanceAccounts() {
           { key: 'type', label: 'Type', type: 'select', options: typeOptions },
           { key: 'institution', label: 'Institution', type: 'text' },
           { key: 'balance', label: 'Current Balance', type: 'money' },
+          { key: 'balanceAsOf', label: 'Balance as of (newer transactions update it)', type: 'date' },
           { key: 'availableBalance', label: 'Available Balance', type: 'money' },
           { key: 'interestRate', label: 'Interest Rate / APY (%)', type: 'number' },
           { key: 'minimumPayment', label: 'Minimum Payment (debt accounts)', type: 'money' },
@@ -360,14 +374,21 @@ export function FinanceAccounts() {
         ]}
         defaults={{ name: '', type: 'Checking', balance: 0, status: 'Active' }}
         renderTitle={a => a.name}
-        renderSubtitle={a => `${a.type}${a.institution ? ` · ${a.institution}` : ''}${a.linkedTo === TRADING_LINK ? ' · linked to Trading Journal' : ''}${statementLine(a)}${a.status !== 'Active' ? ` · ${a.status}` : ''}`}
+        renderSubtitle={a => `${a.type}${a.institution ? ` · ${a.institution}` : ''}${a.linkedTo === TRADING_LINK ? ' · linked to Trading Journal' : ''}${asOfLine(a)}${statementLine(a)}${a.status !== 'Active' ? ` · ${a.status}` : ''}`}
         sortBy={(a, b) => a.name.localeCompare(b.name)}
         groupBy={accountGroup}
         groupOrder={ACCOUNT_GROUP_ORDER}
         groupTotal={records => formatCurrency(records.reduce((s, a) => s + (isLiabilityAccount(a.type) ? -a.balance : a.balance), 0))}
         trailing={a => <span className={`fa-balance ${isLiabilityAccount(a.type) ? 'debt' : a.balance < 0 ? 'negative' : ''}`}>{isLiabilityAccount(a.type) ? '−' : ''}{formatCurrency(a.balance)}</span>}
         onFieldChange={(key) => {
-          if (key === 'balance' || key === 'availableBalance' || key === 'type' || key === 'status') {
+          if (key === 'balance') {
+            return { lastSyncedAt: new Date().toISOString(), balanceAsOf: todayLocalIso(), baseBalance: undefined, effectiveBalance: undefined, activityCount: undefined };
+          }
+          if (key === 'balanceAsOf') {
+            // A new date for the balance as typed: keep the typed base, drop the shown value.
+            return { baseBalance: undefined, effectiveBalance: undefined, activityCount: undefined };
+          }
+          if (key === 'availableBalance' || key === 'type' || key === 'status') {
             return { lastSyncedAt: new Date().toISOString() };
           }
         }}

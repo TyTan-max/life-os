@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Modal } from './UI';
 import { parseCSV, normalizeCsvDate, parseCsvAmount, isCreditCardPaymentMerchant, matchCsvCategoryId } from '../lib/csv';
 import { suggestCategory, lookupMerchantCategoryId } from '../lib/autoCategorize';
@@ -121,6 +121,21 @@ export function ImportTransactionsModal({
     if (mi < 0) return false;
     return dataRows.some(r => isCreditCardPaymentMerchant((r[mi] ?? '').trim()));
   }, [dataRows, merchantCol]);
+
+  // Card payments default to a transfer to the card they pay — the card whose bank shows up in
+  // the payment's description ("CAPITAL ONE CRCARDPMT" → the Capital One card), or the only card.
+  // Left as expenses they'd count the card's purchases twice. Still changeable in the dropdown.
+  const [transferTouched, setTransferTouched] = useState(false);
+  useEffect(() => {
+    if (transferTouched || !hasTransferLikeRows) return;
+    const cards = accounts.filter(a => a.type === 'Credit Card' && a.status !== 'Closed' && a.id !== accountId);
+    const mi = colIndex(merchantCol);
+    const paymentText = dataRows.map(r => (r[mi] ?? '').trim()).filter(isCreditCardPaymentMerchant).join(' ').toLowerCase();
+    const byBank = cards.find(c => c.institution && paymentText.includes(c.institution.toLowerCase()));
+    const pick = byBank ?? (cards.length === 1 ? cards[0] : undefined);
+    setTransferToAccountId(pick ? pick.id : NONE);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasTransferLikeRows, accountId, accounts, transferTouched]);
 
   const parsedRows = useMemo<ParsedRow[]>(() => {
     if (step !== 'preview') return [];
@@ -372,7 +387,7 @@ export function ImportTransactionsModal({
           {hasTransferLikeRows && (
             <label className="field-full">
               <span>This file looks like it includes credit card payments — log them as a transfer to</span>
-              <select value={transferToAccountId} onChange={e => setTransferToAccountId(e.target.value)}>
+              <select value={transferToAccountId} onChange={e => { setTransferTouched(true); setTransferToAccountId(e.target.value); }}>
                 <option value={NONE}>Don't do this — import them as expenses/income</option>
                 {accounts.filter(a => a.id !== accountId).map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
               </select>

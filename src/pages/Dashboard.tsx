@@ -471,18 +471,22 @@ export function Dashboard({navigate}:{navigate:(page:string, tab?: string)=>void
         action={<button className="text-btn" onClick={()=>navigate('Movies')}>{backlogNeedsReview>0 ? `${backlogNeedsReview} need info` : 'Open'} <ArrowRight size={15}/></button>}
         orderStyle={slot(10, backlogNeedsReview)}
       >
-        <button type="button" className="backlog-row" onClick={()=>navigate('Movies')}>
-          <span className="backlog-row-label"><Clapperboard size={16}/> Movies &amp; TV</span>
-          <span className="backlog-row-counts"><b>{movies.filter(m=>m.status==='To Watch').length}</b> to watch<span className="backlog-row-sep">·</span><b>{movies.filter(m=>m.status==='Watching').length}</b> watching<span className="backlog-row-sep">·</span><b>{movies.filter(m=>m.status==='Watched').length}</b> watched</span>
-        </button>
-        <button type="button" className="backlog-row" onClick={()=>navigate('Videogames')}>
-          <span className="backlog-row-label"><Gamepad2 size={16}/> Games</span>
-          <span className="backlog-row-counts"><b>{videogames.filter(g=>g.status==='To Play').length}</b> to play<span className="backlog-row-sep">·</span><b>{videogames.filter(g=>g.status==='Playing').length}</b> playing<span className="backlog-row-sep">·</span><b>{videogames.filter(g=>g.status==='Completed').length}</b> completed</span>
-        </button>
-        <button type="button" className="backlog-row" onClick={()=>navigate('Books')}>
-          <span className="backlog-row-label"><BookOpen size={16}/> Books</span>
-          <span className="backlog-row-counts"><b>{books.filter(b=>b.status==='To Read').length}</b> to read<span className="backlog-row-sep">·</span><b>{books.filter(b=>b.status==='Reading').length}</b> reading<span className="backlog-row-sep">·</span><b>{books.filter(b=>b.status==='Read').length}</b> read</span>
-        </button>
+        {/* Each count gets its own little column (number over label) so a row never runs past a narrow card. */}
+        {([
+          { key: 'Movies', label: 'Movies & TV', icon: <Clapperboard size={16}/>, counts: [
+            [movies.filter(m=>m.status==='To Watch').length, 'to watch'], [movies.filter(m=>m.status==='Watching').length, 'watching'], [movies.filter(m=>m.status==='Watched').length, 'watched']] },
+          { key: 'Videogames', label: 'Games', icon: <Gamepad2 size={16}/>, counts: [
+            [videogames.filter(g=>g.status==='To Play').length, 'to play'], [videogames.filter(g=>g.status==='Playing').length, 'playing'], [videogames.filter(g=>g.status==='Completed').length, 'completed']] },
+          { key: 'Books', label: 'Books', icon: <BookOpen size={16}/>, counts: [
+            [books.filter(b=>b.status==='To Read').length, 'to read'], [books.filter(b=>b.status==='Reading').length, 'reading'], [books.filter(b=>b.status==='Read').length, 'read']] }
+        ] as { key: string; label: string; icon: ReactNode; counts: [number, string][] }[]).map(row => (
+          <button type="button" key={row.key} className="backlog-row" onClick={()=>navigate(row.key)}>
+            <span className="backlog-row-label">{row.icon} {row.label}</span>
+            <span className="backlog-row-counts">
+              {row.counts.map(([n, label]) => <span key={label} className={n === 0 ? 'zero' : ''}><b>{n}</b><small>{label}</small></span>)}
+            </span>
+          </button>
+        ))}
       </DashCard>
   );
   const secondBrainCard = (

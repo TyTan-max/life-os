@@ -131,6 +131,13 @@ export interface FinanceAccount extends BaseRecord {
   // `balance` stays the current balance (everything owed right now).
   statementBalance?: number;
   paymentDueDate?: string;
+  // The date `balance` was read from the bank. Transactions after it move the balance shown
+  // (see lib/accountActivity); unset = the balance is shown exactly as typed.
+  balanceAsOf?: string;
+  // Display-only, filled in on read by lib/accountActivity and never saved.
+  baseBalance?: number;
+  effectiveBalance?: number;
+  activityCount?: number;
   order?: number;
   // 'tradingJournal': balance is always the Trading Journal's (total deposited + P/L), read-only.
   // ('manual' / unset: the balance you type in.)
@@ -167,6 +174,10 @@ export interface Transaction extends BaseRecord {
   recurring?: boolean;
   transfer?: boolean;
   transferAccountId?: string;
+  // Set on rows entered in the app: their transfer moved the account balances, so editing or
+  // deleting one moves them back. Imported rows never set it — the bank balance you typed in
+  // already includes them, so touching them must leave balances alone.
+  balanceApplied?: boolean;
 }
 
 export type BillFrequency = 'Weekly' | 'Biweekly' | 'Monthly' | 'Quarterly' | 'Semiannual' | 'Yearly' | 'Once';
