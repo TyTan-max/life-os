@@ -1,5 +1,6 @@
 import type { SleepEntry } from '../types';
-import { sleepConsistency, sleepHours } from '../lib/sleep';
+import { formatHours, nightsOf, sleepConsistency } from '../lib/sleep';
+import type { SleepNight } from '../lib/sleep';
 
 // "22:45" → "10:45 pm"
 function to12h(time: string): string {
@@ -30,12 +31,13 @@ export function SleepTrendChart({ entries, target, days, endDate }: {
   endDate: string;
 }) {
   const dates = Array.from({ length: days }, (_, i) => isoOffset(endDate, i - (days - 1)));
-  const byDate = new Map<string, SleepEntry>();
-  for (const e of entries) if (dates.includes(e.date) && !byDate.has(e.date)) byDate.set(e.date, e);
-  const logged = dates.map(d => byDate.get(d)).filter((e): e is SleepEntry => !!e);
+  // One bar per night: a night logged in pieces is added up; naps aren't part of it.
+  const byDate = new Map<string, SleepNight>();
+  for (const n of nightsOf(entries.filter(e => dates.includes(e.date)))) byDate.set(n.date, n);
+  const logged = dates.map(d => byDate.get(d)).filter((n): n is SleepNight => !!n);
   if (!logged.length) return <p className="muted empty-state">No nights logged in the last {days} days.</p>;
 
-  const hours = logged.map(sleepHours);
+  const hours = logged.map(n => n.hours);
   const consistency = sleepConsistency(logged);
   const scaleMax = Math.ceil(Math.max(target + 1, 9, ...hours));
   const H = 60; // chart height in viewBox units; bars grow up from y = H
@@ -55,12 +57,12 @@ export function SleepTrendChart({ entries, target, days, endDate }: {
           {dates.map((d, i) => {
             const e = byDate.get(d);
             if (!e) return null;
-            const h = sleepHours(e);
+            const h = e.hours;
             const barH = Math.max(0.8, (h / scaleMax) * H);
             return (
               <rect key={d} x={i * slot + gap} y={H - barH} width={slot - gap * 2} height={barH} rx={Math.min(1, slot / 6)}
                 className={`sleep-trend-bar ${qualityTone(e.quality)}`}>
-                <title>{`${fmt(d, { weekday: 'short', month: 'short', day: 'numeric' })} — ${h}h${e.quality != null ? ` · quality ${e.quality}/10` : ''}`}</title>
+                <title>{`${fmt(d, { weekday: 'short', month: 'short', day: 'numeric' })} — ${h}h${e.awakeHours ? ` · awake ${formatHours(e.awakeHours)} in the middle` : ''}${e.naps ? ` · + ${formatHours(e.napHours)} nap` : ''}${e.quality != null ? ` · quality ${e.quality}/10` : ''}`}</title>
               </rect>
             );
           })}

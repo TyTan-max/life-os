@@ -1,6 +1,6 @@
 import type { AppData } from '../types';
 import { computeCalorieTarget, isLowGlucose } from './nutritionTargets';
-import { sleepHours } from './sleep';
+import { nightsOf, sleepDebtOf } from './sleep';
 import { doseStatus, scheduledTimes } from './medications';
 
 export type HealthPillar = 'Fitness' | 'Weight' | 'Sleep' | 'Medication';
@@ -77,20 +77,20 @@ export function computeHealthInsights(data: AppData): HealthInsight[] {
 
   // --- The Recovery-Driven Workload Adjustment ---
   // Poor sleep (single night or rolling debt) should downgrade today's training suggestion.
-  const lastNight = data.sleepEntries.find(e => e.date === today);
+  const lastNight = nightsOf(data.sleepEntries.filter(e => e.date === today))[0];
   const targetSleep = data.settings.sleepTargetHours ?? 8;
-  if (lastNight && (sleepHours(lastNight) < targetSleep - 1.5 || (lastNight.quality ?? 10) <= POOR_SLEEP_QUALITY)) {
+  if (lastNight && (lastNight.hours < targetSleep - 1.5 || (lastNight.quality ?? 10) <= POOR_SLEEP_QUALITY)) {
     insights.push({
       id: 'recovery-single-night',
       pillar: 'Fitness',
       severity: 'warn',
       title: 'Recovery looked rough last night',
-      detail: `${sleepHours(lastNight)}h${lastNight.quality ? ` at quality ${lastNight.quality}/10` : ''} — today might be a better day for an easy session or rest instead of pushing intensity.`
+      detail: `${lastNight.hours}h${lastNight.awakeHours ? ` (awake ${lastNight.awakeHours}h in the middle)` : ''}${lastNight.quality ? ` at quality ${lastNight.quality}/10` : ''} — today might be a better day for an easy session or rest instead of pushing intensity.`
     });
   } else {
     const thisWeekSleep = data.sleepEntries.filter(e => e.date >= weekStart);
-    if (thisWeekSleep.length >= 3) {
-      const debt = targetSleep * thisWeekSleep.length - thisWeekSleep.reduce((s, e) => s + sleepHours(e), 0);
+    if (nightsOf(thisWeekSleep).length >= 3) {
+      const debt = sleepDebtOf(thisWeekSleep, targetSleep) ?? 0;
       if (debt > SLEEP_DEBT_WARN_HOURS) {
         insights.push({
           id: 'recovery-debt',

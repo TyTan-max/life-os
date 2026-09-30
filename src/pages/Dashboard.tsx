@@ -16,7 +16,7 @@ import { Badge, Card, ProgressBar, formatCurrency, formatDate } from '../compone
 import { useIsMobile } from '../hooks/useIsMobile';
 import { useContextMenu } from '../components/ContextMenu';
 import type { ContextMenuItem } from '../components/ContextMenu';
-import { latestNight, sleepHours } from '../lib/sleep';
+import { lastNightOf } from '../lib/sleep';
 import { linkedTradingAccount } from '../lib/trading';
 import { isBillPaused } from '../lib/cashFlowForecast';
 import { missedPaymentDates } from '../lib/billPayments';
@@ -190,7 +190,7 @@ export function Dashboard({navigate}:{navigate:(page:string, tab?: string)=>void
   }).length;
   const upcomingCheckups = activeContacts.filter(c=>c.nextCheckup && c.nextCheckup>=today && c.nextCheckup<=in7Iso).length;
   const latestWeight = data.weightEntries.filter(e=>e.weight>0).sort((a,b)=>b.date.localeCompare(a.date))[0];
-  const latestSleep = latestNight(data.sleepEntries);
+  const latestSleep = lastNightOf(data.sleepEntries);
   // Today's scheduled medication doses — the one Health item you act on every day.
   const doseRows = data.medications.flatMap(m => scheduledTimes(m, today).map(time => ({ med: m, time, status: doseStatus(m, today, time) })));
   const dosesLeft = doseRows.filter(d => d.status === 'pending').length;
@@ -369,7 +369,7 @@ export function Dashboard({navigate}:{navigate:(page:string, tab?: string)=>void
       <DashCard
         icon={<HeartPulse size={19}/>} title="Health" isMobile={isMobile}
         quiet={lowMeds === 0 && dosesLeft === 0} expanded={expandedCards.has('health')} onToggle={()=>toggleCard('health')}
-        summary={`${dosesLeft ? `${dosesLeft} dose${dosesLeft===1?'':'s'} left` : 'Doses done'} · ${latestSleep?`${sleepHours(latestSleep).toFixed(1)}h sleep`:'No sleep logged'}${lowMeds?` · ${lowMeds} refill${lowMeds===1?'':'s'}`:''}`}
+        summary={`${dosesLeft ? `${dosesLeft} dose${dosesLeft===1?'':'s'} left` : 'Doses done'} · ${latestSleep?`${latestSleep.hours.toFixed(1)}h sleep`:'No sleep logged'}${lowMeds?` · ${lowMeds} refill${lowMeds===1?'':'s'}`:''}`}
         action={<button className="text-btn" onClick={()=>navigate('Health')}>Open <ArrowRight size={15}/></button>}
         orderStyle={slot(5, lowMeds + dosesLeft)}
         empty={!doseRows.length && !latestWeight && !latestSleep && !lowMeds && 'No doses today · no weight or sleep logged'}
@@ -393,7 +393,7 @@ export function Dashboard({navigate}:{navigate:(page:string, tab?: string)=>void
         ) : <p className="muted dash-doses-empty">No doses scheduled today.</p>}
         <div className="dash-health-line">
           <span>{latestWeight?`${latestWeight.weight} ${data.settings.weightUnit ?? 'lb'}`:'No weight'}</span>
-          <span>{latestSleep?`${sleepHours(latestSleep).toFixed(1)}h sleep`:'No sleep logged'}</span>
+          <span>{latestSleep?`${latestSleep.hours.toFixed(1)}h sleep`:'No sleep logged'}</span>
           <span className={lowMeds?'negative':''}>{lowMeds?`${lowMeds} refill${lowMeds===1?'':'s'} needed`:'Refills OK'}</span>
         </div>
       </DashCard>

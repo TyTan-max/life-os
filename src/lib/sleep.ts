@@ -91,3 +91,86 @@ export function sleepConsistency(entries: TimedNight[]): { bedTime: string; bedS
 export function sleepHours(entry: Pick<SleepEntry, 'bedTime' | 'wakeTime' | 'durationHours'>): number {
   return computeSleepDuration(entry.bedTime, entry.wakeTime) ?? entry.durationHours;
 }
+
+// ---- Nights and naps ----------------------------------------------------------------------
+// A night can be logged in pieces (asleep, awake a while, back asleep): every non-nap entry on
+// the same date is one night. Its sleep is the pieces added up; it runs from the first bedtime to
+// the last wake-up, and the gap between pieces is time awake. Naps are logged separately: they
+// never count toward a night's hours, but they do pay back part of the sleep debt.
+
+export function isNap(e: Pick<SleepEntry, 'nap'>): boolean {
+  return e.nap === true;
+}
+
+// Daytime starts (10 am – 7 pm) are suggested as naps until you say otherwise.
+export function looksLikeNap(bedTime?: string): boolean {
+  const m = bedTime ? toMinutes(bedTime) : undefined;
+  return m != null && m >= 10 * 60 && m < 19 * 60;
+}
+
+export interface SleepNight {
+  date: string;
+  /** Night sleep only: every piece added together. */
+  hours: number;
+  /** First time to bed and last wake-up (the night's span). */
+  bedTime?: string;
+  wakeTime?: string;
+  /** Time awake between pieces. */
+  awakeHours: number;
+  pieces: SleepEntry[];
+  quality?: number;
+  napHours: number;
+  naps: number;
+}
+
+const round1 = (n: number) => Math.round(n * 10) / 10;
+
+export function nightsOf(entries: SleepEntry[]): SleepNight[] {
+  const byDate = new Map<string, SleepEntry[]>();
+  for (const e of entries) {
+    if (!byDate.has(e.date)) byDate.set(e.date, []);
+    byDate.get(e.date)!.push(e);
+  }
+  const nights: SleepNight[] = [];
+  for (const [date, list] of byDate) {
+    const pieces = list.filter(e => !isNap(e))
+      .sort((a, b) => (a.bedTime ? bedMinutes(a.bedTime) ?? 0 : 1e9) - (b.bedTime ? bedMinutes(b.bedTime) ?? 0 : 1e9));
+    if (!pieces.length) continue;
+    const naps = list.filter(isNap);
+    const hours = round1(pieces.reduce((s, p) => s + sleepHours(p), 0));
+    const bedTime = pieces[0].bedTime;
+    const wakeTime = pieces[pieces.length - 1].wakeTime;
+    const span = pieces.length > 1 && pieces.every(p => p.bedTime && p.wakeTime) ? computeSleepDuration(bedTime, wakeTime) : undefined;
+    const rated = pieces.filter(p => p.quality != null);
+    nights.push({
+      date, hours, bedTime, wakeTime, pieces,
+      awakeHours: span != null ? Math.max(0, round1(span - hours)) : 0,
+      quality: rated.length ? Math.round(mean(rated.map(p => p.quality!))) : undefined,
+      napHours: round1(naps.reduce((s, n) => s + sleepHours(n), 0)),
+      naps: naps.length
+    });
+  }
+  return nights.sort((a, b) => a.date.localeCompare(b.date));
+}
+
+/** The most recent night up to today (not a nap). */
+export function lastNightOf(entries: SleepEntry[], today = localToday()): SleepNight | undefined {
+  const nights = nightsOf(entries.filter(e => e.date <= today));
+  return nights[nights.length - 1];
+}
+
+/** Hours short of target over these nights, less any naps in the same days. */
+export function sleepDebtOf(entries: SleepEntry[], target: number): number | undefined {
+  const nights = nightsOf(entries);
+  if (!nights.length) return undefined;
+  const slept = nights.reduce((s, n) => s + n.hours, 0);
+  const napped = entries.filter(isNap).reduce((s, n) => s + sleepHours(n), 0);
+  return Math.max(0, round1(target * nights.length - slept - napped));
+}
+
+/** "2h 15m" / "45m" */
+export function formatHours(h: number): string {
+  const mins = Math.round(h * 60);
+  const hh = Math.floor(mins / 60); const mm = mins % 60;
+  return hh ? `${hh}h${mm ? ` ${mm}m` : ''}` : `${mm}m`;
+}

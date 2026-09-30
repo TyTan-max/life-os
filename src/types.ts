@@ -500,6 +500,8 @@ export interface SleepEntry extends BaseRecord {
   lightHours?: number;
   restingHr?: number;
   notes?: string;
+  // A daytime nap: kept apart from the night (see lib/sleep nightsOf), but it pays back sleep debt.
+  nap?: boolean;
 }
 
 export type MedicationFrequency = 'Once Daily' | 'Twice Daily' | 'Three Times Daily' | 'Weekly' | 'As Needed';
