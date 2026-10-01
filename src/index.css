@@ -6737,3 +6737,11 @@ tr.recur-paused td:nth-child(4) { opacity: 1; }
 
 /* A superset's two weights ("40-50") need a little more room than one number. */
 .routine-weight-input.superset { min-width: 62px; }
+
+/* List view as a plain column of titles (movies, games, books): compact and selectable. */
+.record-list-titles .record-row { padding-top: 5px; padding-bottom: 5px; }
+.record-list-titles .record-row > div:first-child { cursor: text; }
+.record-list-titles .record-row b { font-weight: 500; user-select: text; }
+.record-list-titles .record-actions { opacity: 0; user-select: none; transition: opacity 0.1s; }
+.record-list-titles .record-row:hover .record-actions, .record-list-titles .record-actions:focus-within { opacity: 1; }
+@media (hover: none) { .record-list-titles .record-actions { opacity: 1; } }

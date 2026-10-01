@@ -2,7 +2,7 @@ import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import {
-  ArrowDown01, ArrowDownAZ, ArrowDownWideNarrow, ArrowUp01, ArrowUpNarrowWide, ArrowUpZA, Check, ChevronDown, Copy, Dices, Eye, EyeOff,
+  ArrowDown01, ArrowDownAZ, ArrowDownWideNarrow, ArrowUp01, ArrowUpNarrowWide, ArrowUpZA, Check, ChevronDown, ClipboardCopy, Copy, Dices, Eye, EyeOff,
   Columns3, Info, LayoutGrid, List as ListIcon, ListTodo, Pencil, Table2, Plus, Search, Shuffle, Star, Trash2, Upload, X
 } from 'lucide-react';
 import { useStore, newRecord } from '../store';
@@ -852,6 +852,10 @@ export function CollectionPage<T extends CollectionRecord>({
   const [shuffleTick, setShuffleTick] = useState(0);
   const [randomPick, setRandomPick] = useState<T | null>(null);
   const [infoRecord, setInfoRecord] = useState<T | null>(null);
+  // List view on the cover-art collections (movies, games, books) is a plain column of titles:
+  // easy to drag-select or copy in one go and paste into a spreadsheet, one title per row.
+  const titlesOnly = Boolean(gallery) && !groupBy && !trailing && !leading;
+  const [titlesCopied, setTitlesCopied] = useState(false);
   // Rich-text fields in the read-only info view: the Description is what you open an item to
   // read, so it shows straight away; the others (e.g. Notes / Review) start collapsed, since
   // they tend to be long. Either can be hidden or shown with its toggle.
@@ -1157,7 +1161,22 @@ export function CollectionPage<T extends CollectionRecord>({
           </div>
           <div className="view-toggle-btns">
             <button type="button" className={view === 'gallery' ? 'on' : ''} onClick={() => setView('gallery')} aria-label="Gallery view"><LayoutGrid size={15} /></button>
-            <button type="button" className={view === 'list' ? 'on' : ''} onClick={() => setView('list')} aria-label="List view" title="List"><ListIcon size={15} /></button>
+            <button type="button" className={view === 'list' ? 'on' : ''} onClick={() => setView('list')} aria-label="List view" title={titlesOnly ? 'List — titles only, easy to copy' : 'List'}><ListIcon size={15} /></button>
+            {titlesOnly && view === 'list' && orderedRecords.length > 0 && (
+              <button
+                type="button"
+                onClick={() => {
+                  void navigator.clipboard?.writeText(orderedRecords.map(r => renderTitle(r)).join('\n')).then(() => {
+                    setTitlesCopied(true);
+                    window.setTimeout(() => setTitlesCopied(false), 1800);
+                  });
+                }}
+                aria-label={`Copy all ${orderedRecords.length} titles`}
+                title={`Copy all ${orderedRecords.length} titles shown (one per line — pastes into a spreadsheet column)`}
+              >
+                {titlesCopied ? <Check size={15} /> : <ClipboardCopy size={15} />}
+              </button>
+            )}
             {!isMobile && (
               <button type="button" className={view === 'table' ? 'on' : ''} onClick={() => setView('table')} aria-label="Table view" title="Table — sort by any column"><Table2 size={15} /></button>
             )}
@@ -1377,7 +1396,7 @@ export function CollectionPage<T extends CollectionRecord>({
         </table>
       </div>
     ) : (
-      <div className={`record-list ${groupBy ? 'record-list-grouped' : ''}`}>
+      <div className={`record-list ${groupBy ? 'record-list-grouped' : ''} ${titlesOnly ? 'record-list-titles' : ''}`}>
         {(groupBy
           ? (() => {
               const groups = new Map<string, T[]>();
@@ -1396,11 +1415,15 @@ export function CollectionPage<T extends CollectionRecord>({
             )}
             {records.map(record => (
               <div className="record-row" key={record.id} onContextMenu={e => openMenu(e, recordMenu(record))}>
-                <div className={leading ? 'record-row-main' : ''} onClick={() => startEdit(record)}>
+                {/* Titles-only rows: a drag to select text must not open the item. */}
+                <div
+                  className={leading ? 'record-row-main' : ''}
+                  onClick={() => { if (titlesOnly && window.getSelection()?.toString()) return; startEdit(record); }}
+                >
                   {leading && <span className="record-row-leading">{leading(record)}</span>}
                   <span>
                     <b>{renderTitle(record)}</b>
-                    {renderSubtitle && <small>{renderSubtitle(record)}</small>}
+                    {renderSubtitle && !titlesOnly && <small>{renderSubtitle(record)}</small>}
                   </span>
                 </div>
                 {trailing && <div className="record-row-trailing" onClick={() => startEdit(record)}>{trailing(record)}</div>}
