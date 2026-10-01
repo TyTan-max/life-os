@@ -890,7 +890,32 @@ export interface AppData {
   contacts: Contact[];
   contactInteractions: ContactInteraction[];
   dailyLogs: DailyLog[];
+  researchChats: ResearchChatRecord[];
   settings: Settings;
+}
+
+// A saved Research conversation. Stored (and synced/backed up) with everything else, so chats
+// aren't tied to one browser.
+export interface ResearchMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  createdAt: string;
+  /** Set when the turn failed, so it can be styled as an error instead of a reply. */
+  isError?: boolean;
+  feedback?: 'up' | 'down';
+  images?: { dataUrl: string; mimeType: string }[];
+  /** Web pages a cloud answer was grounded on. */
+  sources?: { title: string; uri: string }[];
+  /** The Second Brain note this answer was saved to — saving again updates it. */
+  savedNoteId?: string;
+}
+
+export interface ResearchChatRecord extends BaseRecord {
+  title: string;
+  messages: ResearchMessage[];
+  /** The Second Brain note the whole chat was saved to — saving again updates it. */
+  noteId?: string;
 }
 
 export type CollectionName = Exclude<keyof AppData, 'settings'>;
@@ -899,12 +924,12 @@ export type CollectionRecord =
   | Task | Habit | HabitRoutine | RoutineDateAssignment | Goal | CalendarEvent | Budget | Transaction | Bill
   | Movie | Videogame | Book | FinanceAccount | FinanceCategory | FinanceGoal | Note | SecondBrainWorkspace | FlashcardDeck | BucketListItem
   | WorkoutEntry | WeightEntry | SleepEntry | Medication | MealEntry | GlucoseEntry | WorkoutRoutine
-  | Contact | ContactInteraction | DailyLog;
+  | Contact | ContactInteraction | DailyLog | ResearchChatRecord;
 
 export const COLLECTION_NAMES: CollectionName[] = [
   'tasks', 'habits', 'habitRoutines', 'routineAssignments', 'goals', 'events', 'budgets', 'transactions',
   'bills', 'movies', 'videogames', 'books', 'notes', 'secondBrainWorkspaces', 'flashcardDecks', 'bucketList', 'contacts', 'contactInteractions',
   'financeAccounts', 'financeCategories', 'financeGoals',
   'workouts', 'weightEntries', 'sleepEntries', 'medications', 'meals', 'glucoseEntries', 'workoutRoutines',
-  'dailyLogs'
+  'dailyLogs', 'researchChats'
 ];

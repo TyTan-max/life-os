@@ -14,7 +14,8 @@ const DB_NAME = 'life-os';
 // (which is what actually creates a missing object store) on a version increase, not just because
 // COLLECTION_NAMES grew. Existing installs stay on the old version, and the new store, forever
 // if this number doesn't move.
-const DB_VERSION = 23;
+// 24: the `researchChats` store.
+const DB_VERSION = 24;
 const META_STORE = 'meta';
 const TOMBSTONES_KEY = 'tombstones';
 // When this install was filled with starter data (every starter record carries this exact
