@@ -92,6 +92,40 @@ export function OptionalNumberCell({
   );
 }
 
+// A set's weight: one number, or two joined by a dash for a superset ("40-50"). "/", "+", ","
+// or a space between the two also work (not every phone keypad has a dash) and are saved as "-".
+export function parseSetWeight(raw: string): number | string | undefined {
+  const parts = raw.trim().split(/\s*[-–—/+,\s]\s*/).filter(Boolean).map(Number).filter(n => Number.isFinite(n) && n >= 0);
+  if (!parts.length) return undefined;
+  return parts.length === 1 ? parts[0] : `${parts[0]}-${parts[1]}`;
+}
+
+export function WeightCell({
+  value, onChange, className, placeholder
+}: { value?: number | string; onChange: (w: number | string | undefined) => void; className?: string; placeholder?: string }) {
+  const [text, setText] = useState(value == null ? '' : String(value));
+  useEffect(() => { setText(value == null ? '' : String(value)); }, [value]);
+  return (
+    <input
+      type="text"
+      inputMode="decimal"
+      className={`grid-cell-input grid-num ${String(value ?? '').includes('-') ? 'superset' : ''} ${className ?? ''}`}
+      value={text}
+      placeholder={placeholder}
+      title="One weight, or two for a superset: 40-50"
+      onChange={e => {
+        const raw = e.target.value.replace(/[^0-9.\-–—/+,\s]/g, '');
+        setText(raw);
+        if (raw.trim() === '') { onChange(undefined); return; }
+        // Still typing the second weight ("40-") or a decimal ("42."): wait for the rest.
+        if (/[-–—/+,.\s]$/.test(raw)) return;
+        onChange(parseSetWeight(raw));
+      }}
+      onBlur={() => { const parsed = parseSetWeight(text); setText(parsed == null ? '' : String(parsed)); if (parsed !== value) onChange(parsed); }}
+    />
+  );
+}
+
 export function NotesCell({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   const [expanded, setExpanded] = useState(false);
   // Collapsed to one clipped line, `text-overflow: ellipsis` on the textarea itself is easy to

@@ -2,14 +2,21 @@ import type { SleepEntry } from '../types';
 
 // Bed/wake times are "HH:mm" 24h strings — a wake time earlier than bed time means it
 // crossed midnight, so that case wraps forward a full day rather than going negative.
-export function computeSleepDuration(bedTime?: string, wakeTime?: string): number | undefined {
+export function computeSleepMinutes(bedTime?: string, wakeTime?: string): number | undefined {
   if (!bedTime || !wakeTime) return undefined;
   const [bh, bm] = bedTime.split(':').map(Number);
   const [wh, wm] = wakeTime.split(':').map(Number);
   if ([bh, bm, wh, wm].some(n => Number.isNaN(n))) return undefined;
   let minutes = (wh * 60 + wm) - (bh * 60 + bm);
   if (minutes <= 0) minutes += 24 * 60;
-  return Math.round((minutes / 60) * 10) / 10;
+  return minutes;
+}
+
+// Hours to one decimal — fine for a night ("5.5h"), too coarse for a nap or an awake gap
+// (15 min = 0.25h rounds to 0.3h = 18 min), which use the exact minutes instead.
+export function computeSleepDuration(bedTime?: string, wakeTime?: string): number | undefined {
+  const minutes = computeSleepMinutes(bedTime, wakeTime);
+  return minutes == null ? undefined : Math.round((minutes / 60) * 10) / 10;
 }
 
 function localToday(): string {
@@ -92,6 +99,11 @@ export function sleepHours(entry: Pick<SleepEntry, 'bedTime' | 'wakeTime' | 'dur
   return computeSleepDuration(entry.bedTime, entry.wakeTime) ?? entry.durationHours;
 }
 
+/** The same duration to the exact minute. */
+export function sleepMinutes(entry: Pick<SleepEntry, 'bedTime' | 'wakeTime' | 'durationHours'>): number {
+  return computeSleepMinutes(entry.bedTime, entry.wakeTime) ?? Math.round(entry.durationHours * 60);
+}
+
 // ---- Nights and naps ----------------------------------------------------------------------
 // A night can be logged in pieces (asleep, awake a while, back asleep): every non-nap entry on
 // the same date is one night. Its sleep is the pieces added up; it runs from the first bedtime to
@@ -137,16 +149,17 @@ export function nightsOf(entries: SleepEntry[]): SleepNight[] {
       .sort((a, b) => (a.bedTime ? bedMinutes(a.bedTime) ?? 0 : 1e9) - (b.bedTime ? bedMinutes(b.bedTime) ?? 0 : 1e9));
     if (!pieces.length) continue;
     const naps = list.filter(isNap);
-    const hours = round1(pieces.reduce((s, p) => s + sleepHours(p), 0));
+    const minutes = pieces.reduce((s, p) => s + sleepMinutes(p), 0);
+    const hours = round1(minutes / 60);
     const bedTime = pieces[0].bedTime;
     const wakeTime = pieces[pieces.length - 1].wakeTime;
-    const span = pieces.length > 1 && pieces.every(p => p.bedTime && p.wakeTime) ? computeSleepDuration(bedTime, wakeTime) : undefined;
+    const span = pieces.length > 1 && pieces.every(p => p.bedTime && p.wakeTime) ? computeSleepMinutes(bedTime, wakeTime) : undefined;
     const rated = pieces.filter(p => p.quality != null);
     nights.push({
       date, hours, bedTime, wakeTime, pieces,
-      awakeHours: span != null ? Math.max(0, round1(span - hours)) : 0,
+      awakeHours: span != null ? Math.max(0, span - minutes) / 60 : 0,
       quality: rated.length ? Math.round(mean(rated.map(p => p.quality!))) : undefined,
-      napHours: round1(naps.reduce((s, n) => s + sleepHours(n), 0)),
+      napHours: naps.reduce((s, n) => s + sleepMinutes(n), 0) / 60,
       naps: naps.length
     });
   }
@@ -164,7 +177,7 @@ export function sleepDebtOf(entries: SleepEntry[], target: number): number | und
   const nights = nightsOf(entries);
   if (!nights.length) return undefined;
   const slept = nights.reduce((s, n) => s + n.hours, 0);
-  const napped = entries.filter(isNap).reduce((s, n) => s + sleepHours(n), 0);
+  const napped = entries.filter(isNap).reduce((s, n) => s + sleepMinutes(n), 0) / 60;
   return Math.max(0, round1(target * nights.length - slept - napped));
 }
 

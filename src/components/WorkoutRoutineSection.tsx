@@ -5,12 +5,12 @@ import { useStore, newRecord } from '../store';
 import { Card } from './UI';
 import { DatePicker } from './DatePicker';
 import { RichTextEditor } from './RichTextEditor';
-import { NotesCell, NumberCell, OptionalNumberCell } from './GridCells';
+import { NotesCell, NumberCell, OptionalNumberCell, WeightCell } from './GridCells';
 import { buildStarterRoutine, ROUTINE_EPOCH } from '../lib/starterRoutine';
 import { generateId } from '../utils/id';
 import { assignProgramFrom, loggedDatesOf, programColor, resolveProgramForDate } from '../lib/routinePrograms';
 import { useIsMobile } from '../hooks/useIsMobile';
-import type { ExerciseSetLog, ProgramAssignment, RoutineDay, RoutineExercise, RoutineVersion, WorkoutRoutine } from '../types';
+import type { ExerciseSetLog, ProgramAssignment, RoutineDay, RoutineExercise, RoutineVersion, SetWeight, WorkoutRoutine } from '../types';
 
 // Formats in local time, not UTC — Date#toISOString() converts to UTC first, which rolls
 // over to the next calendar day during evening hours in any timezone behind UTC.
@@ -263,7 +263,7 @@ function RoutineExerciseRow({
   // The most recent earlier session for this exercise — shown as faint placeholder numbers so
   // you can see what you lifted last time before typing anything.
   lastEntry: ExerciseSetLog | undefined;
-  onEditWeight: (setIndex: number, weight: number | undefined) => void;
+  onEditWeight: (setIndex: number, weight: SetWeight | undefined) => void;
   onEditLastReps: (reps: number | undefined) => void;
   onCopyLast: () => void;
   onEditField: (patch: Partial<RoutineExercise>) => void;
@@ -297,9 +297,9 @@ function RoutineExerciseRow({
         const last = lastEntry?.weights[i];
         return (
           <td key={i} className="grid-td-compact">
-            <OptionalNumberCell
+            <WeightCell
               value={activeEntry?.weights[i]}
-              onChange={n => onEditWeight(i, n)}
+              onChange={w => onEditWeight(i, w)}
               placeholder={last != null ? String(last) : 'lb'}
               className="routine-weight-input"
             />
@@ -344,7 +344,7 @@ function RoutineDayCard({
   accent: string;
   entryByExerciseId: Map<string, ExerciseSetLog>;
   lastEntryByExerciseId: Map<string, ExerciseSetLog>;
-  onEditWeight: (exercise: RoutineExercise, setIndex: number, weight: number | undefined) => void;
+  onEditWeight: (exercise: RoutineExercise, setIndex: number, weight: SetWeight | undefined) => void;
   onEditLastReps: (exercise: RoutineExercise, reps: number | undefined) => void;
   onCopyLast: (exercise: RoutineExercise) => void;
   onEditField: (exerciseId: string, patch: Partial<RoutineExercise>) => void;
@@ -599,7 +599,7 @@ export function WorkoutRoutineSection({
     void upsert('workoutRoutines', { ...routine, exerciseLogs: empty ? others : [...others, next] });
   };
 
-  const editWeight = (exercise: RoutineExercise, setIndex: number, weight: number | undefined) => {
+  const editWeight = (exercise: RoutineExercise, setIndex: number, weight: SetWeight | undefined) => {
     writeEntry(exercise, e => { e.weights[setIndex] = weight; return e; });
   };
 

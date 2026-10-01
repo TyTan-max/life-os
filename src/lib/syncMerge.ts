@@ -63,6 +63,27 @@ function mergeCollection<T extends CollectionRecord>(
   return result;
 }
 
+export function snapshotHasRecords(snapshot: SyncSnapshot): boolean {
+  return COLLECTION_NAMES.some(name => (snapshot.data[name] as CollectionRecord[]).length > 0);
+}
+
+/**
+ * A fresh install is filled with starter (sample) data. Syncing it against an account that
+ * already has real data used to merge the samples in — and, because starter ids are the same on
+ * every install, overwrite real records that began life as starter records. So before merging,
+ * starter records nobody has touched (created at the seed stamp and never updated since) are
+ * left out of the local side. Anything edited on this device is kept. No tombstones are made:
+ * the records simply aren't offered to the merge.
+ */
+export function withoutUntouchedStarterData(local: SyncSnapshot, seedStamp: string): SyncSnapshot {
+  const data = { ...local.data };
+  for (const name of COLLECTION_NAMES) {
+    (data as Record<string, unknown>)[name] = (local.data[name] as CollectionRecord[])
+      .filter(r => !(r.createdAt === seedStamp && (r.updatedAt ?? r.createdAt) === seedStamp));
+  }
+  return { ...local, data };
+}
+
 export function mergeSnapshots(local: SyncSnapshot, remote: SyncSnapshot): SyncSnapshot {
   const tombstones = mergeTombstones(local.tombstones, remote.tombstones);
   const tombstoneAt = new Map<string, string>();

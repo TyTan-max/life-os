@@ -1,6 +1,6 @@
 import type { AppData } from '../types';
 import { computeCalorieTarget, isLowGlucose } from './nutritionTargets';
-import { nightsOf, sleepDebtOf } from './sleep';
+import { formatHours, nightsOf, sleepDebtOf } from './sleep';
 import { doseStatus, scheduledTimes } from './medications';
 
 export type HealthPillar = 'Fitness' | 'Weight' | 'Sleep' | 'Medication';
@@ -85,7 +85,7 @@ export function computeHealthInsights(data: AppData): HealthInsight[] {
       pillar: 'Fitness',
       severity: 'warn',
       title: 'Recovery looked rough last night',
-      detail: `${lastNight.hours}h${lastNight.awakeHours ? ` (awake ${lastNight.awakeHours}h in the middle)` : ''}${lastNight.quality ? ` at quality ${lastNight.quality}/10` : ''} — today might be a better day for an easy session or rest instead of pushing intensity.`
+      detail: `${lastNight.hours}h${lastNight.awakeHours ? ` (awake ${formatHours(lastNight.awakeHours)} in the middle)` : ''}${lastNight.quality ? ` at quality ${lastNight.quality}/10` : ''} — today might be a better day for an easy session or rest instead of pushing intensity.`
     });
   } else {
     const thisWeekSleep = data.sleepEntries.filter(e => e.date >= weekStart);

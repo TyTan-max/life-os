@@ -389,10 +389,13 @@ export interface Note extends BaseRecord {
 // each set within one session can carry a different load, not a running history across sessions.
 // Kept flat on the routine (keyed by exerciseId+date) rather than nested inside RoutineExercise
 // so logged history survives structural edits/versioning of the exercise it belongs to.
+// One set's load: a plain number, or two weights for a superset written "40-50".
+export type SetWeight = number | string;
+
 export interface ExerciseSetLog {
   exerciseId: string;
   date: string;
-  weights: (number | undefined)[];
+  weights: (SetWeight | undefined)[];
   lastReps?: number;
 }
 

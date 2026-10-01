@@ -30,6 +30,8 @@ function duplicateKey(accountId: string, date: string, amount: number, merchant:
   return `${accountId}|${date}|${amount.toFixed(2)}|${merchant.trim().toLowerCase()}`;
 }
 
+const LAST_IMPORT_ACCOUNT_KEY = 'finance-import-last-account';
+
 export function ImportTransactionsModal({
   accounts, categories, existingTransactions, merchantCategoryMap, bills = [], onImport, onClose
 }: {
@@ -46,7 +48,19 @@ export function ImportTransactionsModal({
   const [error, setError] = useState('');
   const [rows, setRows] = useState<string[][]>([]);
   const [hasHeader, setHasHeader] = useState(true);
-  const [accountId, setAccountId] = useState(accounts[0]?.id ?? NONE);
+  // Starts on the account you imported into last time; failing that, the one your newest imported
+  // transactions belong to, then your first bank/card account. Never the linked trading account —
+  // its balance comes from the Trading Journal, not a statement.
+  const [accountId, setAccountId] = useState(() => {
+    const candidates = accounts.filter(a => a.linkedTo !== 'tradingJournal' && a.status !== 'Closed');
+    let remembered: string | null = null;
+    try { remembered = localStorage.getItem(LAST_IMPORT_ACCOUNT_KEY); } catch { /* storage unavailable */ }
+    if (remembered && candidates.some(a => a.id === remembered)) return remembered;
+    const newest = existingTransactions
+      .filter(t => t.accountId && candidates.some(a => a.id === t.accountId))
+      .reduce<Transaction | undefined>((best, t) => (!best || (t.createdAt ?? '') > (best.createdAt ?? '') ? t : best), undefined);
+    return newest?.accountId ?? candidates[0]?.id ?? accounts[0]?.id ?? NONE;
+  });
   const [dateCol, setDateCol] = useState(NONE);
   const [merchantCol, setMerchantCol] = useState(NONE);
   const [amountMode, setAmountMode] = useState<AmountMode>('single');
@@ -262,6 +276,7 @@ export function ImportTransactionsModal({
         categoryId: asTransfer ? undefined : categoryFor(r.merchant, r.isIncome, r.csvCategory, r.amount)
       });
     });
+    try { localStorage.setItem(LAST_IMPORT_ACCOUNT_KEY, accountId); } catch { /* ignore */ }
     onImport(records);
   };
 

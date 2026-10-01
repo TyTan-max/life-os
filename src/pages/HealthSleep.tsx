@@ -12,7 +12,7 @@ import { useIsMobile } from '../hooks/useIsMobile';
 import { inRange, sleepRecencyLabel } from '../lib/healthPeriod';
 import type { HealthPeriodProps } from './HealthWellness';
 import type { SleepEntry } from '../types';
-import { computeSleepDuration, formatHours, isNap, lastNightOf, looksLikeNap, nightsOf, sleepDebtOf, sleepHours, usualSleepTimes } from '../lib/sleep';
+import { computeSleepDuration, computeSleepMinutes, formatHours, isNap, lastNightOf, looksLikeNap, nightsOf, sleepDebtOf, sleepHours, sleepMinutes, usualSleepTimes } from '../lib/sleep';
 import type { SleepNight } from '../lib/sleep';
 
 // The Quality ⓘ: one consistent way to rate a night, so scores compare night to night.
@@ -51,8 +51,8 @@ function barPos(time: string): number {
 // Time awake between two pieces of a night (wake of one → bed of the next).
 function gapHours(prev: SleepEntry, next: SleepEntry): number | undefined {
   if (!prev.wakeTime || !next.bedTime) return undefined;
-  const h = computeSleepDuration(prev.wakeTime, next.bedTime);
-  return h != null && h < 12 ? h : undefined;
+  const mins = computeSleepMinutes(prev.wakeTime, next.bedTime);
+  return mins != null && mins < 12 * 60 ? mins / 60 : undefined;
 }
 
 export function HealthSleep({ period, range, periodLabel, activeDate, autoAdd, onAutoAdded }: HealthPeriodProps & { autoAdd?: boolean; onAutoAdded?: () => void }) {
@@ -218,7 +218,7 @@ export function HealthSleep({ period, range, periodLabel, activeDate, autoAdd, o
       {(periodNaps.length > 0 || napsThisWeek >= 3) && (
         <p className={`sleep-naps-line ${napsThisWeek >= 3 ? 'warn' : ''}`}>
           <Sun size={14} />
-          {periodNaps.length > 0 && <span><b>{periodNaps.length} nap{periodNaps.length === 1 ? '' : 's'}</b> · {formatHours(periodNaps.reduce((s, n) => s + sleepHours(n), 0))} {periodLabel} — not counted as night sleep, but they pay back sleep debt.</span>}
+          {periodNaps.length > 0 && <span><b>{periodNaps.length} nap{periodNaps.length === 1 ? '' : 's'}</b> · {formatHours(periodNaps.reduce((s, n) => s + sleepMinutes(n), 0) / 60)} {periodLabel} — not counted as night sleep, but they pay back sleep debt.</span>}
           {napsThisWeek >= 3 && <span className="sleep-naps-warn">Frequent naps ({napsThisWeek} in the last 7 days): your nights may be too short.</span>}
         </p>
       )}
@@ -265,7 +265,7 @@ export function HealthSleep({ period, range, periodLabel, activeDate, autoAdd, o
         )}
         {groups.map(g => {
           const n = g.night;
-          const napHours = g.naps.reduce((sum, x) => sum + sleepHours(x), 0);
+          const napHours = g.naps.reduce((sum, x) => sum + sleepMinutes(x), 0) / 60;
           const extra = [n?.awakeHours ? `awake ${formatHours(n.awakeHours)}` : '', g.naps.length ? `+ ${formatHours(napHours)} nap` : ''].filter(Boolean).join(' · ');
           return (
             <button type="button" key={g.date} className={`sleep-row ${editingDate === g.date ? 'selected' : ''}`} onClick={() => setEditingDate(g.date)}>
@@ -294,7 +294,7 @@ export function HealthSleep({ period, range, periodLabel, activeDate, autoAdd, o
             <span className="sleep-editor-arrow">→</span>
             <TimeWheelPicker value={e.wakeTime} onChange={v => patchTime(e, 'wakeTime', v)} placeholder={nap ? 'End' : 'Wake time'} />
             {computeSleepDuration(e.bedTime, e.wakeTime) != null
-              ? <b>{nap ? formatHours(sleepHours(e)) : `${sleepHours(e)}h`}</b>
+              ? <b>{nap ? formatHours(sleepMinutes(e) / 60) : `${sleepHours(e)}h`}</b>
               : <input type="number" inputMode="decimal" step="0.1" className="sleep-editor-hours" value={e.durationHours} onChange={ev => patch(e, { durationHours: Number(ev.target.value) })} aria-label="Hours" />}
             <button type="button" className="icon-btn danger" onClick={() => void remove('sleepEntries', e.id)} aria-label={nap ? 'Delete nap' : 'Delete this sleep'}><Trash2 size={14} /></button>
           </li>

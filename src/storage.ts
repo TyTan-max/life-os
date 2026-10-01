@@ -17,6 +17,9 @@ const DB_NAME = 'life-os';
 const DB_VERSION = 23;
 const META_STORE = 'meta';
 const TOMBSTONES_KEY = 'tombstones';
+// When this install was filled with starter data (every starter record carries this exact
+// createdAt). Sync uses it to keep untouched starter records from merging into real data.
+const SEED_STAMP_KEY = 'seedStamp';
 const SETTINGS_UPDATED_AT_KEY = 'settingsUpdatedAt';
 // A tombstone only needs to outlive the longest realistic gap between syncs — 90 days covers
 // "went on a long trip and didn't open the laptop," without keeping deletion records forever.
@@ -676,6 +679,7 @@ async function loadAllInternal(): Promise<AppData> {
     const seedData = buildSeedData();
     await writeAll(db, seedData);
     await db.put(META_STORE, true, 'seeded');
+    await db.put(META_STORE, seedStampOf(seedData), SEED_STAMP_KEY);
     await db.put(META_STORE, true, 'financeMigratedV1');
     await db.put(META_STORE, true, 'budgetsMigratedV1');
     await db.put(META_STORE, true, 'categoryBudgetGroupBackfilledV1');
@@ -803,7 +807,22 @@ export async function resetToSeed(): Promise<AppData> {
   const seed = buildSeedData();
   await writeAll(db, seed);
   await db.put(META_STORE, true, 'seeded');
+  await db.put(META_STORE, seedStampOf(seed), SEED_STAMP_KEY);
   return seed;
+}
+
+function seedStampOf(seed: AppData): string | undefined {
+  for (const name of COLLECTION_NAMES) {
+    const first = (seed[name] as CollectionRecord[])[0];
+    if (first?.createdAt) return first.createdAt;
+  }
+  return undefined;
+}
+
+/** The createdAt shared by this install's starter records, if it was seeded with any. */
+export async function getSeedStamp(): Promise<string | undefined> {
+  const db = await getDb();
+  return (await db.get(META_STORE, SEED_STAMP_KEY)) as string | undefined;
 }
 
 // Local date, not `.toISOString()` — that converts to UTC, which reads as "tomorrow" late

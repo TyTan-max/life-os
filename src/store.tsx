@@ -1,11 +1,11 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import type { AppData, CollectionName, CollectionRecord, FinanceAccount, Settings, Task } from './types';
 import {
-  addTombstones, applySyncSnapshot, clearTombstones, deleteRecord, getSyncSnapshot, loadAll, makeRecord,
+  addTombstones, applySyncSnapshot, clearTombstones, deleteRecord, getSeedStamp, getSyncSnapshot, loadAll, makeRecord,
   normalizeData, putRecord, replaceAll, replaceCollection, resetToSeed, saveSettings
 } from './storage';
 import { downloadSnapshotJson, ensureSignedIn, isConfigured as isDriveConfigured, uploadSnapshotJson } from './lib/googleDriveSync';
-import { mergeSnapshots } from './lib/syncMerge';
+import { mergeSnapshots, snapshotHasRecords, withoutUntouchedStarterData } from './lib/syncMerge';
 import type { SyncSnapshot } from './lib/syncMerge';
 import { startBrowserReminderLoop, syncScheduledNotifications } from './notifications';
 import { registerCustomDebtTypes } from './pages/FinanceAccounts';
@@ -290,7 +290,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         ? { tombstones: [], settingsUpdatedAt: new Date(0).toISOString(), ...remoteParsed, data: normalizeData(remoteParsed.data ?? {}) }
         : { data: normalizeData({}), tombstones: [], settingsUpdatedAt: new Date(0).toISOString() };
 
-      const merged = mergeSnapshots(local, remote);
+      // A device that still holds untouched starter data must not merge it into real data.
+      const seedStamp = await getSeedStamp();
+      const localForMerge = seedStamp && snapshotHasRecords(remote) ? withoutUntouchedStarterData(local, seedStamp) : local;
+      const merged = mergeSnapshots(localForMerge, remote);
       // Written back to both sides: IndexedDB so this device reflects the merge immediately,
       // and Drive so the *next* device to sync merges against the already-combined state
       // instead of just this device's half of it.
