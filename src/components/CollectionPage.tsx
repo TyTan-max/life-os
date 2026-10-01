@@ -852,11 +852,11 @@ export function CollectionPage<T extends CollectionRecord>({
   const [shuffleTick, setShuffleTick] = useState(0);
   const [randomPick, setRandomPick] = useState<T | null>(null);
   const [infoRecord, setInfoRecord] = useState<T | null>(null);
-  // Rich-text fields (e.g. Notes / Review) start collapsed in the read-only info view — they
-  // tend to be the longest field on the record, so hiding them by default keeps the modal
-  // scannable, with a toggle to expand when you actually want to read them.
-  const [expandedFields, setExpandedFields] = useState<Set<string>>(new Set());
-  useEffect(() => { setExpandedFields(new Set()); }, [infoRecord, randomPick]);
+  // Rich-text fields in the read-only info view: the Description is what you open an item to
+  // read, so it shows straight away; the others (e.g. Notes / Review) start collapsed, since
+  // they tend to be long. Either can be hidden or shown with its toggle.
+  const [expandedFields, setExpandedFields] = useState<Set<string>>(() => new Set(['description']));
+  useEffect(() => { setExpandedFields(new Set(['description'])); }, [infoRecord, randomPick]);
   const toggleField = (key: string) => setExpandedFields(prev => {
     const next = new Set(prev);
     if (next.has(key)) next.delete(key); else next.add(key);
