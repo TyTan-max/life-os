@@ -7,6 +7,7 @@ import { DatePicker } from '../components/DatePicker';
 import { TimeWheelPicker } from '../components/TimeWheelPicker';
 import { InfoTip } from '../components/InfoTip';
 import { DetailPanel } from '../components/DetailPanel';
+import { SwipeRow } from '../components/SwipeRow';
 import { useAutoAdd } from '../components/EntrySheetFooter';
 import { useIsMobile } from '../hooks/useIsMobile';
 import { inRange, sleepRecencyLabel } from '../lib/healthPeriod';
@@ -267,7 +268,7 @@ export function HealthSleep({ period, range, periodLabel, activeDate, autoAdd, o
           const n = g.night;
           const napHours = g.naps.reduce((sum, x) => sum + sleepMinutes(x), 0) / 60;
           const extra = [n?.awakeHours ? `awake ${formatHours(n.awakeHours)}` : '', g.naps.length ? `+ ${formatHours(napHours)} nap` : ''].filter(Boolean).join(' · ');
-          return (
+          const row = (
             <button type="button" key={g.date} className={`sleep-row ${editingDate === g.date ? 'selected' : ''}`} onClick={() => setEditingDate(g.date)}>
               <span className="sleep-row-date"><b>{weekday(g.date)}</b><small>{formatDate(g.date)}</small></span>
               <span className="sleep-row-bar">{timelineBar(g)}</span>
@@ -279,6 +280,23 @@ export function HealthSleep({ period, range, periodLabel, activeDate, autoAdd, o
               <span className="sleep-row-notes">{g.pieces[0]?.notes ?? ''}</span>
             </button>
           );
+          // On a phone, swipe a night left to delete it (the whole day: every piece and nap).
+          // Undo brings it back.
+          return isMobile ? (
+            <SwipeRow
+              key={g.date}
+              trailing={{
+                label: 'Delete',
+                icon: <Trash2 size={16} />,
+                onTrigger: () => {
+                  for (const e of [...g.pieces, ...g.naps]) void remove('sleepEntries', e.id);
+                  if (editingDate === g.date) closeEditor();
+                }
+              }}
+            >
+              {row}
+            </SwipeRow>
+          ) : row;
         })}
         {!groups.length && <p className="muted empty-state">No nights logged for {period === 'Day' ? 'this day' : `this ${period.toLowerCase()}`}.</p>}
       </div>

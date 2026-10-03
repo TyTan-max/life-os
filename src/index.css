@@ -6763,3 +6763,8 @@ tr.recur-paused td:nth-child(4) { opacity: 1; }
 .sync-panel-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
 .sync-panel-mobile { padding: 4px 16px 14px; }
 .sync-panel-mobile .sync-panel-actions .btn { flex: 1 1 100%; justify-content: center; }
+
+/* Sleep night list on mobile: each row sits in a SwipeRow, so the divider moves to the wrapper. */
+.sleep-list > .swipe-row { border-bottom: 1px solid var(--border); border-radius: 0; }
+.sleep-list > .swipe-row:last-child { border-bottom: 0; }
+.sleep-list > .swipe-row .sleep-row { border-bottom: 0; }
