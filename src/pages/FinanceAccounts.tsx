@@ -5,7 +5,7 @@ import { CollectionPage } from '../components/CollectionPage';
 import { useStore, newRecord } from '../store';
 import { Kpi, formatCurrency, formatDate, MoneyInput } from '../components/UI';
 import { DatePicker } from '../components/DatePicker';
-import { NumberCell, NotesCell } from '../components/GridCells';
+import { NumberCell, NotesCell, SheetNumberInput } from '../components/GridCells';
 import { ListManagerModal } from '../components/ListManagerModal';
 import { MobileRecordList } from '../components/MobileRecordList';
 import { Sheet } from '../components/Sheet';
@@ -167,7 +167,7 @@ export function FinanceDebtGrid() {
               </label>
               <label><span>Institution</span><input type="text" value={editingDebt.institution ?? ''} placeholder="—" onChange={e => patch(editingDebt, { institution: e.target.value })} /></label>
               <label><span>Balance</span><MoneyInput value={editingDebt.balance} onChange={n => patch(editingDebt, { balance: n })} /></label>
-              <label><span>Interest rate (%)</span><input type="number" inputMode="decimal" value={editingDebt.interestRate ?? 0} onChange={e => patch(editingDebt, { interestRate: Number(e.target.value) })} /></label>
+              <label><span>Interest rate (%)</span><SheetNumberInput value={editingDebt.interestRate ?? 0} onChange={n => patch(editingDebt, { interestRate: n })} /></label>
               <label><span>Min. payment</span><MoneyInput value={editingDebt.minimumPayment ?? 0} onChange={n => patch(editingDebt, { minimumPayment: n })} /></label>
               {editingDebt.type === 'Credit Card' && (
                 <>

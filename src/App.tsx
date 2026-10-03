@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Check, RefreshCw, Redo2, Save, Search, Sparkles, Undo2 } from 'lucide-react';
+import { useSyncDescription } from './components/SyncPanel';
 import { StoreProvider, useStore } from './store';
 import { NAV_SECTIONS } from './navigation';
 import { MobileNav } from './components/MobileNav';
@@ -29,7 +30,8 @@ const PAGES: Record<string, React.ComponentType> = {
 };
 
 function Shell() {
-  const { updateSettings, data, loading, undo, redo, canUndo, canRedo, exportBackup, syncNow, syncStatus, syncError, lastSyncedAt, isSyncConfigured } = useStore();
+  const { updateSettings, data, loading, undo, redo, canUndo, canRedo, exportBackup, syncNow, syncStatus, isSyncConfigured } = useStore();
+  const syncDescription = useSyncDescription();
   const [page, setPage] = useState('Dashboard');
   // A landing tab for pages that have their own internal tabs (currently just Second Brain) —
   // set alongside the page so a specific click-through (e.g. a goal from the Calendar) can open
@@ -136,18 +138,15 @@ function Shell() {
       <div className="history-controls">
         <button
           type="button"
-          className={`history-btn ${syncStatus === 'syncing' ? 'syncing' : ''} ${syncStatus === 'error' ? 'sync-error' : ''}`}
+          className={`history-btn sync-btn sync-tone-${syncDescription.tone} ${syncStatus === 'syncing' ? 'syncing' : ''} ${syncStatus === 'error' ? 'sync-error' : ''}`}
           onClick={() => void syncNow(true)}
           disabled={!isSyncConfigured || syncStatus === 'syncing'}
-          title={
-            !isSyncConfigured ? 'Google Drive sync isn’t configured (see googleDriveSync.ts)'
-              : syncStatus === 'error' ? `Sync failed: ${syncError}`
-              : syncStatus === 'syncing' ? 'Syncing…'
-              : lastSyncedAt ? `Sync with Google Drive — last synced ${new Date(lastSyncedAt).toLocaleTimeString()}`
-              : 'Sync with Google Drive'
-          }
+          title={syncDescription.long}
+          aria-label={`Sync — ${syncDescription.short}`}
         >
           <RefreshCw size={17} />
+          {/* Amber: changes waiting to sync · red: not connected or failed. */}
+          {(syncDescription.tone === 'pending' || syncDescription.tone === 'warn' || syncDescription.tone === 'error') && <i className="sync-btn-dot" aria-hidden="true" />}
         </button>
         <span className="history-divider" />
         <button type="button" className={`history-btn ${justSaved ? 'saved' : ''}`} onClick={saveNow} title="Save a backup file (Ctrl+S)">

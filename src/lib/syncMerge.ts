@@ -14,10 +14,12 @@ export interface Tombstone {
 export interface SyncSnapshot {
   data: AppData;
   tombstones: Tombstone[];
-  // `settings` has no per-field or per-record updatedAt of its own, so it merges as a single
-  // whole-object last-write-wins unit, tracked separately from the record-level timestamps
-  // everything else in this file uses.
+  // When settings last changed at all. Snapshots from before per-field times existed merge
+  // settings as one whole block by this.
   settingsUpdatedAt: string;
+  // When each setting last changed, so a change on one device (say, the target weight) doesn't
+  // undo a different setting changed on another (a pay schedule): each field merges on its own.
+  settingsFieldTimes?: Record<string, string>;
 }
 
 function recordTime(r: BaseRecord): string {
@@ -84,6 +86,89 @@ export function withoutUntouchedStarterData(local: SyncSnapshot, seedStamp: stri
   return { ...local, data };
 }
 
+/**
+ * Starter records are minted with the same ids (`seed-N`) on every install, and real records
+ * that began as starters keep those ids. So a cloud copy holding *untouched* samples (never
+ * edited since they were created) must not be merged into a device that has real data: being
+ * stamped newer, they'd overwrite the real records sharing their ids, or re-add samples that were
+ * deleted here. They're left out of the remote side whenever this device has real data.
+ */
+export function withoutRemoteStarterData(remote: SyncSnapshot, local: SyncSnapshot): SyncSnapshot {
+  const isUntouchedStarter = (r: CollectionRecord) =>
+    String(r.id).startsWith('seed-') && (r.updatedAt ?? r.createdAt) === r.createdAt;
+  const localHasRealData = COLLECTION_NAMES.some(name =>
+    (local.data[name] as CollectionRecord[]).some(r => !isUntouchedStarter(r)));
+  if (!localHasRealData) return remote;
+  const data = { ...remote.data };
+  for (const name of COLLECTION_NAMES) {
+    const localCreated = new Map((local.data[name] as CollectionRecord[]).map(r => [r.id, r.createdAt]));
+    (data as Record<string, unknown>)[name] = (remote.data[name] as CollectionRecord[]).filter(r =>
+      !(isUntouchedStarter(r) && localCreated.get(r.id) !== r.createdAt));
+  }
+  return { ...remote, data };
+}
+
+/**
+ * After a backup import, the backup *is* the data: the cloud copy is replaced, not merged with.
+ * Anything only the cloud has gets a tombstone, so other devices delete it on their next sync too
+ * instead of pushing it back.
+ */
+export function replaceRemoteWith(local: SyncSnapshot, remote: SyncSnapshot): SyncSnapshot {
+  const now = new Date().toISOString();
+  const extra: Tombstone[] = [];
+  for (const name of COLLECTION_NAMES) {
+    const localIds = new Set((local.data[name] as CollectionRecord[]).map(r => r.id));
+    for (const r of remote.data[name] as CollectionRecord[]) {
+      if (!localIds.has(r.id)) extra.push({ collection: name, id: r.id, deletedAt: now });
+    }
+  }
+  // Old tombstones for records the backup has are dropped, so those records aren’t deleted again.
+  const tombstones = mergeTombstones(
+    local.tombstones.filter(t => !(local.data[t.collection] as CollectionRecord[]).some(r => r.id === t.id)),
+    extra
+  );
+  return { data: local.data, tombstones, settingsUpdatedAt: now, settingsFieldTimes: local.settingsFieldTimes };
+}
+
+function mergeSettings(local: SyncSnapshot, remote: SyncSnapshot): Pick<SyncSnapshot, 'settingsUpdatedAt' | 'settingsFieldTimes'> & { settings: AppData['settings'] } {
+  const localWholeNewer = local.settingsUpdatedAt >= remote.settingsUpdatedAt;
+  const settingsUpdatedAt = localWholeNewer ? local.settingsUpdatedAt : remote.settingsUpdatedAt;
+  const lt = local.settingsFieldTimes ?? {};
+  const rt = remote.settingsFieldTimes ?? {};
+  const ls = local.data.settings as unknown as Record<string, unknown>;
+  const rs = remote.data.settings as unknown as Record<string, unknown>;
+  const settings: Record<string, unknown> = {};
+  const fieldTimes: Record<string, string> = {};
+  for (const key of new Set([...Object.keys(ls), ...Object.keys(rs), ...Object.keys(lt), ...Object.keys(rt)])) {
+    const a = lt[key];
+    const b = rt[key];
+    // A field neither side has a time for falls back to whichever block changed last.
+    const useLocal = a || b ? (a ?? '') >= (b ?? '') : localWholeNewer;
+    const value = useLocal ? ls[key] : rs[key];
+    if (value !== undefined) settings[key] = value;
+    const time = useLocal ? a : b;
+    if (time) fieldTimes[key] = time;
+  }
+  return { settings: settings as unknown as AppData['settings'], settingsUpdatedAt, settingsFieldTimes: fieldTimes };
+}
+
+/**
+ * A cheap summary of a snapshot — every record's id + last-changed time, the tombstones and the
+ * settings times. Two snapshots with the same fingerprint hold the same data, so there's nothing
+ * to upload.
+ */
+export function snapshotFingerprint(s: SyncSnapshot): string {
+  const parts: string[] = [];
+  for (const name of COLLECTION_NAMES) {
+    const keys = (s.data[name] as CollectionRecord[]).map(r => `${r.id}@${recordTime(r)}`).sort();
+    parts.push(`${name}:${keys.join(',')}`);
+  }
+  parts.push(`t:${s.tombstones.map(t => `${t.collection}:${t.id}@${t.deletedAt}`).sort().join(',')}`);
+  const ft = s.settingsFieldTimes ?? {};
+  parts.push(`s:${s.settingsUpdatedAt}|${Object.keys(ft).sort().map(k => `${k}@${ft[k]}`).join(',')}`);
+  return parts.join('\n');
+}
+
 export function mergeSnapshots(local: SyncSnapshot, remote: SyncSnapshot): SyncSnapshot {
   const tombstones = mergeTombstones(local.tombstones, remote.tombstones);
   const tombstoneAt = new Map<string, string>();
@@ -95,9 +180,8 @@ export function mergeSnapshots(local: SyncSnapshot, remote: SyncSnapshot): SyncS
       mergeCollection(name, local.data[name] as CollectionRecord[], remote.data[name] as CollectionRecord[], tombstoneAt);
   }
 
-  const localSettingsNewer = local.settingsUpdatedAt >= remote.settingsUpdatedAt;
-  data.settings = localSettingsNewer ? local.data.settings : remote.data.settings;
-  const settingsUpdatedAt = localSettingsNewer ? local.settingsUpdatedAt : remote.settingsUpdatedAt;
+  const { settings, settingsUpdatedAt, settingsFieldTimes } = mergeSettings(local, remote);
+  data.settings = settings;
 
-  return { data, tombstones, settingsUpdatedAt };
+  return { data, tombstones, settingsUpdatedAt, settingsFieldTimes };
 }

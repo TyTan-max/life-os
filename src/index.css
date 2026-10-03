@@ -6745,3 +6745,21 @@ tr.recur-paused td:nth-child(4) { opacity: 1; }
 .record-list-titles .record-actions { opacity: 0; user-select: none; transition: opacity 0.1s; }
 .record-list-titles .record-row:hover .record-actions, .record-list-titles .record-actions:focus-within { opacity: 1; }
 @media (hover: none) { .record-list-titles .record-actions { opacity: 1; } }
+
+/* Sync status */
+.sync-btn { position: relative; }
+.sync-btn-dot { position: absolute; top: 5px; right: 5px; width: 7px; height: 7px; border-radius: 50%; background: var(--amber); box-shadow: 0 0 0 2px var(--surface); }
+.sync-tone-warn .sync-btn-dot, .sync-tone-error .sync-btn-dot { background: var(--red); }
+.sync-sheet-label.sync-tone-pending { color: var(--amber); }
+.sync-sheet-label.sync-tone-warn, .sync-sheet-label.sync-tone-error { color: var(--red); }
+.sync-panel { display: grid; gap: 8px; }
+.sync-panel p { margin: 0; }
+.sync-panel-status { display: flex; align-items: baseline; gap: 8px; font-weight: 600; }
+.sync-panel-status i { flex-shrink: 0; width: 9px; height: 9px; border-radius: 50%; background: var(--text-faint); transform: translateY(-1px); }
+.sync-panel-status.tone-ok i { background: var(--green); }
+.sync-panel-status.tone-pending i, .sync-panel-status.tone-syncing i { background: var(--amber); }
+.sync-panel-status.tone-warn i, .sync-panel-status.tone-error i { background: var(--red); }
+.sync-panel-line { font-size: 13px; }
+.sync-panel-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
+.sync-panel-mobile { padding: 4px 16px 14px; }
+.sync-panel-mobile .sync-panel-actions .btn { flex: 1 1 100%; justify-content: center; }

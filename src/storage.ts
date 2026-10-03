@@ -21,7 +21,63 @@ const TOMBSTONES_KEY = 'tombstones';
 // When this install was filled with starter data (every starter record carries this exact
 // createdAt). Sync uses it to keep untouched starter records from merging into real data.
 const SEED_STAMP_KEY = 'seedStamp';
+// Set by a backup import: the next sync makes this device's data the cloud copy instead of merging.
+const REPLACE_CLOUD_KEY = 'replaceCloudOnNextSync';
 const SETTINGS_UPDATED_AT_KEY = 'settingsUpdatedAt';
+const SETTINGS_FIELD_TIMES_KEY = 'settingsFieldTimes';
+// When this device's data last changed (any record or setting) — compared with the last sync to
+// tell whether there's anything unsynced.
+const LOCAL_CHANGED_AT_KEY = 'localChangedAt';
+const SYNC_STATE_KEY = 'syncState';
+
+/** What this device remembers between syncs. Kept in IndexedDB so it's wiped along with the data. */
+export interface SyncState {
+  fileId?: string;
+  /** The cloud file's version right after this device's last sync. */
+  remoteVersion?: string;
+  /** When the last successful sync started — edits after this are unsynced. */
+  syncedThrough?: string;
+  lastSyncedAt?: string;
+  /** Photo files already in the cloud: hash → Drive file id. */
+  blobIds?: Record<string, string>;
+  /** Size of the (compressed) data file in the cloud. */
+  cloudBytes?: number;
+  photoCount?: number;
+  photoBytes?: number;
+}
+
+const localChangeListeners = new Set<(at: string) => void>();
+/** Called with the time whenever this device's data changes (not when a sync writes it). */
+export function onLocalChange(listener: (at: string) => void): () => void {
+  localChangeListeners.add(listener);
+  return () => { localChangeListeners.delete(listener); };
+}
+
+let lastLocalChange = 0;
+async function markLocalChange(db: IDBPDatabase): Promise<void> {
+  // Strictly increasing, so two changes in the same millisecond still read as two changes.
+  lastLocalChange = Math.max(Date.now(), lastLocalChange + 1);
+  const at = new Date(lastLocalChange).toISOString();
+  await db.put(META_STORE, at, LOCAL_CHANGED_AT_KEY);
+  for (const listener of localChangeListeners) listener(at);
+}
+
+export async function getLocalChangedAt(): Promise<string | undefined> {
+  const db = await getDb();
+  return (await db.get(META_STORE, LOCAL_CHANGED_AT_KEY)) as string | undefined;
+}
+
+export async function getSyncState(): Promise<SyncState> {
+  const db = await getDb();
+  return ((await db.get(META_STORE, SYNC_STATE_KEY)) ?? {}) as SyncState;
+}
+
+export async function setSyncState(patch: Partial<SyncState>): Promise<SyncState> {
+  const db = await getDb();
+  const next = { ...((await db.get(META_STORE, SYNC_STATE_KEY)) ?? {}), ...patch } as SyncState;
+  await db.put(META_STORE, next, SYNC_STATE_KEY);
+  return next;
+}
 // A tombstone only needs to outlive the longest realistic gap between syncs — 90 days covers
 // "went on a long trip and didn't open the laptop," without keeping deletion records forever.
 const TOMBSTONE_RETENTION_DAYS = 90;
@@ -715,11 +771,13 @@ async function loadAllInternal(): Promise<AppData> {
 export async function putRecord(collection: CollectionName, record: CollectionRecord): Promise<void> {
   const db = await getDb();
   await db.put(collection, record);
+  await markLocalChange(db);
 }
 
 export async function deleteRecord(collection: CollectionName, id: string): Promise<void> {
   const db = await getDb();
   await db.delete(collection, id);
+  await markLocalChange(db);
 }
 
 function pruneTombstoneList(list: Tombstone[]): Tombstone[] {
@@ -762,8 +820,18 @@ export async function clearTombstones(collection: CollectionName, ids: string[])
 
 export async function saveSettings(settings: Settings): Promise<void> {
   const db = await getDb();
+  const now = new Date().toISOString();
+  // Stamp just the fields that changed, so sync can merge settings field by field.
+  const before = ((await db.get(META_STORE, 'settings')) ?? {}) as Record<string, unknown>;
+  const after = settings as unknown as Record<string, unknown>;
+  const times = ((await db.get(META_STORE, SETTINGS_FIELD_TIMES_KEY)) ?? {}) as Record<string, string>;
+  for (const key of new Set([...Object.keys(before), ...Object.keys(after)])) {
+    if (JSON.stringify(before[key]) !== JSON.stringify(after[key])) times[key] = now;
+  }
   await db.put(META_STORE, settings, 'settings');
-  await db.put(META_STORE, new Date().toISOString(), SETTINGS_UPDATED_AT_KEY);
+  await db.put(META_STORE, times, SETTINGS_FIELD_TIMES_KEY);
+  await db.put(META_STORE, now, SETTINGS_UPDATED_AT_KEY);
+  await markLocalChange(db);
 }
 
 // The read/write pair a sync transport actually moves. `getSyncSnapshot` never mutates state —
@@ -773,7 +841,45 @@ export async function getSyncSnapshot(): Promise<SyncSnapshot> {
   const data = await readAllCollections(db);
   const tombstones = pruneTombstoneList(((await db.get(META_STORE, TOMBSTONES_KEY)) ?? []) as Tombstone[]);
   const settingsUpdatedAt = ((await db.get(META_STORE, SETTINGS_UPDATED_AT_KEY)) as string | undefined) ?? new Date(0).toISOString();
-  return { data, tombstones, settingsUpdatedAt };
+  const settingsFieldTimes = ((await db.get(META_STORE, SETTINGS_FIELD_TIMES_KEY)) ?? {}) as Record<string, string>;
+  return { data, tombstones, settingsUpdatedAt, settingsFieldTimes };
+}
+
+/**
+ * Writes a sync result by changing only what differs from `current` (what's on this device now):
+ * new or changed records are put, missing ones deleted, settings written only if they differ.
+ * A typical sync touches a handful of records instead of rewriting thousands.
+ */
+export async function applySyncResult(result: SyncSnapshot, current: SyncSnapshot): Promise<number> {
+  const db = await getDb();
+  const tx = db.transaction([...COLLECTION_NAMES, META_STORE], 'readwrite');
+  let changed = 0;
+  for (const name of COLLECTION_NAMES) {
+    const store = tx.objectStore(name);
+    const before = new Map((current.data[name] as CollectionRecord[]).map(r => [r.id, r]));
+    const keep = new Set<string>();
+    for (const r of result.data[name] as CollectionRecord[]) {
+      keep.add(r.id);
+      const old = before.get(r.id);
+      if (old && old.createdAt === r.createdAt && (old.updatedAt ?? '') === (r.updatedAt ?? '')) continue;
+      await store.put(r);
+      changed++;
+    }
+    for (const id of before.keys()) {
+      if (!keep.has(id)) { await store.delete(id); changed++; }
+    }
+  }
+  const meta = tx.objectStore(META_STORE);
+  if (JSON.stringify(result.data.settings) !== JSON.stringify(current.data.settings)) {
+    await meta.put(result.data.settings, 'settings');
+    changed++;
+  }
+  await meta.put(result.tombstones, TOMBSTONES_KEY);
+  await meta.put(result.settingsUpdatedAt, SETTINGS_UPDATED_AT_KEY);
+  await meta.put(result.settingsFieldTimes ?? {}, SETTINGS_FIELD_TIMES_KEY);
+  await meta.put(true, 'seeded');
+  await tx.done;
+  return changed;
 }
 
 // Writes an already-merged snapshot back to IndexedDB. Distinct from `replaceAll` (which backs
@@ -792,6 +898,17 @@ export async function replaceAll(data: AppData): Promise<void> {
   const db = await getDb();
   await writeAll(db, data);
   await db.put(META_STORE, true, 'seeded');
+  await markLocalChange(db);
+}
+
+export async function setReplaceCloudOnNextSync(value: boolean): Promise<void> {
+  const db = await getDb();
+  await db.put(META_STORE, value, REPLACE_CLOUD_KEY);
+}
+
+export async function getReplaceCloudOnNextSync(): Promise<boolean> {
+  const db = await getDb();
+  return (await db.get(META_STORE, REPLACE_CLOUD_KEY)) === true;
 }
 
 export async function replaceCollection(collection: CollectionName, records: CollectionRecord[]): Promise<void> {
@@ -801,6 +918,7 @@ export async function replaceCollection(collection: CollectionName, records: Col
   await store.clear();
   for (const record of records) await store.put(record);
   await tx.done;
+  await markLocalChange(db);
 }
 
 export async function resetToSeed(): Promise<AppData> {

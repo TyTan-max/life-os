@@ -126,7 +126,7 @@ export function WeightCell({
   );
 }
 
-export function NotesCell({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+export function NotesCell({ value, onChange, placeholder = 'Add a note…' }: { value: string; onChange: (v: string) => void; placeholder?: string }) {
   const [expanded, setExpanded] = useState(false);
   // Collapsed to one clipped line, `text-overflow: ellipsis` on the textarea itself is easy to
   // miss — this overlays an explicit "..." at the end of the line whenever the note is actually
@@ -144,14 +144,38 @@ export function NotesCell({ value, onChange }: { value: string; onChange: (v: st
         ref={ref}
         className={`grid-cell-input grid-notes-input ${expanded ? 'expanded' : ''}`}
         rows={expanded ? 3 : 1}
-        placeholder="Add a note…"
+        placeholder={placeholder}
         value={value}
-        title={value}
+        title={value || (placeholder !== 'Add a note…' ? placeholder : undefined)}
         onFocus={() => setExpanded(true)}
         onBlur={() => setExpanded(false)}
         onChange={e => onChange(e.target.value)}
       />
       {truncated && <span className="grid-notes-more-dot" title="More text — click to see the full note">...</span>}
     </div>
+  );
+}
+
+// A plain number field for the mobile entry sheets. A 0 shows as an empty box (with a faint 0),
+// so it never has to be deleted first; clearing the box means 0; and focusing selects what's
+// there, so the first digit typed replaces a copied-forward value instead of adding to it.
+export function SheetNumberInput({
+  value, onChange, inputMode = 'decimal', step
+}: { value: number; onChange: (n: number) => void; inputMode?: 'decimal' | 'numeric'; step?: string }) {
+  // Typed text is kept as-is while editing, so a partial value like "0." isn't wiped mid-entry.
+  const [text, setText] = useState(value === 0 ? '' : String(value));
+  const focusedRef = useRef(false);
+  useEffect(() => { if (!focusedRef.current) setText(value === 0 ? '' : String(value)); }, [value]);
+  return (
+    <input
+      type="number"
+      inputMode={inputMode}
+      step={step}
+      placeholder="0"
+      value={text}
+      onFocus={e => { focusedRef.current = true; const el = e.currentTarget; window.setTimeout(() => el.select(), 0); }}
+      onBlur={() => { focusedRef.current = false; setText(value === 0 ? '' : String(value)); }}
+      onChange={e => { setText(e.target.value); onChange(e.target.value === '' ? 0 : Number(e.target.value)); }}
+    />
   );
 }

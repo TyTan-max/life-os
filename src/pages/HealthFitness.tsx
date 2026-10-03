@@ -7,7 +7,7 @@ import { MobileRecordList } from '../components/MobileRecordList';
 import { Sheet } from '../components/Sheet';
 import { EntrySheetFooter, useAutoAdd } from '../components/EntrySheetFooter';
 import { useIsMobile } from '../hooks/useIsMobile';
-import { NumberCell, NotesCell, OptionalNumberCell } from '../components/GridCells';
+import { NumberCell, NotesCell, OptionalNumberCell, SheetNumberInput } from '../components/GridCells';
 import { SortableTh, SortableThLabel, toggleSort } from '../components/SortableTh';
 import type { SortState } from '../components/SortableTh';
 import { HealthInsightList } from '../components/HealthInsights';
@@ -149,7 +149,7 @@ export function HealthFitness({ period, range, periodLabel, activeDate, onActive
                     {(workoutTypes.includes(editing.type) ? workoutTypes : [editing.type, ...workoutTypes]).map(t => <option key={t} value={t}>{t}</option>)}
                   </select>
                 </label>
-                <label><span>Duration (min)</span><input type="number" inputMode="numeric" value={editing.durationMin} onChange={e => patch(editing, { durationMin: Number(e.target.value) })} /></label>
+                <label><span>Duration (min)</span><SheetNumberInput inputMode="numeric" value={editing.durationMin} onChange={n => patch(editing, { durationMin: n })} /></label>
                 <label><span>Avg HR (bpm)</span><input type="number" inputMode="numeric" value={editing.avgHr ?? ''} onChange={e => patch(editing, { avgHr: e.target.value === '' ? undefined : Number(e.target.value) })} /></label>
                 <label><span>Max HR (bpm)</span><input type="number" inputMode="numeric" value={editing.maxHr ?? ''} onChange={e => patch(editing, { maxHr: e.target.value === '' ? undefined : Number(e.target.value) })} /></label>
                 <label><span>RPE (1–10)</span><input type="number" inputMode="numeric" min={0} max={10} value={editing.rpe ?? ''} onChange={e => patch(editing, { rpe: e.target.value === '' ? undefined : Number(e.target.value) })} /></label>

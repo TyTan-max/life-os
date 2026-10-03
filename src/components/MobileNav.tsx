@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { Check, MoreHorizontal, NotebookPen, Plus, RefreshCw, Redo2, Save, Undo2 } from 'lucide-react';
+import { useSyncDescription } from './SyncPanel';
 import { useStore, newRecord } from '../store';
 import type { Note } from '../types';
 import { MOBILE_TABS, MOBILE_TAB_LABELS, NAV_SECTIONS, navIconFor } from '../navigation';
@@ -13,8 +14,9 @@ export function MobileNav({ page, navigate }: { page: string; navigate: (page: s
   const isMobile = useIsMobile();
   const {
     upsert, undo, redo, canUndo, canRedo, exportBackup,
-    syncNow, syncStatus, syncError, lastSyncedAt, isSyncConfigured
+    syncNow, syncStatus, isSyncConfigured
   } = useStore();
+  const syncDescription = useSyncDescription();
   const [sheet, setSheet] = useState<'more' | 'capture' | null>(null);
   const [captureText, setCaptureText] = useState('');
   const [justSaved, setJustSaved] = useState(false);
@@ -197,15 +199,10 @@ export function MobileNav({ page, navigate }: { page: string; navigate: (page: s
                 className="sheet-action"
                 disabled={!isSyncConfigured || syncStatus === 'syncing'}
                 onClick={() => void syncNow(true)}
-                title={!isSyncConfigured ? 'Google Drive sync isn’t configured' : syncStatus === 'error' ? syncError ?? undefined : undefined}
+                title={syncDescription.long}
               >
                 <RefreshCw size={16} className={syncStatus === 'syncing' ? 'sheet-action-spin' : ''} />
-                <span>
-                  {syncStatus === 'syncing' ? 'Syncing…'
-                    : syncStatus === 'error' ? 'Sync failed'
-                    : lastSyncedAt ? `Synced ${new Date(lastSyncedAt).toLocaleTimeString()}`
-                    : 'Sync now'}
-                </span>
+                <span className={`sync-sheet-label sync-tone-${syncDescription.tone}`}>{syncDescription.short}</span>
               </button>
             </div>
           </div>

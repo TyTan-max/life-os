@@ -255,7 +255,7 @@ function ProgramMenu({
 }
 
 function RoutineExerciseRow({
-  exercise, maxSets, activeEntry, lastEntry, onEditWeight, onEditLastReps, onCopyLast, onEditField, onDelete
+  exercise, maxSets, activeEntry, lastEntry, lastNote, onEditWeight, onEditLastReps, onEditNotes, onCopyLast, onEditField, onDelete
 }: {
   exercise: RoutineExercise;
   maxSets: number;
@@ -263,8 +263,12 @@ function RoutineExerciseRow({
   // The most recent earlier session for this exercise — shown as faint placeholder numbers so
   // you can see what you lifted last time before typing anything.
   lastEntry: ExerciseSetLog | undefined;
+  // The most recent earlier note for this exercise (from whichever session last had one) —
+  // ghosted in an empty Notes cell the same way.
+  lastNote: string | undefined;
   onEditWeight: (setIndex: number, weight: SetWeight | undefined) => void;
   onEditLastReps: (reps: number | undefined) => void;
+  onEditNotes: (notes: string | undefined) => void;
   onCopyLast: () => void;
   onEditField: (patch: Partial<RoutineExercise>) => void;
   onDelete: () => void;
@@ -315,7 +319,12 @@ function RoutineExerciseRow({
         />
       </td>
       <td className="health-routine-notes-cell">
-        <NotesCell value={exercise.notes ?? ''} onChange={notes => onEditField({ notes: notes || undefined })} />
+        {/* Notes are per date, like the weights; an older standing note on the exercise still ghosts. */}
+        <NotesCell
+          value={activeEntry?.notes ?? ''}
+          onChange={notes => onEditNotes(notes || undefined)}
+          placeholder={lastNote || exercise.notes || 'Add a note…'}
+        />
       </td>
       <td>
         <div className="routine-row-actions">
@@ -338,14 +347,16 @@ function RoutineExerciseRow({
 }
 
 function RoutineDayCard({
-  day, accent, entryByExerciseId, lastEntryByExerciseId, onEditWeight, onEditLastReps, onCopyLast, onEditField, onDeleteExercise, onAddExercise, onEditDay, onDeleteDay
+  day, accent, entryByExerciseId, lastEntryByExerciseId, lastNoteByExerciseId, onEditWeight, onEditLastReps, onEditNotes, onCopyLast, onEditField, onDeleteExercise, onAddExercise, onEditDay, onDeleteDay
 }: {
   day: RoutineDay;
   accent: string;
   entryByExerciseId: Map<string, ExerciseSetLog>;
   lastEntryByExerciseId: Map<string, ExerciseSetLog>;
+  lastNoteByExerciseId: Map<string, string>;
   onEditWeight: (exercise: RoutineExercise, setIndex: number, weight: SetWeight | undefined) => void;
   onEditLastReps: (exercise: RoutineExercise, reps: number | undefined) => void;
+  onEditNotes: (exercise: RoutineExercise, notes: string | undefined) => void;
   onCopyLast: (exercise: RoutineExercise) => void;
   onEditField: (exerciseId: string, patch: Partial<RoutineExercise>) => void;
   onDeleteExercise: (exerciseId: string) => void;
@@ -441,6 +452,8 @@ function RoutineDayCard({
                 maxSets={maxSets}
                 activeEntry={entryByExerciseId.get(ex.id)}
                 lastEntry={lastEntryByExerciseId.get(ex.id)}
+                lastNote={lastNoteByExerciseId.get(ex.id)}
+                onEditNotes={notes => onEditNotes(ex, notes)}
                 onEditWeight={(i, w) => onEditWeight(ex, i, w)}
                 onEditLastReps={reps => onEditLastReps(ex, reps)}
                 onCopyLast={() => onCopyLast(ex)}
@@ -564,8 +577,10 @@ export function WorkoutRoutineSection({
   // past day shouldn't suggest numbers from the future). Shown as placeholders, and the source for
   // "Same as last time".
   const lastEntryByExerciseId = new Map<string, ExerciseSetLog>();
+  const lastNoteByExerciseId = new Map<string, string>();
   for (const l of routine.exerciseLogs.filter(l => l.date < logDate).sort((a, b) => a.date.localeCompare(b.date))) {
     lastEntryByExerciseId.set(l.exerciseId, l);
+    if (l.notes?.trim()) lastNoteByExerciseId.set(l.exerciseId, l.notes);
   }
 
   const patchDays = (mutate: (days: RoutineDay[]) => RoutineDay[]) => {
@@ -594,7 +609,7 @@ export function WorkoutRoutineSection({
       ? { ...existing, weights: existing.weights.slice() }
       : { exerciseId: exercise.id, date: logDate, weights: Array.from({ length: exercise.targetSets }, () => undefined) };
     const next = mutate(base);
-    const empty = next.weights.every(w => w == null) && next.lastReps == null;
+    const empty = next.weights.every(w => w == null) && next.lastReps == null && !next.notes;
     const others = routine.exerciseLogs.filter(l => !same(l));
     void upsert('workoutRoutines', { ...routine, exerciseLogs: empty ? others : [...others, next] });
   };
@@ -605,6 +620,10 @@ export function WorkoutRoutineSection({
 
   const editLastReps = (exercise: RoutineExercise, reps: number | undefined) => {
     writeEntry(exercise, e => ({ ...e, lastReps: reps }));
+  };
+
+  const editNotes = (exercise: RoutineExercise, notes: string | undefined) => {
+    writeEntry(exercise, e => ({ ...e, notes }));
   };
 
   // "Same as last time": fills this date with the previous session's weights and last reps.
@@ -709,8 +728,10 @@ export function WorkoutRoutineSection({
           accent={DAY_ACCENTS[i % DAY_ACCENTS.length]}
           entryByExerciseId={entryByExerciseId}
           lastEntryByExerciseId={lastEntryByExerciseId}
+          lastNoteByExerciseId={lastNoteByExerciseId}
           onEditWeight={editWeight}
           onEditLastReps={editLastReps}
+          onEditNotes={editNotes}
           onCopyLast={copyLast}
           onEditField={(exId, patch) => editExerciseField(day.id, exId, patch)}
           onDeleteExercise={exId => deleteExercise(day.id, exId)}

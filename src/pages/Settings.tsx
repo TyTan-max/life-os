@@ -6,6 +6,7 @@ import { DEFAULT_PHOTO_QUALITY, PHOTO_QUALITY_PRESETS } from '../lib/photoQualit
 import { Card, PageHeader } from '../components/UI';
 import { Sheet } from '../components/Sheet';
 import { useIsMobile } from '../hooks/useIsMobile';
+import { SyncPanel } from '../components/SyncPanel';
 
 const THEMES: Theme[] = ['light', 'dark', 'system'];
 
@@ -61,6 +62,7 @@ export function Settings() {
     if (!file) return;
     try {
       await importBackup(file);
+      alert('Backup restored. The next time you press Sync, this backup becomes the cloud copy: anything the cloud has that this backup doesn\u2019t is removed there and on your other devices.');
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Import failed.');
     }
@@ -141,6 +143,11 @@ export function Settings() {
               <span>Daily brief time</span>
               <input type="time" value={settings.dailyBriefTime} onChange={e => void updateSettings({ dailyBriefTime: e.target.value })} />
             </label>
+          </section>
+
+          <section className="settings-m-group">
+            <h2>Sync</h2>
+            <SyncPanel mobile />
           </section>
 
           <section className="settings-m-group">
@@ -247,6 +254,10 @@ export function Settings() {
             <span>Launch at login</span>
           </label>
         </div>
+      </Card>
+      <Card className="settings-card">
+        <h2 className="section-title">Sync</h2>
+        <SyncPanel />
       </Card>
       <Card className="settings-card">
         <h2 className="section-title">Backup</h2>

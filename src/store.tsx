@@ -1,12 +1,12 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import type { AppData, CollectionName, CollectionRecord, FinanceAccount, Settings, Task } from './types';
 import {
-  addTombstones, applySyncSnapshot, clearTombstones, deleteRecord, getSeedStamp, getSyncSnapshot, loadAll, makeRecord,
-  normalizeData, putRecord, replaceAll, replaceCollection, resetToSeed, saveSettings
+  addTombstones, clearTombstones, deleteRecord, getLocalChangedAt, getSyncState, loadAll, makeRecord,
+  normalizeData, onLocalChange, putRecord, replaceAll, replaceCollection, resetToSeed, saveSettings, setReplaceCloudOnNextSync,
+  type SyncState
 } from './storage';
-import { downloadSnapshotJson, ensureSignedIn, isConfigured as isDriveConfigured, uploadSnapshotJson } from './lib/googleDriveSync';
-import { mergeSnapshots, snapshotHasRecords, withoutUntouchedStarterData } from './lib/syncMerge';
-import type { SyncSnapshot } from './lib/syncMerge';
+import { ensureSignedIn, friendlySyncError, isConfigured as isDriveConfigured, isSignedIn, signOut as signOutOfDrive } from './lib/googleDriveSync';
+import { hasUnsyncedChanges, runSync } from './lib/syncEngine';
 import { startBrowserReminderLoop, syncScheduledNotifications } from './notifications';
 import { registerCustomDebtTypes } from './pages/FinanceAccounts';
 import { applyLinkedBalances } from './lib/trading';
@@ -36,12 +36,23 @@ type Store = {
   syncError: string | null;
   lastSyncedAt: string | null;
   isSyncConfigured: boolean;
+  /** Not signed in to Google (or the sign-in expired): the next tap on Sync reconnects. */
+  syncNeedsSignIn: boolean;
+  /** This device has changes the cloud doesn't have yet. */
+  hasUnsyncedChanges: boolean;
+  syncState: SyncState;
+  replaceCloudCopy: () => Promise<void>;
+  disconnectSync: () => void;
 };
 
 const empty = {} as Store;
 const StoreContext = createContext<Store>(empty);
 
 const COALESCE_MS = 800;
+// Automatic sync: this long after the last edit, and on returning to the app if the last sync
+// was longer ago than this.
+const AUTO_SYNC_AFTER_EDIT_MS = 15_000;
+const AUTO_SYNC_ON_RETURN_MS = 60_000;
 
 // Shared by undo() and redo(): writing `applied` while the other side of the same history
 // entry was `counterpart` means anything present in `applied` but not `counterpart` just
@@ -117,6 +128,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'error'>('idle');
   const [syncError, setSyncError] = useState<string | null>(null);
   const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null);
+  const [syncNeedsSignIn, setSyncNeedsSignIn] = useState(false);
+  const [syncState, setSyncState] = useState<SyncState>({});
+  const syncStateRef = useRef(syncState);
+  useEffect(() => { syncStateRef.current = syncState; }, [syncState]);
+  const [localChangedAt, setLocalChangedAt] = useState<string | null>(null);
   const dismissDestructive = useCallback(() => setLastDestructive(null), []);
 
   const pushHistory = useCallback((entry: NewHistoryEntry) => {
@@ -259,6 +275,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     const parsed = normalizeData(raw);
     const before = dataRef.current;
     await replaceAll(parsed);
+    // The next sync pushes this backup up as the cloud copy rather than merging the cloud back in.
+    await setReplaceCloudOnNextSync(true);
     setData(parsed);
     pushHistory({ kind:'full', before, after:parsed });
   }, [pushHistory]);
@@ -270,44 +288,88 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     pushHistory({ kind:'full', before, after });
   }, [pushHistory]);
 
-  // `interactive` controls whether a missing/expired Google session pops the consent screen
-  // (true, for the button the user tapped) or just gives up quietly (false, for anything
-  // automatic) — see the matching parameter on ensureSignedIn for why.
+  // `interactive` is true for a tap on Sync (may show Google's sign-in) and false for automatic
+  // syncs, which never open anything — without a valid sign-in they just flag "reconnect".
+  // Only one sync runs at a time; one requested meanwhile runs right after it.
+  const syncRunningRef = useRef(false);
+  const syncAgainRef = useRef(false);
   const syncNow = useCallback(async (interactive = true) => {
-    setSyncStatus('syncing');
-    setSyncError(null);
+    if (!isDriveConfigured()) return;
+    if (syncRunningRef.current) { syncAgainRef.current = true; return; }
+    syncRunningRef.current = true;
     try {
-      const signedIn = await ensureSignedIn(interactive);
-      if (!signedIn) { setSyncStatus('idle'); return; }
-
-      const local = await getSyncSnapshot();
-      const remoteJson = await downloadSnapshotJson();
-      // A snapshot uploaded before a new collection existed (e.g. dailyLogs) has no key for it at
-      // all — normalizeData backfills any missing collection as [] so mergeCollection always has
-      // an array to iterate, instead of throwing on `undefined` from an older snapshot.
-      const remoteParsed = remoteJson ? JSON.parse(remoteJson) as Partial<SyncSnapshot> : null;
-      const remote: SyncSnapshot = remoteParsed
-        ? { tombstones: [], settingsUpdatedAt: new Date(0).toISOString(), ...remoteParsed, data: normalizeData(remoteParsed.data ?? {}) }
-        : { data: normalizeData({}), tombstones: [], settingsUpdatedAt: new Date(0).toISOString() };
-
-      // A device that still holds untouched starter data must not merge it into real data.
-      const seedStamp = await getSeedStamp();
-      const localForMerge = seedStamp && snapshotHasRecords(remote) ? withoutUntouchedStarterData(local, seedStamp) : local;
-      const merged = mergeSnapshots(localForMerge, remote);
-      // Written back to both sides: IndexedDB so this device reflects the merge immediately,
-      // and Drive so the *next* device to sync merges against the already-combined state
-      // instead of just this device's half of it.
-      await applySyncSnapshot(merged);
-      await uploadSnapshotJson(JSON.stringify(merged));
-
-      setData(merged.data);
-      setSyncStatus('idle');
-      setLastSyncedAt(new Date().toISOString());
-    } catch (err) {
-      setSyncStatus('error');
-      setSyncError(err instanceof Error ? err.message : String(err));
+      let signedIn = false;
+      try {
+        signedIn = await ensureSignedIn(interactive);
+      } catch (err) {
+        setSyncStatus('error');
+        setSyncError(friendlySyncError(err));
+        return;
+      }
+      setSyncNeedsSignIn(!signedIn);
+      if (!signedIn) return;
+      setSyncStatus('syncing');
+      setSyncError(null);
+      try {
+        const outcome = await runSync();
+        if (outcome.data) setData(outcome.data);
+        setSyncState(outcome.state);
+        setLastSyncedAt(outcome.state.lastSyncedAt ?? null);
+        setSyncStatus('idle');
+      } catch (err) {
+        const message = friendlySyncError(err);
+        setSyncStatus('error');
+        setSyncError(message);
+        if (!isSignedIn()) setSyncNeedsSignIn(true);
+      }
+    } finally {
+      syncRunningRef.current = false;
+      if (syncAgainRef.current) { syncAgainRef.current = false; void syncNow(false); }
     }
   }, []);
+
+  // Makes this device's data the cloud copy (Settings → Sync), the same as after a backup import.
+  const replaceCloudCopy = useCallback(async () => {
+    await setReplaceCloudOnNextSync(true);
+    await syncNow(true);
+  }, [syncNow]);
+
+  const disconnectSync = useCallback(() => {
+    signOutOfDrive();
+    setSyncNeedsSignIn(true);
+  }, []);
+
+  // ---- Automatic sync ----
+  // Remembered sync state (last sync, what's unsynced) loads with the app.
+  useEffect(() => {
+    void getSyncState().then(state => { setSyncState(state); setLastSyncedAt(state.lastSyncedAt ?? null); });
+    void getLocalChangedAt().then(at => setLocalChangedAt(at ?? null));
+    return onLocalChange(at => setLocalChangedAt(at));
+  }, []);
+  // On open (once the data has loaded).
+  useEffect(() => {
+    if (loading || !isDriveConfigured()) return;
+    if (isSignedIn()) void syncNow(false);
+    else setSyncNeedsSignIn(true);
+  }, [loading, syncNow]);
+  // A little while after you stop editing.
+  useEffect(() => {
+    if (!localChangedAt || !isSignedIn()) return;
+    const timer = window.setTimeout(() => void syncNow(false), AUTO_SYNC_AFTER_EDIT_MS);
+    return () => window.clearTimeout(timer);
+  }, [localChangedAt, syncNow]);
+  // Coming back to the app, or back online.
+  useEffect(() => {
+    const maybeSync = () => {
+      if (document.visibilityState !== 'visible' || !isSignedIn()) return;
+      const last = syncStateRef.current.lastSyncedAt;
+      if (!last || Date.now() - new Date(last).getTime() > AUTO_SYNC_ON_RETURN_MS) void syncNow(false);
+    };
+    const onOnline = () => { if (isSignedIn()) void syncNow(false); };
+    document.addEventListener('visibilitychange', maybeSync);
+    window.addEventListener('online', onOnline);
+    return () => { document.removeEventListener('visibilitychange', maybeSync); window.removeEventListener('online', onOnline); };
+  }, [syncNow]);
 
   const undo = useCallback(async () => {
     // Whatever the toast was offering to reverse is either being reversed right now or is no
@@ -377,10 +439,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     data: liveData, loading, upsert, remove, updateSettings, toggleTask, exportBackup, importBackup, reset,
     undo, redo, canUndo:undoStackRef.current.length > 0, canRedo:redoStackRef.current.length > 0,
     lastDestructive, dismissDestructive, syncNow, syncStatus, syncError, lastSyncedAt,
-    isSyncConfigured: isDriveConfigured()
+    isSyncConfigured: isDriveConfigured(), syncNeedsSignIn,
+    hasUnsyncedChanges: hasUnsyncedChanges(localChangedAt ?? undefined, syncState),
+    syncState, replaceCloudCopy, disconnectSync
   }), [
     liveData, loading, upsert, remove, updateSettings, toggleTask, exportBackup, importBackup, reset, undo, redo,
-    historyTick, lastDestructive, dismissDestructive, syncNow, syncStatus, syncError, lastSyncedAt
+    historyTick, lastDestructive, dismissDestructive, syncNow, syncStatus, syncError, lastSyncedAt,
+    syncNeedsSignIn, localChangedAt, syncState, replaceCloudCopy, disconnectSync
   ]);
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;
 }

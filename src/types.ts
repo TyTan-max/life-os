@@ -397,6 +397,8 @@ export interface ExerciseSetLog {
   date: string;
   weights: (SetWeight | undefined)[];
   lastReps?: number;
+  /** This session's note for the exercise ("felt easy", "go up next time"). */
+  notes?: string;
 }
 
 export interface RoutineExercise {

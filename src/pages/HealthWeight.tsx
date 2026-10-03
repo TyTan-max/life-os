@@ -3,7 +3,7 @@ import { ChevronDown, Plus, Trash2 } from 'lucide-react';
 import { useStore, newRecord } from '../store';
 import { Badge, Card, Kpi, ProgressBar, formatDate } from '../components/UI';
 import { DatePicker } from '../components/DatePicker';
-import { NumberCell, NotesCell, OptionalNumberCell } from '../components/GridCells';
+import { NumberCell, NotesCell, OptionalNumberCell, SheetNumberInput } from '../components/GridCells';
 import { SortableTh, toggleSort } from '../components/SortableTh';
 import type { SortState } from '../components/SortableTh';
 import { MobileRecordList } from '../components/MobileRecordList';
@@ -418,7 +418,7 @@ export function HealthWeight({ period, range, periodLabel, activeDate, autoAdd, 
                   <div className="sheet-form">
                     <label><span>Date</span><DatePicker value={editingGlucose.date} onChange={v => patchGlucose(editingGlucose, { date: v })} /></label>
                     <label><span>Time</span><input type="text" value={editingGlucose.time ?? ''} placeholder="07:15" onChange={e => patchGlucose(editingGlucose, { time: e.target.value || undefined })} /></label>
-                    <label><span>Value ({glucoseUnit})</span><input type="number" inputMode="decimal" value={editingGlucose.value} onChange={e => patchGlucose(editingGlucose, { value: Number(e.target.value) })} /></label>
+                    <label><span>Value ({glucoseUnit})</span><SheetNumberInput value={editingGlucose.value} onChange={n => patchGlucose(editingGlucose, { value: n })} /></label>
                     <label>
                       <span>Context</span>
                       <select value={editingGlucose.context ?? ''} onChange={e => patchGlucose(editingGlucose, { context: (e.target.value || undefined) as GlucoseEntry['context'] })}>
@@ -512,7 +512,7 @@ export function HealthWeight({ period, range, periodLabel, activeDate, autoAdd, 
             >
               <div className="sheet-form">
                 <label><span>Date</span><DatePicker value={editingWeight.date} onChange={v => patchWeight(editingWeight, { date: v })} /></label>
-                <label><span>Weight ({unit})</span><input type="number" inputMode="decimal" step="0.1" value={editingWeight.weight} onChange={e => patchWeight(editingWeight, { weight: Number(e.target.value) })} /></label>
+                <label><span>Weight ({unit})</span><SheetNumberInput step="0.1" value={editingWeight.weight} onChange={n => patchWeight(editingWeight, { weight: n })} /></label>
                 <label><span>Body fat (%)</span><input type="number" inputMode="decimal" step="0.1" value={editingWeight.bodyFatPct ?? ''} onChange={e => patchWeight(editingWeight, { bodyFatPct: e.target.value === '' ? undefined : Number(e.target.value) })} /></label>
                 <label><span>Notes</span><textarea rows={3} value={editingWeight.notes ?? ''} onChange={e => patchWeight(editingWeight, { notes: e.target.value })} /></label>
               </div>
