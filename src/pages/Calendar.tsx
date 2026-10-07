@@ -147,7 +147,7 @@ export function Calendar({ navigate }: { navigate: (page: string, tab?: string) 
       if (g.targetDate && g.status !== 'Completed') items.push({ id: g.id, title: g.title, date: g.targetDate, kind: 'Goal' });
     });
     data.bucketList.forEach(b => {
-      if (b.status === 'Achieved') return;
+      if (b.status === 'Achieved' || b.status === 'Dropped') return;
       const tripOk = Boolean(b.tripStart && b.tripEnd && b.tripEnd >= b.tripStart);
       if (b.targetDate && !(tripOk && b.targetDate === b.tripStart)) items.push({ id: b.id, title: b.title, date: b.targetDate, kind: 'Bucket' });
       if (tripOk) {

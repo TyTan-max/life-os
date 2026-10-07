@@ -3,7 +3,8 @@ import { takeJumpFor } from '../lib/jumpTo';
 import type { ChangeEvent } from 'react';
 import {
   AlertTriangle, ArrowUp, ArrowUpDown, CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight, Columns3, Globe, GripVertical, Image as ImageIcon,
-  ImageOff, Images, LayoutGrid, MapPin, Pencil, PiggyBank, Plus, Search, Sparkles, Star, Trash2, Trophy, Upload, Wallet, X
+  ImageOff, Images, LayoutGrid, List as ListIcon, MapPin, Pencil, PiggyBank, Plus, Search, Sparkles, Star, Trash2, Trophy, Undo2, Upload, Wallet, X,
+  Copy as CopyIcon, Layers, Grid3x3
 } from 'lucide-react';
 import { useStore, newRecord } from '../store';
 import type { BucketListCategory, BucketListItem, BucketListStatus, BucketListSubtask, CostTier, FinanceGoal } from '../types';
@@ -26,7 +27,19 @@ import { coverQuery, isUnsplashConfigured, resolveCover, searchPhotos, type Phot
 const GENERATE_COUNT = 6;
 
 const CATEGORIES: BucketListCategory[] = ['Travel', 'Experience', 'Skill', 'Other'];
-const STATUSES: BucketListStatus[] = ['Someday', 'Planning', 'Achieved'];
+const STATUSES: BucketListStatus[] = ['Someday', 'Planning', 'Achieved', 'Dropped'];
+// The three a goal moves through; Dropped sits apart (no board column, not in "All").
+const ACTIVE_STATUSES: BucketListStatus[] = ['Someday', 'Planning', 'Achieved'];
+
+// With a budget on the goal, the $ / $$ / $$$ marker is worked out from it rather than set twice.
+function costOf(item: Pick<BucketListItem, 'budget' | 'costTier'>): CostTier | undefined {
+  if (item.budget == null || item.budget <= 0) return item.costTier;
+  return item.budget < 750 ? '$' : item.budget < 3000 ? '$$' : '$$$';
+}
+
+// What you were looking at survives leaving the tab and coming back (for this session).
+let savedFilters: { statusTab: 'All' | BucketListStatus; categoryTab: BucketListCategory | null; search: string } = { statusTab: 'All', categoryTab: null, search: '' };
+const DECK_MODE_KEY = 'lifeos.bucketDeck.mode';
 const COST_TIERS: CostTier[] = ['$', '$$', '$$$'];
 
 type StatusTab = 'All' | BucketListStatus;
@@ -48,7 +61,7 @@ function loadSavedSort(): SortBy {
 // The default order: what you're planning first (soonest date on top), then someday, then what's
 // done (newest first) — with top picks leading their group. Unlike "recently updated", ticking a
 // step or typing a reflection doesn't send the card to the front.
-const STATUS_RANK: Record<BucketListStatus, number> = { Planning: 0, Someday: 1, Achieved: 2 };
+const STATUS_RANK: Record<BucketListStatus, number> = { Planning: 0, Someday: 1, Achieved: 2, Dropped: 3 };
 function smartCompare(a: BucketListItem, b: BucketListItem): number {
   if (a.status !== b.status) return STATUS_RANK[a.status] - STATUS_RANK[b.status];
   if (Boolean(a.topPick) !== Boolean(b.topPick)) return a.topPick ? -1 : 1;
@@ -96,7 +109,7 @@ const daysBetween = (fromIso: string, toIso: string) =>
 
 // "in 95 days" reads better than a bare date, and says when it's getting close or has slipped.
 function targetLabel(item: BucketListItem, today: string): { text: string; tone: 'ok' | 'soon' | 'late' } | null {
-  if (!item.targetDate || item.status === 'Achieved') return null;
+  if (!item.targetDate || item.status === 'Achieved' || item.status === 'Dropped') return null;
   const days = daysBetween(today, item.targetDate);
   const when = formatDate(item.targetDate);
   if (days < 0) return { text: `${when} · ${-days} day${days === -1 ? '' : 's'} overdue`, tone: 'late' };
@@ -111,7 +124,7 @@ function nextUp(items: BucketListItem[]): BucketListItem | null {
     .sort((a, b) => (a.targetDate ?? '').localeCompare(b.targetDate ?? ''))[0] ?? null;
 }
 
-type Layout = 'gallery' | 'board' | 'map' | 'memories';
+type Layout = 'gallery' | 'list' | 'board' | 'map' | 'memories';
 const LAYOUT_KEY = 'lifeos.view.bucketList';
 
 function emptyForm(status: BucketListStatus = 'Someday'): Partial<BucketListItem> {
@@ -148,10 +161,38 @@ function fileToDataUrl(file: File, maxDim = MEMORY_PHOTO_MAX_DIM, quality = MEMO
   });
 }
 
+// Loads a photo from a link and re-encodes it as a data URL, so the memory keeps its own copy and
+// can't lose the picture when the link dies. Only works where the site permits cross-site reads;
+// where it doesn't, this rejects and the link is kept as it was.
+function urlToDataUrl(url: string, maxDim = MEMORY_PHOTO_MAX_DIM, quality = MEMORY_PHOTO_QUALITY): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onerror = () => reject(new Error('Could not copy this image'));
+    img.onload = () => {
+      try {
+        const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.round(img.width * scale);
+        canvas.height = Math.round(img.height * scale);
+        const ctx = canvas.getContext('2d');
+        if (!ctx) { reject(new Error('No canvas')); return; }
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      } catch (err) {
+        reject(err instanceof Error ? err : new Error('Could not copy this image'));
+      }
+    };
+    img.src = url;
+  });
+}
+
 function ItemFormModal({
   item, categories, onClose, onSave
 }: { item: BucketListItem | null; categories: BucketListCategory[]; onClose: () => void; onSave: (patch: Partial<BucketListItem>) => void }) {
   const coverFileRef = useRef<HTMLInputElement>(null);
+  const { data, updateSettings } = useStore();
+  const autoCover = data.settings.bucketAutoCover !== false;
   const [form, setForm] = useState<Partial<BucketListItem>>(item ? { ...item } : emptyForm());
   const [subtaskDraft, setSubtaskDraft] = useState('');
   const unsplashReady = useMemo(isUnsplashConfigured, []);
@@ -168,7 +209,7 @@ function ItemFormModal({
   // you've already picked or pasted in.
   useEffect(() => {
     const title = (form.title ?? '').trim();
-    if (!unsplashReady || form.coverArt || title.length < 4) return;
+    if (!unsplashReady || !autoCover || form.coverArt || title.length < 4) return;
     let cancelled = false;
     const timer = window.setTimeout(async () => {
       setAutoSuggesting(true);
@@ -179,7 +220,7 @@ function ItemFormModal({
       }
     }, 700);
     return () => { cancelled = true; window.clearTimeout(timer); };
-  }, [form.title, form.location, form.coverArt, unsplashReady]);
+  }, [form.title, form.location, form.coverArt, unsplashReady, autoCover]);
 
   const runPhotoSearch = async (q: string) => {
     if (!q.trim()) { setPhotoResults([]); return; }
@@ -251,6 +292,12 @@ function ItemFormModal({
             }} />
             {Boolean(form.coverArt) && <img className="image-field-preview" src={form.coverArt} alt="" />}
           </div>
+          {unsplashReady && (
+            <span className="bucket-autocover">
+              <input type="checkbox" checked={autoCover} onChange={e => void updateSettings({ bucketAutoCover: e.target.checked })} id="bucket-autocover" />
+              <label htmlFor="bucket-autocover">Find a cover automatically as I type — this sends the goal’s title and location to Unsplash (a photo site)</label>
+            </span>
+          )}
           {pickerOpen && (
             <div className="photo-picker">
               <div className="photo-picker-search">
@@ -397,6 +444,12 @@ function DiscoveryDeck({
 
   const [index, setIndex] = useState(0);
   const [justAddedId, setJustAddedId] = useState<string | null>(null);
+  const [mode, setModeState] = useState<'grid' | 'one'>(() => (window.localStorage.getItem(DECK_MODE_KEY) === 'one' ? 'one' : 'grid'));
+  const setMode = (next: 'grid' | 'one') => { setModeState(next); window.localStorage.setItem(DECK_MODE_KEY, next); };
+  const [catFilter, setCatFilter] = useState('');
+  const [costFilter, setCostFilter] = useState('');
+  const gridIdeas = deck.filter(d => (!catFilter || d.category === catFilter) && (!costFilter || d.costTier === costFilter));
+  const addIdea = (d: DeckIdea) => { const resolved = resolvedCovers[d.id]; onAdd(resolved ? { ...d, coverArt: resolved } : d); };
 
   const idea = deck[index];
 
@@ -425,7 +478,10 @@ function DiscoveryDeck({
     setGenError(null);
     const jumpTo = deck.length;
     try {
-      const avoid = [...existingTitles, ...deck.map(d => d.title.toLowerCase())];
+      // Your own goals stay on this device when the cloud engine (Google) is in use: it's only told
+      // about the ideas already in this deck. Repeats of your goals are filtered out here afterwards.
+      const deckTitles = [...DISCOVERY_DECK, ...generatedIdeas].map(d => d.title.toLowerCase());
+      const avoid = engine === 'cloud' ? deckTitles : [...existingTitles, ...deckTitles];
       const raw = await complete(engine, DECK_SYSTEM_PROMPT, buildDeckPrompt(GENERATE_COUNT, avoid));
       let parsed = parseDeckIdeas(raw);
       if (!parsed.length) throw new Error('Got a response but couldn’t make sense of it as ideas — try again, or switch engines.');
@@ -479,11 +535,57 @@ function DiscoveryDeck({
             <Sparkles size={13} /> {generating ? 'Generating…' : 'Generate new ideas'}
           </button>
         </div>
+        <p className="deck-privacy">
+          {engine === 'cloud'
+            ? 'Cloud: none of your goals are sent — only the ideas already in this deck, so it doesn’t repeat them.'
+            : 'Local: runs on this computer. Your goal titles are used to avoid repeats and never leave it.'}
+        </p>
         {genError && (
           <div className="deck-error"><AlertTriangle size={13} /> {genError}</div>
         )}
 
-        {idea ? (
+        <div className="deck-mode-row">
+          <div className="view-toggle-btns">
+            <button type="button" className={mode === 'grid' ? 'on' : ''} onClick={() => setMode('grid')} aria-label="Browse all ideas" title="Browse all"><Grid3x3 size={15} /></button>
+            <button type="button" className={mode === 'one' ? 'on' : ''} onClick={() => setMode('one')} aria-label="One idea at a time" title="One at a time"><Layers size={15} /></button>
+          </div>
+          {mode === 'grid' && (
+            <>
+              <select value={catFilter} onChange={e => setCatFilter(e.target.value)} aria-label="Category">
+                <option value="">Any category</option>
+                {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+              <select value={costFilter} onChange={e => setCostFilter(e.target.value)} aria-label="Cost">
+                <option value="">Any cost</option>
+                {COST_TIERS.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+              <span className="deck-count">{gridIdeas.length} idea{gridIdeas.length === 1 ? '' : 's'}</span>
+            </>
+          )}
+        </div>
+
+        {mode === 'grid' && deck.length > 0 ? (
+          gridIdeas.length ? (
+            <div className="deck-grid">
+              {gridIdeas.map(d => (
+                <div className="deck-tile" key={d.id}>
+                  <span className="deck-tile-cover" style={{ backgroundImage: `url(${resolvedCovers[d.id] ?? d.coverArt})` }}>
+                    <span className="bucket-status-pill status-someday">{d.category}</span>
+                    <span className="bucket-cost-pill">{d.costTier}</span>
+                  </span>
+                  <span className="deck-tile-body">
+                    <b>{d.title}</b>
+                    {d.location && <small><MapPin size={11} /> {d.location}</small>}
+                    <p>{d.blurb}</p>
+                  </span>
+                  <button type="button" className="btn ghost small" onClick={() => addIdea(d)}><Plus size={13} /> Add to my list</button>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="deck-empty"><p>No ideas match those filters.</p></div>
+          )
+        ) : idea ? (
           <>
             <div className="deck-stage">
               <button type="button" className="deck-nav" onClick={goPrev} disabled={index === 0} aria-label="Previous idea"><ChevronLeft size={20} /></button>
@@ -553,9 +655,10 @@ export function Travel() {
     if (categoryTab === name) setCategoryTab(null);
   };
 
-  const [statusTab, setStatusTab] = useState<StatusTab>('All');
-  const [categoryTab, setCategoryTab] = useState<BucketListCategory | null>(null);
-  const [search, setSearch] = useState('');
+  const [statusTab, setStatusTab] = useState<StatusTab>(savedFilters.statusTab);
+  const [categoryTab, setCategoryTab] = useState<BucketListCategory | null>(savedFilters.categoryTab);
+  const [search, setSearch] = useState(savedFilters.search);
+  useEffect(() => { savedFilters = { statusTab, categoryTab, search }; }, [statusTab, categoryTab, search]);
   const [sortBy, setSortByState] = useState<SortBy>(loadSavedSort);
   const setSortBy = (next: SortBy) => {
     setSortByState(next);
@@ -622,7 +725,8 @@ export function Travel() {
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     const list = items
-      .filter(i => statusTab === 'All' || i.status === statusTab)
+      // "All" means everything you're still after or have done — dropped goals have their own tab.
+      .filter(i => (statusTab === 'All' ? i.status !== 'Dropped' : i.status === statusTab))
       .filter(i => !categoryTab || i.category === categoryTab)
       .filter(i => matchesSearch(i, q));
     const sorted = list.slice();
@@ -645,7 +749,8 @@ export function Travel() {
   const counts = useMemo(() => ({
     Achieved: items.filter(i => i.status === 'Achieved').length,
     Planning: items.filter(i => i.status === 'Planning').length,
-    Someday: items.filter(i => i.status === 'Someday').length
+    Someday: items.filter(i => i.status === 'Someday').length,
+    Dropped: items.filter(i => i.status === 'Dropped').length
   }), [items]);
   const next = useMemo(() => nextUp(items), [items]);
   const nextLabel = next ? targetLabel(next, today) : null;
@@ -657,8 +762,10 @@ export function Travel() {
     setEditingTarget(false);
   };
   // Goals whose target date has arrived without being marked achieved (and not put off).
-  const duePrompts = items.filter(i => i.status !== 'Achieved' && i.targetDate && i.targetDate <= today
-    && !snoozed.has(i.id) && !(i.askAgainOn && i.askAgainOn > today));
+  // A trip you're back from counts as well as a passed target date.
+  const backFrom = (i: BucketListItem) => Boolean(i.tripEnd && i.tripEnd < today && (!i.tripStart || i.tripStart <= i.tripEnd));
+  const duePrompts = items.filter(i => i.status !== 'Achieved' && i.status !== 'Dropped' && !snoozed.has(i.id) && !(i.askAgainOn && i.askAgainOn > today)
+    && ((i.targetDate && i.targetDate <= today) || backFrom(i)));
   const askInAWeek = (item: BucketListItem) => {
     const d = new Date(`${today}T12:00:00`); d.setDate(d.getDate() + 7);
     patchItem(item, { askAgainOn: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` });
@@ -687,7 +794,18 @@ export function Travel() {
   };
 
   const patchItem = (item: BucketListItem, patch: Partial<BucketListItem>) => {
-    void upsert('bucketList', { ...item, ...patch });
+    const updated = { ...item, ...patch };
+    void upsert('bucketList', updated);
+    // A linked savings goal in Finance follows the trip: its amount, its date, and (unless you've
+    // renamed it there) its name.
+    const goal = updated.savingsGoalId ? data.financeGoals.find(g => g.id === updated.savingsGoalId) : undefined;
+    if (goal && updated.budget) {
+      const date = updated.tripStart ?? updated.targetDate;
+      const name = goal.name === `Trip: ${item.title}` ? `Trip: ${updated.title}` : goal.name;
+      if (goal.targetAmount !== updated.budget || goal.targetDate !== date || goal.name !== name) {
+        void upsert('financeGoals', { ...goal, targetAmount: updated.budget, targetDate: date, name });
+      }
+    }
   };
 
   // Achieving something gets a moment: confetti, and the memory section ready to write in.
@@ -764,12 +882,33 @@ export function Travel() {
     } catch { /* unreadable file — leave the cover as it was */ }
   };
 
+  // Swaps a linked memory photo for a saved copy. Quietly does nothing if the site won't allow it.
+  const itemsRef = useRef(items);
+  itemsRef.current = items;
+  const copyTried = useRef<Set<string>>(new Set());
+  const keepCopy = async (itemId: string, url: string) => {
+    if (!/^https?:/i.test(url) || copyTried.current.has(url)) return;
+    copyTried.current.add(url);
+    try {
+      const dataUrl = await urlToDataUrl(url);
+      const latest = itemsRef.current.find(i => i.id === itemId);
+      if (latest?.memoryPhotos?.includes(url)) {
+        void upsert('bucketList', { ...latest, memoryPhotos: latest.memoryPhotos.map(p => (p === url ? dataUrl : p)) });
+      }
+    } catch { /* the link stays as it was */ }
+  };
   const addPhoto = (item: BucketListItem) => {
     const url = photoDraft.trim();
     if (!url) return;
     patchItem(item, { memoryPhotos: [...(item.memoryPhotos ?? []), url] });
     setPhotoDraft('');
+    void keepCopy(item.id, url);
   };
+  // Photos linked before this existed get the same treatment, once, while their links still work.
+  useEffect(() => {
+    for (const item of items) for (const url of item.memoryPhotos ?? []) void keepCopy(item.id, url);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items]);
   const removePhoto = (item: BucketListItem, url: string) => {
     patchItem(item, { memoryPhotos: (item.memoryPhotos ?? []).filter(p => p !== url) });
   };
@@ -803,7 +942,7 @@ export function Travel() {
   const [layoutRaw, setLayoutState] = useState<Layout>(() => {
     try {
       const saved = window.localStorage.getItem(LAYOUT_KEY);
-      return saved === 'board' || saved === 'map' || saved === 'memories' ? saved : 'gallery';
+      return saved === 'list' || saved === 'board' || saved === 'map' || saved === 'memories' ? saved : 'gallery';
     } catch { return 'gallery'; }
   });
   const setLayout = (value: Layout) => {
@@ -830,6 +969,7 @@ export function Travel() {
   const goalMenu = (item: BucketListItem): ContextMenuItem[] => [
     { label: 'Open', icon: ImageIcon, onSelect: () => setDetailId(item.id) },
     { label: 'Edit…', icon: Pencil, onSelect: () => startEdit(item) },
+    { label: 'Duplicate', icon: CopyIcon, onSelect: () => duplicateItem(item) },
     'separator',
     ...statusMenu(item),
     'separator',
@@ -853,8 +993,32 @@ export function Travel() {
 
   // No "are you sure?" box: the Undo toast (and Ctrl+Z) brings a deleted goal straight back.
   const deleteItem = (id: string) => {
+    const item = items.find(i => i.id === id);
+    const goal = item?.savingsGoalId ? data.financeGoals.find(g => g.id === item.savingsGoalId) : undefined;
+    // The one question worth asking: money is being saved toward this in Finance.
+    if (goal && window.confirm(`“${item!.title}” has a savings goal in Finance (${formatCurrency(goal.currentAmount)} saved of ${formatCurrency(goal.targetAmount)}).\n\nOK — delete the savings goal too.\nCancel — keep the savings goal, delete only this goal.`)) {
+      void remove('financeGoals', goal.id);
+    }
     if (detailId === id) setDetailId(null);
     void remove('bucketList', id);
+  };
+
+  // A fresh copy to plan again: same details, steps and packing (unticked), none of the history.
+  const duplicateItem = (item: BucketListItem) => {
+    const untick = (list?: BucketListSubtask[]) => list?.map(t => ({ ...t, id: generateId(), done: false }));
+    const copy = newRecord<BucketListItem>({
+      title: `${item.title} (copy)`, category: item.category, status: item.status === 'Planning' ? 'Planning' : 'Someday',
+      coverArt: item.coverArt, location: item.location, costTier: item.costTier, notes: item.notes, pin: item.pin,
+      budget: item.budget, subtasks: untick(item.subtasks) ?? [], packing: untick(item.packing)
+    });
+    void upsert('bucketList', copy);
+    setDetailId(copy.id);
+  };
+  const setItineraryDay = (item: BucketListItem, date: string, patch: { plan?: string; ref?: string }) => {
+    const day = { ...(item.itinerary?.[date] ?? {}), ...patch };
+    const itinerary = { ...(item.itinerary ?? {}) };
+    if (day.plan || day.ref) itinerary[date] = day; else delete itinerary[date];
+    patchItem(item, { itinerary: Object.keys(itinerary).length ? itinerary : undefined });
   };
 
   const addFromDeck = (idea: DeckIdea) => {
@@ -867,12 +1031,13 @@ export function Travel() {
   };
 
   // ---- Map ----
-  const placed: MapEntry[] = useMemo(() => filteredAllStatuses.flatMap((item): MapEntry[] => {
+  const mapItems = useMemo(() => filteredAllStatuses.filter(i => i.status !== 'Dropped'), [filteredAllStatuses]);
+  const placed: MapEntry[] = useMemo(() => mapItems.flatMap((item): MapEntry[] => {
     if (item.pin) return [{ item, lon: item.pin.lon, lat: item.pin.lat, manual: true }];
     const at = locate(item.location, item.title);
     return at ? [{ item, lon: at.lon, lat: at.lat, manual: false }] : [];
-  }), [filteredAllStatuses]);
-  const unplaced = filteredAllStatuses.filter(i => !placed.some(p => p.item.id === i.id));
+  }), [mapItems]);
+  const unplaced = mapItems.filter(i => !placed.some(p => p.item.id === i.id));
   // Where you've actually been: achieved Travel goals that are on the map.
   const visitedStat = useMemo(() => {
     const visited = items.filter(i => i.status === 'Achieved' && i.category === 'Travel').flatMap(i => {
@@ -945,38 +1110,22 @@ export function Travel() {
     const { done, total } = subtaskProgress(item);
     const target = targetLabel(item, today);
     const nights = item.tripStart && item.tripEnd ? daysBetween(item.tripStart, item.tripEnd) : null;
+    const fromBudget = item.budget != null && item.budget > 0;
+    // One line per day of the trip (kept to sane lengths so a typo'd year can't draw a wall of rows).
+    const tripDays: string[] = [];
+    if (item.tripStart && nights != null && nights >= 0 && nights <= 45) {
+      const d = new Date(`${item.tripStart}T12:00:00`);
+      for (let n = 0; n <= nights; n++) {
+        tripDays.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`);
+        d.setDate(d.getDate() + 1);
+      }
+    }
     const packing = item.packing ?? [];
     const savings = savingsGoalOf(item);
     const photos = item.memoryPhotos ?? [];
     const uploadedCover = item.coverArt?.startsWith('data:');
-    return (
-      <Modal
-        eyebrow={[item.category, item.location].filter(Boolean).join(' · ')}
-        title={item.title}
-        onClose={closeDetail}
-        size="wide"
-        footer={<>
-          <button type="button" className="btn ghost danger bucket-detail-delete" onClick={() => deleteItem(item.id)}><Trash2 size={14} /> Delete</button>
-          {item.status !== 'Achieved' && <button type="button" className="btn teal" onClick={() => markAchieved(item)}><Trophy size={14} /> Mark achieved</button>}
-          <button type="button" className="btn primary" onClick={closeDetail}>Done</button>
-        </>}
-      >
-        <div className="bucket-detail">
-          {item.coverArt && <div className="bucket-detail-cover" style={{ backgroundImage: `url(${item.coverArt})` }} />}
-
-          <div className="bucket-detail-meta">
-            <div className="segmented" role="group" aria-label="Status">
-              {STATUSES.map(st => (
-                <button type="button" key={st} className={item.status === st ? 'on' : ''} onClick={() => moveToStatus(item.id, st)}>{st}</button>
-              ))}
-            </div>
-            <button type="button" className={`bucket-detail-chip bucket-pick-chip ${item.topPick ? 'on' : ''}`} onClick={() => patchItem(item, { topPick: !item.topPick })} aria-pressed={Boolean(item.topPick)}>
-              <Star size={13} fill={item.topPick ? 'currentColor' : 'none'} /> Top pick
-            </button>
-            {target && <span className={`bucket-detail-chip tone-${target.tone}`}><CalendarDays size={13} /> {target.text}</span>}
-            {item.status === 'Achieved' && item.achievedAt && <span className="bucket-detail-chip tone-gold"><Trophy size={13} /> Achieved {formatDate(item.achievedAt)}</span>}
-          </div>
-
+    const planningSections = (
+      <>
           <section>
             <h3>Details</h3>
             <div className="bucket-detail-fields">
@@ -990,8 +1139,9 @@ export function Travel() {
               </label>
               <label><span>Target date</span><DatePicker value={item.targetDate} onChange={v => patchItem(item, { targetDate: v || undefined, askAgainOn: undefined })} placeholder="No target date" allowClear /></label>
               <label>
-                <span>Cost</span>
-                <select value={item.costTier ?? ''} onChange={e => patchItem(item, { costTier: (e.target.value || undefined) as CostTier | undefined })}>
+                <span>Cost{fromBudget ? ' (from the budget)' : ''}</span>
+                <select value={costOf(item) ?? ''} disabled={fromBudget} title={fromBudget ? 'Worked out from the trip budget' : undefined}
+                  onChange={e => patchItem(item, { costTier: (e.target.value || undefined) as CostTier | undefined })}>
                   <option value="">Not set</option>
                   {COST_TIERS.map(c => <option key={c} value={c}>{c}</option>)}
                 </select>
@@ -1049,6 +1199,22 @@ export function Travel() {
                   <PiggyBank size={14} /> Save for this in Finance
                 </button>
               ))}
+              {tripDays.length > 0 && (
+                <>
+                  <h4>Day by day <span>{tripDays.filter(d => item.itinerary?.[d]?.plan || item.itinerary?.[d]?.ref).length} of {tripDays.length} planned</span></h4>
+                  <div className="bucket-itinerary">
+                    {tripDays.map((date, i) => (
+                      <div className="bucket-itinerary-day" key={date}>
+                        <span><b>Day {i + 1}</b><small>{new Date(`${date}T12:00:00`).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}</small></span>
+                        <input type="text" value={item.itinerary?.[date]?.plan ?? ''} placeholder={i === 0 ? 'e.g. Fly out, check in' : 'What’s the plan?'} aria-label={`Plan for day ${i + 1}`}
+                          onChange={e => setItineraryDay(item, date, { plan: e.target.value || undefined })} />
+                        <input type="text" className="ref" value={item.itinerary?.[date]?.ref ?? ''} placeholder="Booking ref" aria-label={`Booking reference for day ${i + 1}`}
+                          onChange={e => setItineraryDay(item, date, { ref: e.target.value || undefined })} />
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
               <h4>
                 Pack &amp; book {packing.length > 0 && <span>{packing.filter(p => p.done).length} of {packing.length}</span>}
                 <button type="button" className="text-btn bucket-basics" onClick={() => addPackingBasics(item)}>+ Add the basics</button>
@@ -1057,6 +1223,10 @@ export function Travel() {
             </section>
           )}
 
+      </>
+    );
+    const memorySection = (
+      <>
           {item.status === 'Achieved' && (
             <section className="bucket-detail-memory">
               <h3><Trophy size={14} /> Memory</h3>
@@ -1096,6 +1266,48 @@ export function Travel() {
               </div>
             </section>
           )}
+      </>
+    );
+    return (
+      <Modal
+        eyebrow={[item.category, item.location].filter(Boolean).join(' · ')}
+        title={item.title}
+        onClose={closeDetail}
+        size="wide"
+        footer={<>
+          <button type="button" className="btn ghost danger bucket-detail-delete" onClick={() => deleteItem(item.id)}><Trash2 size={14} /> Delete</button>
+          <button type="button" className="btn ghost" onClick={() => duplicateItem(item)} title="Make a copy to plan again"><CopyIcon size={14} /> Duplicate</button>
+          {item.status === 'Dropped' && <button type="button" className="btn ghost" onClick={() => moveToStatus(item.id, 'Someday')}><Undo2 size={14} /> Bring back</button>}
+          {item.status !== 'Achieved' && item.status !== 'Dropped' && <button type="button" className="btn teal" onClick={() => markAchieved(item)}><Trophy size={14} /> Mark achieved</button>}
+          <button type="button" className="btn primary" onClick={closeDetail}>Done</button>
+        </>}
+      >
+        <div className="bucket-detail">
+          {item.coverArt && <div className="bucket-detail-cover" style={{ backgroundImage: `url(${item.coverArt})` }} />}
+
+          <div className="bucket-detail-meta">
+            <div className="segmented" role="group" aria-label="Status">
+              {STATUSES.map(st => (
+                <button type="button" key={st} className={item.status === st ? 'on' : ''} onClick={() => moveToStatus(item.id, st)}>{st}</button>
+              ))}
+            </div>
+            <button type="button" className={`bucket-detail-chip bucket-pick-chip ${item.topPick ? 'on' : ''}`} onClick={() => patchItem(item, { topPick: !item.topPick })} aria-pressed={Boolean(item.topPick)}>
+              <Star size={13} fill={item.topPick ? 'currentColor' : 'none'} /> Top pick
+            </button>
+            {target && <span className={`bucket-detail-chip tone-${target.tone}`}><CalendarDays size={13} /> {target.text}</span>}
+            {item.status === 'Achieved' && item.achievedAt && <span className="bucket-detail-chip tone-gold"><Trophy size={13} /> Achieved {formatDate(item.achievedAt)}</span>}
+          </div>
+
+          {item.status === 'Achieved' ? (
+            <>
+              {memorySection}
+              {/* Done is done: the planning side folds away under the memory. */}
+              <details className="bucket-detail-fold">
+                <summary>Details, steps and plan</summary>
+                <div className="bucket-detail-fold-body">{planningSections}</div>
+              </details>
+            </>
+          ) : planningSections}
         </div>
       </Modal>
     );
@@ -1106,6 +1318,7 @@ export function Travel() {
 
   const views: { value: Layout; label: string; icon: typeof LayoutGrid }[] = [
     { value: 'gallery', label: 'Gallery', icon: LayoutGrid },
+    { value: 'list', label: 'List — compact, more on screen', icon: ListIcon },
     ...(isMobile ? [] : [{ value: 'board' as Layout, label: 'Board — drag between statuses', icon: Columns3 }]),
     { value: 'map', label: 'Map', icon: Globe },
     { value: 'memories', label: 'Memories — what you’ve done, by year', icon: Images }
@@ -1131,6 +1344,11 @@ export function Travel() {
               <b>{counts[st]}</b> {st.toLowerCase()}
             </button>
           ))}
+          {counts.Dropped > 0 && (
+            <button type="button" className={`bucket-summary-stat status-dropped ${statusTab === 'Dropped' ? 'on' : ''}`} onClick={() => setStatusTab(statusTab === 'Dropped' ? 'All' : 'Dropped')}>
+              <b>{counts.Dropped}</b> dropped
+            </button>
+          )}
           {editingTarget ? (
             <span className="bucket-year editing">
               <input type="number" min="1" max="99" autoFocus value={targetDraft} placeholder="e.g. 4" aria-label="Goals to achieve each year"
@@ -1166,9 +1384,13 @@ export function Travel() {
       {duePrompts.map(item => (
         <div className="bucket-due" key={item.id}>
           <Trophy size={16} />
-          <span><b>{item.title}</b> — its target date ({formatDate(item.targetDate)}) has arrived. Did you do it?</span>
+          <span>
+            <b>{item.title}</b> — {backFrom(item)
+              ? `you got back on ${formatDate(item.tripEnd)}.`
+              : `its target date (${formatDate(item.targetDate)}) has arrived.`} Did you do it?
+          </span>
           <button type="button" className="btn teal" onClick={() => markAchieved(item)}>Yes, achieved</button>
-          <button type="button" className="btn ghost" onClick={() => startEdit(item)}>New date</button>
+          <button type="button" className="btn ghost" onClick={() => setDetailId(item.id)}>Change dates</button>
           <button type="button" className="btn ghost" onClick={() => askInAWeek(item)}>Ask in a week</button>
           <button type="button" className="icon-btn" onClick={() => setSnoozed(prev => new Set(prev).add(item.id))} aria-label="Hide for now" title="Hide for now"><X size={14} /></button>
         </div>
@@ -1183,8 +1405,8 @@ export function Travel() {
           ))}
         </div>
         <div className="bucket-filter-row">
-          {layout === 'gallery' && <div className="segmented">
-            {STATUS_TABS.map(tab => (
+          {(layout === 'gallery' || layout === 'list') && <div className="segmented">
+            {STATUS_TABS.filter(tab => tab !== 'Dropped' || counts.Dropped > 0 || statusTab === 'Dropped').map(tab => (
               <button type="button" key={tab} className={statusTab === tab ? 'on' : ''} onClick={() => setStatusTab(tab)}>{tab}</button>
             ))}
           </div>}
@@ -1221,7 +1443,7 @@ export function Travel() {
             <Search size={14} />
             <input type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search goals, notes, steps…" />
           </div>
-          {layout === 'gallery' && (
+          {(layout === 'gallery' || layout === 'list') && (
             <div className="bucket-sort">
               <ArrowUpDown size={13} />
               <select value={sortBy} onChange={e => setSortBy(e.target.value as SortBy)} aria-label="Sort goals">
@@ -1239,8 +1461,8 @@ export function Travel() {
       {contextMenu}
       {boardMode ? (
         <div className="bucket-board">
-          {STATUSES.map(st => {
-            // The board shows every status, so it ignores the status tab but keeps category + search.
+          {ACTIVE_STATUSES.map(st => {
+            // The board shows every active status, so it ignores the status tab but keeps category + search.
             const col = filteredAllStatuses.filter(i => i.status === st);
             return (
               <section
@@ -1270,7 +1492,7 @@ export function Travel() {
                         <span className="bucket-board-body">
                           <b>{item.title}</b>
                           <small>
-                            {[item.category, item.location, item.costTier].filter(Boolean).join(' · ')}
+                            {[item.category, item.location, costOf(item)].filter(Boolean).join(' · ')}
                             {target ? ` · ${target.text}` : ''}
                             {item.status === 'Achieved' && item.achievedAt ? ` · Achieved ${formatDate(item.achievedAt)}` : ''}
                           </small>
@@ -1297,6 +1519,34 @@ export function Travel() {
           />
         ) : (
           <Card><EmptyState>Nothing matches these filters.</EmptyState></Card>
+        )
+      ) : layout === 'list' ? (
+        filtered.length ? (
+          <div className="bucket-list">
+            {filtered.map(item => {
+              const { done, total } = subtaskProgress(item);
+              const target = targetLabel(item, today);
+              return (
+                <button type="button" key={item.id} className={`bucket-list-row status-${item.status.toLowerCase()}`} onClick={() => setDetailId(item.id)} onContextMenu={e => openMenu(e, goalMenu(item))}>
+                  <span className="bucket-list-thumb" style={item.coverArt ? { backgroundImage: `url(${item.coverArt})` } : undefined} />
+                  <span className="bucket-list-text">
+                    <b>{item.topPick && <Star size={12} fill="currentColor" />}{item.title}</b>
+                    <small>
+                      {[item.category, item.location, costOf(item)].filter(Boolean).join(' · ')}
+                      {total > 0 ? ` · ${done}/${total} steps` : ''}
+                    </small>
+                  </span>
+                  <span className="bucket-list-side">
+                    <span className={`bucket-list-status status-${item.status.toLowerCase()}`}>{item.status}</span>
+                    {target && <small className={`tone-${target.tone}`}>{target.text}</small>}
+                    {item.status === 'Achieved' && item.achievedAt && <small className="tone-gold">{formatDate(item.achievedAt)}</small>}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        ) : (
+          <Card><EmptyState>{items.length ? 'Nothing matches these filters.' : 'Nothing here yet — add your first goal.'}</EmptyState></Card>
         )
       ) : layout === 'memories' ? (
         memoryYears.length ? (
@@ -1388,7 +1638,7 @@ export function Travel() {
                           aria-pressed={Boolean(item.topPick)} aria-label={item.topPick ? 'Remove from top picks' : 'Make this a top pick'} title={item.topPick ? 'Top pick — tap to remove' : 'Make this a top pick'}>
                           <Star size={12} fill={item.topPick ? 'currentColor' : 'none'} />
                         </button>
-                        {item.costTier && <span className="bucket-cost-pill">{item.costTier}</span>}
+                        {costOf(item) && <span className="bucket-cost-pill">{costOf(item)}</span>}
                       </span>
                     </div>
                     <div className="bucket-card-actions">
@@ -1411,6 +1661,10 @@ export function Travel() {
                       {item.status === 'Achieved' ? (
                         <button type="button" className="bucket-action-btn" onClick={e => { e.stopPropagation(); setDetailId(item.id); }}>
                           <ImageIcon size={13} /> Memory
+                        </button>
+                      ) : item.status === 'Dropped' ? (
+                        <button type="button" className="bucket-action-btn" onClick={e => { e.stopPropagation(); moveToStatus(item.id, 'Someday'); }}>
+                          <Undo2 size={13} /> Bring back
                         </button>
                       ) : (
                         <button type="button" className="bucket-action-btn achieve" onClick={e => { e.stopPropagation(); markAchieved(item); }}>

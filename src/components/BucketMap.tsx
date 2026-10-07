@@ -149,6 +149,10 @@ export function BucketMap({
         >
           <rect x="0" y="0" width={MAP_W} height={MAP_H} className="bucket-map-sea" />
           <path d={LAND_PATH} className="bucket-map-land" style={{ strokeWidth: 0.6 / zoom }} />
+          {/* Places you've been: a soft gold patch around each achieved goal. */}
+          {pins.filter(p => p.entry.item.status === 'Achieved').map(({ entry, x, y }) => (
+            <circle key={`v-${entry.item.id}`} cx={x} cy={y} r={20} className="bucket-map-visited" />
+          ))}
           {pins.map(({ entry, x, y }) => {
             const id = entry.item.id;
             const dragging = dragPin?.id === id;

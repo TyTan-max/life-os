@@ -7429,4 +7429,76 @@ button.bucket-memory-hero { width: 100%; height: 100%; padding: 0; border: 0; cu
 .bucket-map-zoom svg, .bucket-map-placing svg { display: inline; width: auto; height: auto; }
 @media (max-width: 760px) { .bucket-map-legend { flex-wrap: wrap; row-gap: 4px; } .bucket-map-legend b { border-left: 0; padding-left: 0; flex-basis: 100%; text-align: center; } }
 .bucket-photo-probes { position: absolute; width: 1px; height: 1px; overflow: hidden; opacity: 0; pointer-events: none; }
-.bucket-photo-probes img { width: 1px; height: 1px; }
+.bucket-photo-probes img { width: 1px; height: 1px; }
+
+/* Travel & Bucket List — v4 */
+.bucket-autocover { display: flex; align-items: flex-start; gap: 8px; margin-top: 6px; font-size: 12px; color: var(--text-muted); }
+.bucket-autocover input { margin-top: 2px; flex-shrink: 0; accent-color: var(--teal); }
+.bucket-autocover label { display: inline; cursor: pointer; }
+.deck-privacy { margin: 6px 0 0; font-size: 12px; color: var(--text-faint); }
+.bucket-detail-fold { border: 1px solid var(--border); border-radius: 12px; }
+.bucket-detail-fold > summary { padding: 11px 14px; font-size: 13px; font-weight: 600; color: var(--text-muted); cursor: pointer; }
+.bucket-detail-fold > summary:hover { color: var(--text); }
+.bucket-detail-fold[open] > summary { border-bottom: 1px solid var(--border); }
+.bucket-detail-fold-body { display: grid; gap: 18px; padding: 14px; }
+
+/* Travel & Bucket List — v5 */
+/* Dropped: kept, but visibly set aside */
+.bucket-status-pill.status-dropped { border-color: rgba(255, 255, 255, 0.25); color: rgba(255, 255, 255, 0.7); }
+.bucket-card.status-dropped .bucket-card-cover { filter: grayscale(1) brightness(0.7); }
+.bucket-summary-stat.status-dropped b { color: var(--text-faint); }
+
+/* Compact list */
+.bucket-list { display: grid; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); overflow: hidden; }
+.bucket-list-row { display: grid; grid-template-columns: 52px minmax(0, 1fr) auto; align-items: center; gap: 12px; width: 100%; padding: 9px 14px 9px 9px; border: 0; border-bottom: 1px solid var(--border); background: transparent; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.bucket-list-row:last-child { border-bottom: 0; }
+.bucket-list-row:hover { background: var(--surface-hover); }
+.bucket-list-thumb { width: 52px; height: 52px; border-radius: 9px; background-size: cover; background-position: center; background-color: var(--surface-hover); }
+.bucket-list-row.status-dropped .bucket-list-thumb { filter: grayscale(1); opacity: 0.6; }
+.bucket-list-text { display: grid; gap: 2px; min-width: 0; }
+.bucket-list-text b { display: flex; align-items: center; gap: 5px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14.5px; }
+.bucket-list-text b svg { flex-shrink: 0; color: #eab04d; }
+.bucket-list-text small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--text-faint); }
+.bucket-list-side { display: grid; justify-items: end; gap: 3px; }
+.bucket-list-side small { font-size: 11.5px; color: var(--text-muted); white-space: nowrap; }
+.bucket-list-side .tone-soon { color: var(--amber); }
+.bucket-list-side .tone-late { color: var(--red); }
+.bucket-list-side .tone-gold { color: #eab04d; }
+.bucket-list-status { padding: 2px 8px; border: 1px solid var(--border); border-radius: 999px; font-size: 10.5px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted); }
+.bucket-list-status.status-planning { border-color: color-mix(in srgb, var(--accent) 55%, transparent); color: var(--accent); }
+.bucket-list-status.status-achieved { border-color: rgba(234, 176, 77, 0.6); color: #eab04d; }
+.bucket-list-status.status-someday { border-color: color-mix(in srgb, var(--teal) 55%, transparent); color: var(--teal); }
+
+/* Itinerary */
+.bucket-itinerary { display: grid; gap: 6px; }
+.bucket-itinerary-day { display: grid; grid-template-columns: 92px minmax(0, 1fr) 130px; align-items: center; gap: 8px; }
+.bucket-itinerary-day > span { display: grid; line-height: 1.25; }
+.bucket-itinerary-day > span b { font-size: 12.5px; }
+.bucket-itinerary-day > span small { font-size: 11px; color: var(--text-faint); }
+.bucket-itinerary-day input { height: 34px; width: 100%; min-width: 0; padding: 0 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); font: inherit; font-size: 13px; }
+.bucket-itinerary-day input:focus { outline: 0; border-color: var(--accent); }
+.bucket-detail-fields select:disabled { opacity: 0.7; }
+
+/* Discover: browse all */
+.deck-mode-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 10px 0; }
+.deck-mode-row select { height: 32px; padding: 0 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); font: inherit; font-size: 12.5px; }
+.deck-mode-row .deck-count { margin-left: auto; }
+.deck-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; max-height: min(62vh, 620px); overflow-y: auto; padding: 2px; }
+.deck-tile { display: grid; grid-template-rows: 96px 1fr auto; gap: 8px; padding: 0 0 10px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); overflow: hidden; }
+.deck-tile-cover { display: flex; align-items: flex-start; justify-content: space-between; padding: 8px; background-size: cover; background-position: center; background-color: var(--surface-hover); }
+.deck-tile-body { display: grid; align-content: start; gap: 3px; padding: 0 10px; min-width: 0; }
+.deck-tile-body b { font-size: 14px; line-height: 1.3; }
+.deck-tile-body small { display: inline-flex; align-items: center; gap: 4px; font-size: 11.5px; color: var(--text-faint); }
+.deck-tile-body p { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-clamp: 3; overflow: hidden; margin: 0; font-size: 12.5px; line-height: 1.45; color: var(--text-muted); }
+.deck-tile .btn { margin: 0 10px; justify-content: center; }
+
+/* Map: where you've been */
+.bucket-map-visited { fill: #eab04d; opacity: 0.16; pointer-events: none; }
+
+@media (max-width: 760px) {
+  .bucket-itinerary-day { grid-template-columns: minmax(0, 1fr) 104px; }
+  .bucket-itinerary-day > span { grid-column: 1 / -1; display: flex; gap: 6px; align-items: baseline; }
+  .bucket-list-row { grid-template-columns: 44px minmax(0, 1fr) auto; gap: 10px; }
+  .bucket-list-thumb { width: 44px; height: 44px; }
+  .deck-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}

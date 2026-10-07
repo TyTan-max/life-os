@@ -559,7 +559,8 @@ export interface Medication extends BaseRecord {
 
 // The four built-ins, plus any you add yourself (Settings.bucketCategories).
 export type BucketListCategory = 'Travel' | 'Experience' | 'Skill' | 'Other' | (string & {});
-export type BucketListStatus = 'Someday' | 'Planning' | 'Achieved';
+// 'Dropped' = let go of: kept, but out of the way and off the calendar, map and prompts.
+export type BucketListStatus = 'Someday' | 'Planning' | 'Achieved' | 'Dropped';
 export type CostTier = '$' | '$$' | '$$$';
 
 export interface BucketListSubtask {
@@ -592,6 +593,8 @@ export interface BucketListItem extends BaseRecord {
   tripEnd?: string;
   budget?: number;
   packing?: BucketListSubtask[];
+  /** Day-by-day plan for the trip, keyed by date: what you're doing and any booking reference. */
+  itinerary?: Record<string, { plan?: string; ref?: string }>;
   // Memory Journal — populated once the item flips to Achieved.
   achievedAt?: string;
   memoryPhotos?: string[];
@@ -680,6 +683,9 @@ export interface Settings {
   bucketCategories?: string[];
   /** How many bucket-list goals you're aiming to achieve each year. */
   bucketYearTarget?: number;
+  /** false = don't look up a cover photo automatically as a goal's title is typed (that lookup
+   *  sends the title and location to the photo service). Searching by hand still works. */
+  bucketAutoCover?: boolean;
   /** HH:MM — nudge to write a day note if none exists for today by then (All Notes). */
   dayNoteReminderTime?: string;
   userName: string;
