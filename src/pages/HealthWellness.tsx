@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { takeJump } from '../lib/jumpTo';
 import { ChevronLeft, ChevronRight, Dumbbell, Moon, RotateCcw, Scale, UtensilsCrossed } from 'lucide-react';
 import { PageHeader } from '../components/UI';
 import { DatePicker } from '../components/DatePicker';
@@ -29,7 +30,9 @@ export interface HealthPeriodProps {
 type QuickLogKind = 'Weight' | 'Sleep' | 'Meal' | 'Workout';
 
 export function HealthWellness() {
-  const [tab, setTab] = useState<HealthTab>('Overview');
+  // Arriving from All Notes: open on the tab and day the note was written.
+  const [jump] = useState(() => takeJump('Health'));
+  const [tab, setTab] = useState<HealthTab>(() => (jump?.tab && (TABS as string[]).includes(jump.tab) ? jump.tab as HealthTab : 'Overview'));
   // Each tab keeps its own period. Sleep starts on Week — a single night per screen said little,
   // while a week shows the pattern and gives the average/debt something to average over.
   const [periodByTab, setPeriodByTab] = useState<Record<HealthTab, HealthPeriod>>({
@@ -37,7 +40,7 @@ export function HealthWellness() {
   });
   const period = periodByTab[tab];
   const setPeriod = (p: HealthPeriod) => setPeriodByTab(prev => ({ ...prev, [tab]: p }));
-  const [anchorDate, setAnchorDate] = useState(new Date());
+  const [anchorDate, setAnchorDate] = useState(() => (jump?.date ? new Date(`${jump.date}T12:00:00`) : new Date()));
   const [quickLogOpen, setQuickLogOpen] = useState(false);
 
   const range = useMemo(() => periodRangeFor(period, anchorDate), [period, anchorDate]);

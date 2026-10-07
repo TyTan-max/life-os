@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
+import { takeJumpFor } from '../lib/jumpTo';
 import type { ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import {
@@ -852,6 +853,14 @@ export function CollectionPage<T extends CollectionRecord>({
   const [shuffleTick, setShuffleTick] = useState(0);
   const [randomPick, setRandomPick] = useState<T | null>(null);
   const [infoRecord, setInfoRecord] = useState<T | null>(null);
+  // Arriving from All Notes opens that item's panel.
+  useEffect(() => {
+    const jump = takeJumpFor(collection);
+    // Looked up in every record, not just the status tab showing — a finished item sits on another tab.
+    const target = jump && (allRecords as T[]).find(r => r.id === jump.id);
+    if (target) setInfoRecord(target);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   // List view on the cover-art collections (movies, games, books) is a plain column of titles:
   // easy to drag-select or copy in one go and paste into a spreadsheet, one title per row.
   const titlesOnly = Boolean(gallery) && !groupBy && !trailing && !leading;

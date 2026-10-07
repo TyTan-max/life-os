@@ -660,6 +660,8 @@ export interface Book extends BaseRecord {
 export type Theme = 'light' | 'dark' | 'system';
 
 export interface Settings {
+  /** Notes starred on the All Notes page (ids from lib/loggedNotes). */
+  starredNoteIds?: string[];
   userName: string;
   theme: Theme;
   notificationsEnabled: boolean;

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { takeJumpFor } from '../lib/jumpTo';
 import type { ChangeEvent } from 'react';
 import {
   AlertTriangle, ArrowUpDown, Check, ChevronLeft, ChevronRight, Columns3, Image as ImageIcon, LayoutGrid, MapPin,
@@ -458,8 +459,10 @@ export function Travel() {
     window.localStorage.setItem(SORT_STORAGE_KEY, next);
   };
   const [flippedIds, setFlippedIds] = useState<Set<string>>(new Set());
-  const [formItem, setFormItem] = useState<BucketListItem | null>(null);
-  const [showForm, setShowForm] = useState(false);
+  // Arriving from All Notes opens that item.
+  const [jumpItem] = useState(() => { const j = takeJumpFor('bucketList'); return (j && items.find(i => i.id === j.id)) || null; });
+  const [formItem, setFormItem] = useState<BucketListItem | null>(jumpItem);
+  const [showForm, setShowForm] = useState(Boolean(jumpItem));
   const [photoDrafts, setPhotoDrafts] = useState<Record<string, string>>({});
   const [deckOpen, setDeckOpen] = useState(false);
   const [uploadingFor, setUploadingFor] = useState<string | null>(null);

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { takeJumpFor } from '../lib/jumpTo';
 import { ListChecks, Pencil, Plus, Search, SlidersHorizontal, Trash2, Upload, X } from 'lucide-react';
 import { useStore, newRecord } from '../store';
 import { DatePicker } from '../components/DatePicker';
@@ -62,8 +63,10 @@ export function FinanceTransactions({ typeFilter, autoAdd, onAutoAdded }: {
 
   // Date range filter (inclusive on both ends) — dates are stored as YYYY-MM-DD strings so plain
   // string comparison sorts correctly without parsing.
-  const [dateFrom, setDateFrom] = useState('');
-  const [dateTo, setDateTo] = useState('');
+  // Arriving from All Notes: narrow the list to that one transaction (its merchant, on its day).
+  const [jump] = useState(() => takeJumpFor('transactions'));
+  const [dateFrom, setDateFrom] = useState(jump?.date ?? '');
+  const [dateTo, setDateTo] = useState(jump?.date ?? '');
   // Category filter: '' = all categories, UNCATEGORIZED_FILTER = rows with no category set, else a categoryId.
   const [categoryFilter, setCategoryFilter] = useState('');
   // Phone-only: the filter sheet, and ids of rows the FAB created in this session — adding a
@@ -91,7 +94,7 @@ export function FinanceTransactions({ typeFilter, autoAdd, onAutoAdded }: {
 
   // Matches merchant, notes, account, and category text — a history in the thousands (e.g. after
   // a few bank CSV imports) is otherwise unnavigable without scrolling and eyeballing every row.
-  const [search, setSearch] = useState('');
+  const [search, setSearch] = useState(jump?.search ?? '');
   const searchedTransactions = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return filteredTransactions;

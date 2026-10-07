@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Check, RefreshCw, Redo2, Save, Search, Sparkles, Undo2 } from 'lucide-react';
+import { ArrowLeft, Check, RefreshCw, Redo2, Save, Search, Sparkles, Undo2 } from 'lucide-react';
 import { SyncBanner, useSyncDescription } from './components/SyncPanel';
 import { useIsMobile } from './hooks/useIsMobile';
 import { StoreProvider, useStore } from './store';
@@ -20,6 +20,9 @@ import type { ParaTab } from './pages/SecondBrain';
 import { HealthWellness } from './pages/HealthWellness';
 import { Travel } from './pages/Travel';
 import { PersonalCRM } from './pages/PersonalCRM';
+import { AllNotes } from './pages/AllNotes';
+import { requestJump } from './lib/jumpTo';
+import type { LoggedNote } from './lib/loggedNotes';
 import { UndoToast } from './components/UndoToast';
 import { CommandPalette, PAGE_SHORTCUT_PAGES, ShortcutsSheet, isTypingTarget } from './components/CommandPalette';
 
@@ -45,7 +48,15 @@ function Shell() {
   // A note to open in Second Brain; `n` changes on every request so re-picking the same note
   // (or picking one while Second Brain is already mounted) still takes effect.
   const [focusNote, setFocusNote] = useState<{ id: string; n: number } | undefined>(undefined);
-  const navigate = useCallback((next: string, tab?: string) => { setPage(next); setNavTab(tab); }, []);
+  // Set after jumping to a note's page from All Notes: shows a "Back to All Notes" link there.
+  const [backTo, setBackTo] = useState<string | null>(null);
+  const navigate = useCallback((next: string, tab?: string) => { setPage(next); setNavTab(tab); setBackTo(null); }, []);
+  const openNoteSource = useCallback((note: LoggedNote) => {
+    requestJump(note.jump);
+    setPage(note.jump.page);
+    setNavTab(note.jump.tab);
+    setBackTo('All Notes');
+  }, []);
   const openNote = useCallback((id: string, workspaceId?: string) => {
     if (workspaceId && workspaceId !== data?.settings?.activeSecondBrainWorkspaceId) {
       void updateSettings({ activeSecondBrainWorkspaceId: workspaceId });
@@ -133,8 +144,14 @@ function Shell() {
       </aside>
       <main className="main-content">
         {isMobile && <SyncBanner />}
+        {backTo && page !== backTo && (
+          <button type="button" className="back-to-link" onClick={() => { setPage(backTo); setNavTab(undefined); setBackTo(null); }}>
+            <ArrowLeft size={15} /> Back to {backTo}
+          </button>
+        )}
         {page === 'Dashboard' ? <Dashboard navigate={navigate} />
           : page === 'Calendar' ? <Calendar navigate={navigate} />
+          : page === 'All Notes' ? <AllNotes onOpen={openNoteSource} />
           : page === 'Second Brain' ? <SecondBrain initialTab={navTab as ParaTab | undefined} focusNote={focusNote} />
           : Page ? <Page /> : null}
       </main>

@@ -20,7 +20,7 @@ const ALLOWED_SPAN_CLASSES = new Set(['sb-tok-wikilink', 'sb-tok-photo']);
 // (restricted to data: URIs — an already-compressed photo, never a remote URL that could leak
 // a viewer's IP to a third party just by loading the note), and `class` on a <span> but only
 // when it's one of ALLOWED_SPAN_CLASSES.
-function sanitizeHtml(html: string): string {
+export function sanitizeHtml(html: string): string {
   const doc = new DOMParser().parseFromString(html, 'text/html');
   const walk = (node: ParentNode) => {
     Array.from(node.childNodes).forEach(child => {

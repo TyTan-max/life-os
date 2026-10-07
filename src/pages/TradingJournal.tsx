@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
+import { takeJumpFor } from '../lib/jumpTo';
 import type { KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, ReactNode } from 'react';
 import { Calculator as CalculatorIcon, Calendar as CalendarIcon, ChevronDown, ChevronLeft, ChevronRight, ImagePlus, Minus, PanelRightOpen, Plus, RotateCcw, StickyNote, Table2, TrendingDown, TrendingUp, Trash2, Upload, X } from 'lucide-react';
 import { useStore, newRecord } from '../store';
@@ -1235,7 +1236,9 @@ export function TradingJournal() {
   const { data, upsert, remove, updateSettings } = useStore();
   const logs = data.dailyLogs;
   const isMobile = useIsMobile();
-  const [editingLogId, setEditingLogId] = useState<string | null>(null);
+  // Arriving from All Notes: open that trading day.
+  const [jump] = useState(() => takeJumpFor('dailyLogs'));
+  const [editingLogId, setEditingLogId] = useState<string | null>(jump?.id ?? null);
   const startBalance = data.settings.tradingStartBalance ?? 50000;
   const setStartBalance = (n: number) => void updateSettings({ tradingStartBalance: n });
   // "+ Deposit" raises the total and keeps a dated log, so the balance reads as deposits + P/L.
@@ -1255,7 +1258,7 @@ export function TradingJournal() {
   const presetLabels = data.settings.tradingPresetLabels ?? [];
   const setPresetLabels = (next: string[]) => void updateSettings({ tradingPresetLabels: next });
   const [period, setPeriod] = useState<Period>('Total');
-  const [anchorDate, setAnchorDate] = useState(() => new Date());
+  const [anchorDate, setAnchorDate] = useState(() => (jump?.date ? new Date(`${jump.date}T12:00:00`) : new Date()));
 
   const range = useMemo(() => periodRangeFor(period, anchorDate), [period, anchorDate]);
   const filteredLogs = useMemo(

@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
+import { takeJumpFor } from '../lib/jumpTo';
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import {
   Archive, Bell, Briefcase, Cake, CalendarCheck, CalendarDays, Camera, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronsUpDown, ChevronUp, CircleSlash, Clock, GraduationCap,
@@ -421,7 +422,8 @@ export function PersonalCRM() {
   const contactPhotoFileRef = useRef<HTMLInputElement>(null);
   const [contactCropSrc, setContactCropSrc] = useState<string | null>(null);
 
-  const [selectedContactId, setSelectedContactId] = useState<string | null>(null);
+  // Arriving from All Notes opens that person.
+  const [selectedContactId, setSelectedContactId] = useState<string | null>(() => takeJumpFor('contacts')?.id ?? null);
 
   const [showQuickLog, setShowQuickLog] = useState(false);
   const [quickLogContactId, setQuickLogContactId] = useState<string | null>(null);

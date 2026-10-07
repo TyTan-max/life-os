@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
+import { takeJump } from '../lib/jumpTo';
 import { createPortal } from 'react-dom';
 import { Check, ChevronLeft, ChevronRight, Clock, Plus, RotateCcw, Trash2 } from 'lucide-react';
 import { useStore, newRecord } from '../store';
@@ -67,7 +68,9 @@ const KIND_COLLECTION: Record<Exclude<ImportantKind, 'Holiday'>, 'events' | 'tas
 
 export function Calendar({ navigate }: { navigate: (page: string, tab?: string) => void }) {
   const { data, upsert, remove, toggleTask } = useStore();
-  const [anchor, setAnchor] = useState(() => new Date());
+  // Arriving from All Notes: open on the event's day.
+  const [jump] = useState(() => takeJump('Calendar'));
+  const [anchor, setAnchor] = useState(() => (jump?.date ? new Date(`${jump.date}T12:00:00`) : new Date()));
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<Partial<CalendarEvent>>(blankEvent());
@@ -79,7 +82,7 @@ export function Calendar({ navigate }: { navigate: (page: string, tab?: string) 
   // else. The grid stays one tap away for the genuinely spatial "how busy is this month" read.
   const [mobileView, setMobileView] = useState<'Agenda' | 'Month'>('Agenda');
   const [stripStart, setStripStart] = useState(() => { const d = new Date(); d.setHours(12, 0, 0, 0); return addDays(d, -d.getDay()); });
-  const [daySheet, setDaySheet] = useState<string | null>(null);
+  const [daySheet, setDaySheet] = useState<string | null>(jump?.date ?? null);
   // Widening past the breakpoint (rotate to landscape, or a resized window) would otherwise
   // strand the sheet as a blocking overlay with no control left on screen to dismiss it.
   useEffect(() => { if (!isMobile) setDaySheet(null); }, [isMobile]);

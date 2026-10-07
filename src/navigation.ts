@@ -1,6 +1,6 @@
 import {
   BookOpen, Brain, Calendar as CalendarIcon, Clapperboard, Flame, Gamepad2, HeartPulse,
-  LayoutDashboard, Microscope, Plane, Settings as SettingsIcon, TrendingUp, Users, Wallet
+  LayoutDashboard, Microscope, NotebookText, Plane, Settings as SettingsIcon, TrendingUp, Users, Wallet
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
@@ -29,7 +29,8 @@ export const NAV_SECTIONS: NavSection[] = [
   ] },
   { label: 'Trackers', items: [
     { page: 'Trading Journal', icon: TrendingUp },
-    { page: 'Personal CRM', icon: Users }
+    { page: 'Personal CRM', icon: Users },
+    { page: 'All Notes', icon: NotebookText }
   ] },
   { label: '', items: [{ page: 'Settings', icon: SettingsIcon }] }
 ];

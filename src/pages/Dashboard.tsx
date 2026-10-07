@@ -1,10 +1,11 @@
 import { useMemo, useState } from 'react';
 import {
   ArrowRight, Bell, BookOpen, Brain, Check, CheckCircle2, ChevronDown, Clapperboard,
-  AlarmClock, CircleCheck, Flame, Gamepad2, HeartPulse, ListTodo, NotebookPen, Plane, Quote as QuoteIcon, Sparkles, TrendingUp, Users, Wallet
+  AlarmClock, CircleCheck, Flame, Gamepad2, HeartPulse, ListTodo, NotebookPen, NotebookText, Plane, Quote as QuoteIcon, Sparkles, TrendingUp, Users, Wallet
 } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { useStore, newRecord } from '../store';
+import { useRecentNotes } from './AllNotes';
 import type { Habit, Medication, Note, Task } from '../types';
 import { DEFAULT_WORKSPACE_ID } from '../storage';
 import { actualSpendByCategory } from '../lib/budgetMath';
@@ -251,6 +252,7 @@ export function Dashboard({navigate}:{navigate:(page:string, tab?: string)=>void
   // Not persisted between visits, by design — per the earlier spec: reopening the dashboard
   // should read as "what's true right now," not restore whatever was left expanded last time.
   const [expandedCards, setExpandedCards] = useState<Set<string>>(new Set());
+  const { recent: recentNotes, total: notesTotal } = useRecentNotes(3);
   // The phone "Now" card's tab — a per-device convenience, so localStorage (guarded: private
   // windows and blocked storage throw) rather than synced settings.
   const [nowTab, setNowTab] = useState<'Habits' | 'Tasks' | 'Brief'>(() => {
@@ -412,6 +414,25 @@ export function Dashboard({navigate}:{navigate:(page:string, tab?: string)=>void
         <div className="metric-pair"><span>Check-ups this week</span><b>{upcomingCheckups}</b></div>
       </DashCard>
   );
+  const notesCard = (
+      <DashCard
+        icon={<NotebookText size={19}/>} title="Recent notes" isMobile={isMobile}
+        quiet expanded={expandedCards.has('notes')} onToggle={()=>toggleCard('notes')}
+        summary={`${notesTotal} note${notesTotal===1?'':'s'} across the app`}
+        action={<button className="text-btn" onClick={()=>navigate('All Notes')}>Open <ArrowRight size={15}/></button>}
+        empty={!recentNotes.length && 'No notes written yet'}
+        orderStyle={slot(9)}
+      >
+        <div className="dash-notes">
+          {recentNotes.map(n => (
+            <button type="button" key={n.id} className="dash-note" onClick={()=>navigate('All Notes')}>
+              <span><b>{n.source}</b> · {formatDate(n.date)} · {n.context}</span>
+              <small>{n.text}</small>
+            </button>
+          ))}
+        </div>
+      </DashCard>
+  );
   const tradingCard = (
       <DashCard
         icon={<TrendingUp size={19}/>} title="Trading journal" isMobile={isMobile}
@@ -523,7 +544,7 @@ export function Dashboard({navigate}:{navigate:(page:string, tab?: string)=>void
     {contextMenu}
     {isMobile ? (
       <div className="dashboard-grid">
-        {nowCard}{remindersCard}{healthCard}{crmCard}{tradingCard}{travelCard}{financeCard}{backlogCard}{secondBrainCard}
+        {nowCard}{remindersCard}{healthCard}{crmCard}{tradingCard}{travelCard}{financeCard}{backlogCard}{secondBrainCard}{notesCard}
       </div>
     ) : (
       <div className="dash-cols">
@@ -531,7 +552,7 @@ export function Dashboard({navigate}:{navigate:(page:string, tab?: string)=>void
         <div className="dash-col dash-col-today"><h3 className="dash-col-label">Routines &amp; plans</h3>{habitCard}{healthCard}{secondBrainCard}</div>
         <div className="dash-col dash-pulse">
           <h3 className="dash-col-label">Money &amp; life</h3>
-          {financeCard}{tradingCard}{crmCard}{travelCard}{backlogCard}
+          {financeCard}{tradingCard}{crmCard}{travelCard}{backlogCard}{notesCard}
         </div>
       </div>
     )}

@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { takeJump } from '../lib/jumpTo';
 import { Upload, X } from 'lucide-react';
 import { useStore } from '../store';
 import { formatDate } from '../components/UI';
@@ -60,8 +61,12 @@ const MOBILE_TABS: MobileFinanceTab[] = ['Transactions', 'Budgets', 'Bills', 'Su
 
 export function Finance() {
   const isMobile = useIsMobile();
-  const [tab, setTab] = useState<FinanceTab>('Budgets');
-  const [mobileTab, setMobileTab] = useState<MobileFinanceTab>('Transactions');
+  // Arriving from All Notes: open the tab the note's record lives on. (The desktop layout keeps
+  // transactions, bills and subscriptions under Budgets, and savings goals under Accounts.)
+  const [jump] = useState(() => takeJump('Finance'));
+  const [tab, setTab] = useState<FinanceTab>(jump?.tab === 'Accounts' || jump?.tab === 'Savings' ? 'Accounts' : 'Budgets');
+  const [mobileTab, setMobileTab] = useState<MobileFinanceTab>(
+    jump?.tab && (MOBILE_TABS as string[]).includes(jump.tab) ? jump.tab as MobileFinanceTab : 'Transactions');
   // FinanceTransactions owns the FAB while it's mounted (Transactions/Income). On every other
   // tab the FAB would otherwise fall back to Quick capture, so it claims it here instead: jump
   // to Transactions and open a new one there.
