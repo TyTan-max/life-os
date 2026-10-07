@@ -901,14 +901,16 @@ export async function replaceAll(data: AppData): Promise<void> {
   await markLocalChange(db);
 }
 
-export async function setReplaceCloudOnNextSync(value: boolean): Promise<void> {
+/** `asOf` = when the data being pushed was current (see replaceRemoteWith); false clears it. */
+export async function setReplaceCloudOnNextSync(value: string | false): Promise<void> {
   const db = await getDb();
   await db.put(META_STORE, value, REPLACE_CLOUD_KEY);
 }
 
-export async function getReplaceCloudOnNextSync(): Promise<boolean> {
+export async function getReplaceCloudOnNextSync(): Promise<string | null> {
   const db = await getDb();
-  return (await db.get(META_STORE, REPLACE_CLOUD_KEY)) === true;
+  const value = await db.get(META_STORE, REPLACE_CLOUD_KEY);
+  return typeof value === 'string' ? value : null;
 }
 
 export async function replaceCollection(collection: CollectionName, records: CollectionRecord[]): Promise<void> {

@@ -91,7 +91,7 @@ export async function runSync(): Promise<SyncOutcome> {
       const remote = parseRemote(await restoreBlobs(await downloadSnapshot(info.id), known, fetchMissing));
       downloaded = true;
       if (replaceCloud) {
-        merged = replaceRemoteWith(base, remote);
+        merged = replaceRemoteWith(base, remote, replaceCloud);
       } else {
         const localForMerge = seedStamp && snapshotHasRecords(remote) ? withoutUntouchedStarterData(base, seedStamp) : base;
         merged = mergeSnapshots(localForMerge, withoutRemoteStarterData(remote, localForMerge));

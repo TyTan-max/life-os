@@ -94,8 +94,6 @@ export function withoutUntouchedStarterData(local: SyncSnapshot, seedStamp: stri
  * deleted here. They're left out of the remote side whenever this device has real data.
  */
 export function withoutRemoteStarterData(remote: SyncSnapshot, local: SyncSnapshot): SyncSnapshot {
-  const isUntouchedStarter = (r: CollectionRecord) =>
-    String(r.id).startsWith('seed-') && (r.updatedAt ?? r.createdAt) === r.createdAt;
   const localHasRealData = COLLECTION_NAMES.some(name =>
     (local.data[name] as CollectionRecord[]).some(r => !isUntouchedStarter(r)));
   if (!localHasRealData) return remote;
@@ -108,26 +106,56 @@ export function withoutRemoteStarterData(remote: SyncSnapshot, local: SyncSnapsh
   return { ...remote, data };
 }
 
+function isUntouchedStarter(r: CollectionRecord): boolean {
+  return String(r.id).startsWith('seed-') && (r.updatedAt ?? r.createdAt) === r.createdAt;
+}
+
+/** The newest change anywhere in a set of data — "when this backup was taken". */
+export function latestRecordTime(data: AppData): string {
+  let latest = '';
+  for (const name of COLLECTION_NAMES) {
+    for (const r of data[name] as CollectionRecord[]) { const t = recordTime(r); if (t > latest) latest = t; }
+  }
+  return latest || new Date(0).toISOString();
+}
+
 /**
- * After a backup import, the backup *is* the data: the cloud copy is replaced, not merged with.
- * Anything only the cloud has gets a tombstone, so other devices delete it on their next sync too
- * instead of pushing it back.
+ * After a backup import, the backup replaces the cloud copy *as of when the backup was taken*
+ * (`asOf`): anything the cloud had back then that the backup doesn't is removed (tombstoned, so
+ * other devices drop it too). But a backup can't speak for what happened after it was made — a
+ * night logged on the phone yesterday isn't "missing from" last week's backup — so records
+ * added, edited or deleted in the cloud after `asOf` are kept as they are.
+ * "Make this the cloud copy" passes the current time as `asOf`, making it a strict replace.
  */
-export function replaceRemoteWith(local: SyncSnapshot, remote: SyncSnapshot): SyncSnapshot {
+export function replaceRemoteWith(local: SyncSnapshot, remote: SyncSnapshot, asOf: string): SyncSnapshot {
   const now = new Date().toISOString();
   const extra: Tombstone[] = [];
+  const data = { ...local.data };
+  // Things deleted elsewhere after the backup was taken stay deleted.
+  const laterDeletes = remote.tombstones.filter(t => t.deletedAt > asOf);
+  const deletedLater = new Set(laterDeletes.map(t => `${t.collection}:${t.id}`));
   for (const name of COLLECTION_NAMES) {
-    const localIds = new Set((local.data[name] as CollectionRecord[]).map(r => r.id));
+    const mine = new Map((local.data[name] as CollectionRecord[]).map(r => [r.id, r]));
     for (const r of remote.data[name] as CollectionRecord[]) {
-      if (!localIds.has(r.id)) extra.push({ collection: name, id: r.id, deletedAt: now });
+      const sample = isUntouchedStarter(r);
+      const existing = mine.get(r.id);
+      if (existing) {
+        if (!sample && recordTime(r) > asOf && recordTime(r) > recordTime(existing)) mine.set(r.id, r); // edited since the backup
+      } else if (!sample && r.createdAt > asOf) {
+        mine.set(r.id, r); // added since the backup
+      } else {
+        extra.push({ collection: name, id: r.id, deletedAt: now });
+      }
     }
+    (data as Record<string, unknown>)[name] = Array.from(mine.values()).filter(r => !deletedLater.has(`${name}:${r.id}`));
   }
   // Old tombstones for records the backup has are dropped, so those records aren’t deleted again.
+  const kept = new Set(COLLECTION_NAMES.flatMap(name => (data[name] as CollectionRecord[]).map(r => `${name}:${r.id}`)));
   const tombstones = mergeTombstones(
-    local.tombstones.filter(t => !(local.data[t.collection] as CollectionRecord[]).some(r => r.id === t.id)),
+    [...local.tombstones, ...laterDeletes].filter(t => !kept.has(`${t.collection}:${t.id}`)),
     extra
   );
-  return { data: local.data, tombstones, settingsUpdatedAt: now, settingsFieldTimes: local.settingsFieldTimes };
+  return { data, tombstones, settingsUpdatedAt: now, settingsFieldTimes: local.settingsFieldTimes };
 }
 
 function mergeSettings(local: SyncSnapshot, remote: SyncSnapshot): Pick<SyncSnapshot, 'settingsUpdatedAt' | 'settingsFieldTimes'> & { settings: AppData['settings'] } {

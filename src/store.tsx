@@ -7,6 +7,7 @@ import {
 } from './storage';
 import { ensureSignedIn, friendlySyncError, isConfigured as isDriveConfigured, isSignedIn, signOut as signOutOfDrive } from './lib/googleDriveSync';
 import { hasUnsyncedChanges, runSync } from './lib/syncEngine';
+import { latestRecordTime } from './lib/syncMerge';
 import { startBrowserReminderLoop, syncScheduledNotifications } from './notifications';
 import { registerCustomDebtTypes } from './pages/FinanceAccounts';
 import { applyLinkedBalances } from './lib/trading';
@@ -275,8 +276,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     const parsed = normalizeData(raw);
     const before = dataRef.current;
     await replaceAll(parsed);
-    // The next sync pushes this backup up as the cloud copy rather than merging the cloud back in.
-    await setReplaceCloudOnNextSync(true);
+    // The next sync pushes this backup up as the cloud copy rather than merging the cloud back in —
+    // as of when the backup was taken, so anything newer in the cloud is kept.
+    await setReplaceCloudOnNextSync(latestRecordTime(parsed));
     setData(parsed);
     pushHistory({ kind:'full', before, after:parsed });
   }, [pushHistory]);
@@ -330,7 +332,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   // Makes this device's data the cloud copy (Settings → Sync), the same as after a backup import.
   const replaceCloudCopy = useCallback(async () => {
-    await setReplaceCloudOnNextSync(true);
+    await setReplaceCloudOnNextSync(new Date().toISOString());
     await syncNow(true);
   }, [syncNow]);
 

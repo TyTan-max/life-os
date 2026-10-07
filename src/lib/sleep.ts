@@ -114,12 +114,6 @@ export function isNap(e: Pick<SleepEntry, 'nap'>): boolean {
   return e.nap === true;
 }
 
-// Daytime starts (10 am – 7 pm) are suggested as naps until you say otherwise.
-export function looksLikeNap(bedTime?: string): boolean {
-  const m = bedTime ? toMinutes(bedTime) : undefined;
-  return m != null && m >= 10 * 60 && m < 19 * 60;
-}
-
 export interface SleepNight {
   date: string;
   /** Night sleep only: every piece added together. */

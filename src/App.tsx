@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Check, RefreshCw, Redo2, Save, Search, Sparkles, Undo2 } from 'lucide-react';
-import { useSyncDescription } from './components/SyncPanel';
+import { SyncBanner, useSyncDescription } from './components/SyncPanel';
+import { useIsMobile } from './hooks/useIsMobile';
 import { StoreProvider, useStore } from './store';
 import { NAV_SECTIONS } from './navigation';
 import { MobileNav } from './components/MobileNav';
@@ -32,6 +33,7 @@ const PAGES: Record<string, React.ComponentType> = {
 function Shell() {
   const { updateSettings, data, loading, undo, redo, canUndo, canRedo, exportBackup, syncNow, syncStatus, isSyncConfigured } = useStore();
   const syncDescription = useSyncDescription();
+  const isMobile = useIsMobile();
   const [page, setPage] = useState('Dashboard');
   // A landing tab for pages that have their own internal tabs (currently just Second Brain) —
   // set alongside the page so a specific click-through (e.g. a goal from the Calendar) can open
@@ -130,6 +132,7 @@ function Shell() {
         </nav>
       </aside>
       <main className="main-content">
+        {isMobile && <SyncBanner />}
         {page === 'Dashboard' ? <Dashboard navigate={navigate} />
           : page === 'Calendar' ? <Calendar navigate={navigate} />
           : page === 'Second Brain' ? <SecondBrain initialTab={navTab as ParaTab | undefined} focusNote={focusNote} />

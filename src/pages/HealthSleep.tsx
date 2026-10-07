@@ -13,7 +13,7 @@ import { useIsMobile } from '../hooks/useIsMobile';
 import { inRange, sleepRecencyLabel } from '../lib/healthPeriod';
 import type { HealthPeriodProps } from './HealthWellness';
 import type { SleepEntry } from '../types';
-import { computeSleepDuration, computeSleepMinutes, formatHours, isNap, lastNightOf, looksLikeNap, nightsOf, sleepDebtOf, sleepHours, sleepMinutes, usualSleepTimes } from '../lib/sleep';
+import { computeSleepDuration, computeSleepMinutes, formatHours, isNap, lastNightOf, nightsOf, sleepDebtOf, sleepHours, sleepMinutes, usualSleepTimes } from '../lib/sleep';
 import type { SleepNight } from '../lib/sleep';
 
 // The Quality ⓘ: one consistent way to rate a night, so scores compare night to night.
@@ -122,8 +122,8 @@ export function HealthSleep({ period, range, periodLabel, activeDate, autoAdd, o
   // when there's no time pair driving it (otherwise the next time tweak would just overwrite it).
   const patchTime = (e: SleepEntry, field: 'bedTime' | 'wakeTime', value: string) => {
     const next: SleepEntry = { ...e, [field]: value || undefined };
-    // A daytime start is suggested as a nap until you pick Night or Nap yourself.
-    if (field === 'bedTime' && e.nap === undefined && looksLikeNap(value)) next.nap = true;
+    // Whether it's night sleep or a nap is never guessed from the time — an evening crash at 6 pm
+    // is still sleep. It's a nap only if added with "Add nap" or switched with the moon/sun button.
     const duration = computeSleepDuration(next.bedTime, next.wakeTime);
     if (duration != null) next.durationHours = duration;
     void upsert('sleepEntries', next);
@@ -307,7 +307,15 @@ export function HealthSleep({ period, range, periodLabel, activeDate, autoAdd, o
         const first = g.pieces[0]; const last = g.pieces[g.pieces.length - 1];
         const entryLine = (e: SleepEntry, nap: boolean) => (
           <li className={`sleep-editor-line ${nap ? 'nap' : ''}`}>
-            {nap ? <Sun size={14} /> : <Moon size={14} />}
+            <button
+              type="button"
+              className="sleep-kind-btn"
+              onClick={() => patch(e, { nap: !nap })}
+              title={nap ? 'Nap — tap to count it as night sleep instead' : 'Night sleep — tap to make it a nap instead'}
+              aria-label={nap ? 'Nap. Switch to night sleep' : 'Night sleep. Switch to nap'}
+            >
+              {nap ? <Sun size={14} /> : <Moon size={14} />}
+            </button>
             <TimeWheelPicker value={e.bedTime} onChange={v => patchTime(e, 'bedTime', v)} placeholder={nap ? 'Start' : 'Bed time'} />
             <span className="sleep-editor-arrow">→</span>
             <TimeWheelPicker value={e.wakeTime} onChange={v => patchTime(e, 'wakeTime', v)} placeholder={nap ? 'End' : 'Wake time'} />

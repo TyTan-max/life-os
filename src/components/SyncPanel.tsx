@@ -82,3 +82,25 @@ export function SyncPanel({ mobile }: { mobile?: boolean }) {
     </div>
   );
 }
+
+/**
+ * Mobile only: a strip across the top whenever this device can't sync on its own (not connected
+ * to Google, or the last sync failed) — on a phone the small dot in the menu is too easy to miss,
+ * and data entered there would quietly stay on the phone. Tapping it connects and syncs.
+ */
+export function SyncBanner() {
+  const { isSyncConfigured, syncStatus, syncNow, syncNeedsSignIn, hasUnsyncedChanges } = useStore();
+  const status = useSyncDescription();
+  if (!isSyncConfigured || syncStatus === 'syncing') return null;
+  if (!syncNeedsSignIn && syncStatus !== 'error') return null;
+  const text = syncStatus === 'error' && !syncNeedsSignIn
+    ? status.long
+    : hasUnsyncedChanges ? 'Not synced — changes are only on this device.' : 'Not connected — this device isn’t syncing.';
+  return (
+    <button type="button" className={`sync-banner ${hasUnsyncedChanges ? 'has-changes' : ''}`} onClick={() => void syncNow(true)}>
+      <RefreshCw size={15} />
+      <span>{text}</span>
+      <b>{syncStatus === 'error' && !syncNeedsSignIn ? 'Retry' : 'Tap to connect'}</b>
+    </button>
+  );
+}

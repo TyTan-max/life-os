@@ -62,7 +62,7 @@ export function Settings() {
     if (!file) return;
     try {
       await importBackup(file);
-      alert('Backup restored. The next time you press Sync, this backup becomes the cloud copy: anything the cloud has that this backup doesn\u2019t is removed there and on your other devices.');
+      alert('Backup restored. The next time you press Sync, this backup becomes the cloud copy: older things the cloud has that this backup doesn\u2019t are removed there and on your other devices. Anything added or changed after this backup was made is kept.');
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Import failed.');
     }
