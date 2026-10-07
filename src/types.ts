@@ -895,6 +895,7 @@ export interface AppData {
   contactInteractions: ContactInteraction[];
   dailyLogs: DailyLog[];
   researchChats: ResearchChatRecord[];
+  dayNotes: DayNote[];
   settings: Settings;
 }
 
@@ -915,6 +916,12 @@ export interface ResearchMessage {
   savedNoteId?: string;
 }
 
+/** A note for a day that isn't attached to anything else — written on the All Notes page. */
+export interface DayNote extends BaseRecord {
+  date: string;
+  text: string;
+}
+
 export interface ResearchChatRecord extends BaseRecord {
   title: string;
   messages: ResearchMessage[];
@@ -928,12 +935,12 @@ export type CollectionRecord =
   | Task | Habit | HabitRoutine | RoutineDateAssignment | Goal | CalendarEvent | Budget | Transaction | Bill
   | Movie | Videogame | Book | FinanceAccount | FinanceCategory | FinanceGoal | Note | SecondBrainWorkspace | FlashcardDeck | BucketListItem
   | WorkoutEntry | WeightEntry | SleepEntry | Medication | MealEntry | GlucoseEntry | WorkoutRoutine
-  | Contact | ContactInteraction | DailyLog | ResearchChatRecord;
+  | Contact | ContactInteraction | DailyLog | ResearchChatRecord | DayNote;
 
 export const COLLECTION_NAMES: CollectionName[] = [
   'tasks', 'habits', 'habitRoutines', 'routineAssignments', 'goals', 'events', 'budgets', 'transactions',
   'bills', 'movies', 'videogames', 'books', 'notes', 'secondBrainWorkspaces', 'flashcardDecks', 'bucketList', 'contacts', 'contactInteractions',
   'financeAccounts', 'financeCategories', 'financeGoals',
   'workouts', 'weightEntries', 'sleepEntries', 'medications', 'meals', 'glucoseEntries', 'workoutRoutines',
-  'dailyLogs', 'researchChats'
+  'dailyLogs', 'researchChats', 'dayNotes'
 ];

@@ -5,7 +5,7 @@ import {
 } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { useStore, newRecord } from '../store';
-import { useRecentNotes } from './AllNotes';
+import { requestNoteFocus, useRecentNotes } from './AllNotes';
 import type { Habit, Medication, Note, Task } from '../types';
 import { DEFAULT_WORKSPACE_ID } from '../storage';
 import { actualSpendByCategory } from '../lib/budgetMath';
@@ -425,9 +425,9 @@ export function Dashboard({navigate}:{navigate:(page:string, tab?: string)=>void
       >
         <div className="dash-notes">
           {recentNotes.map(n => (
-            <button type="button" key={n.id} className="dash-note" onClick={()=>navigate('All Notes')}>
-              <span><b>{n.source}</b> · {formatDate(n.date)} · {n.context}</span>
-              <small>{n.text}</small>
+            <button type="button" key={n.id} className="dash-note" onClick={()=>{ requestNoteFocus(n.id); navigate('All Notes'); }}>
+              <span><b>{n.source}</b> · {formatDate(n.date)}{n.context ? ` · ${n.context}` : ''}</span>
+              <small>{n.parts[0].label ? `${n.parts[0].label.split(' · ')[0]}: ` : ''}{n.parts[0].text}</small>
             </button>
           ))}
         </div>

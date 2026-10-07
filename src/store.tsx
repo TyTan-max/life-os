@@ -85,7 +85,7 @@ const COLLECTION_NOUNS: Partial<Record<CollectionName, string>> = {
   financeGoals: 'savings goal', notes: 'note', bucketList: 'bucket list item', workouts: 'workout',
   weightEntries: 'weight entry', sleepEntries: 'sleep entry', medications: 'medication',
   meals: 'meal', glucoseEntries: 'glucose entry', workoutRoutines: 'workout routine',
-  contacts: 'contact', contactInteractions: 'interaction'
+  contacts: 'contact', contactInteractions: 'interaction', dayNotes: 'note'
 };
 
 // Only genuinely destructive changes get announced. Edits and additions are self-evident on
@@ -115,7 +115,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     tasks:[], habits:[], habitRoutines:[], routineAssignments:[], goals:[], events:[], budgets:[], transactions:[], bills:[],
     movies:[], videogames:[], books:[], financeAccounts:[], financeCategories:[], financeGoals:[], notes:[], secondBrainWorkspaces:[], flashcardDecks:[], bucketList:[],
     workouts:[], weightEntries:[], sleepEntries:[], medications:[], meals:[], glucoseEntries:[], workoutRoutines:[],
-    contacts:[], contactInteractions:[], dailyLogs:[], researchChats:[],
+    contacts:[], contactInteractions:[], dailyLogs:[], researchChats:[], dayNotes:[],
     settings:{ userName:'Khuong', theme:'light', notificationsEnabled:false, launchAtLogin:false, dailyBriefTime:'08:00', currency:'USD', weightUnit:'lb', sleepTargetHours:8, dailyCalorieTarget:2200, proteinTargetG:150, glucoseUnit:'mg/dL', glucoseTrackingEnabled:false }
   }));
   const [loading, setLoading] = useState(true);

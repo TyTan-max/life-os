@@ -15,7 +15,8 @@ const DB_NAME = 'life-os';
 // COLLECTION_NAMES grew. Existing installs stay on the old version, and the new store, forever
 // if this number doesn't move.
 // 24: the `researchChats` store.
-const DB_VERSION = 24;
+// 25: the `dayNotes` store.
+const DB_VERSION = 25;
 const META_STORE = 'meta';
 const TOMBSTONES_KEY = 'tombstones';
 // When this install was filled with starter data (every starter record carries this exact
@@ -171,6 +172,13 @@ function getDb(): Promise<IDBPDatabase> {
         for (const retired of ['projects', 'inbox', 'netWorth']) {
           if (db.objectStoreNames.contains(retired)) db.deleteObjectStore(retired);
         }
+      },
+      // Another tab has loaded a newer version of the app and needs to upgrade the database. An
+      // open connection here would block it (that tab would hang on loading), so let go and reload
+      // into the new version. Everything is already saved — edits are written as they're typed.
+      blocking(_current, _blocked, event) {
+        (event.target as IDBDatabase | null)?.close();
+        window.location.reload();
       }
     });
   }

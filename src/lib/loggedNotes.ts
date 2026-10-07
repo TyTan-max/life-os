@@ -5,8 +5,18 @@ import type { AppData, CollectionName } from '../types';
 import type { Jump } from './jumpTo';
 import { formatHours, isNap, sleepHours, sleepMinutes } from './sleep';
 
-export type NoteArea = 'Health' | 'Trading' | 'Finance' | 'People' | 'Backlog' | 'Plan';
-export const NOTE_AREAS: NoteArea[] = ['Health', 'Trading', 'Finance', 'People', 'Backlog', 'Plan'];
+export type NoteArea = 'Journal' | 'Health' | 'Trading' | 'Finance' | 'People' | 'Backlog' | 'Plan';
+export const NOTE_AREAS: NoteArea[] = ['Journal', 'Health', 'Trading', 'Finance', 'People', 'Backlog', 'Plan'];
+/** What each area gathers — shown on a chip that has nothing in it yet. */
+export const NOTE_AREA_HINTS: Record<NoteArea, string> = {
+  Journal: 'notes you write on this page',
+  Health: 'sleep, workouts, weigh-ins, glucose, medications',
+  Trading: 'trading days',
+  Finance: 'transactions, bills, accounts, savings goals',
+  People: 'check-ins and contact notes in Personal CRM',
+  Backlog: 'movies, games, books, bucket list',
+  Plan: 'tasks, goals, calendar events'
+};
 
 /** Where a note's text is stored, so it can be edited from the All Notes page. */
 export type NoteTarget =
@@ -35,6 +45,8 @@ export interface LoggedNote {
   context: string;
   /** A short highlighted figure next to the context, e.g. a trading day's result. */
   badge?: { text: string; tone: 'pos' | 'neg' };
+  /** Pictures that belong with the note (a trading day's screenshots). */
+  images?: { src: string; label?: string }[];
   parts: NotePart[];
   /** All parts as plain text, for searching and copying. */
   text: string;
@@ -78,6 +90,12 @@ export function collectLoggedNotes(data: AppData): LoggedNote[] {
   };
   const field = (collection: CollectionName, id: string, name = 'notes'): NoteTarget => ({ kind: 'field', collection, id, field: name });
   const edited = (r: { updatedAt?: string; createdAt: string }) => day(r.updatedAt ?? r.createdAt);
+
+  // ---- Journal ---- (written on the All Notes page itself; tapping one edits it there)
+  for (const d of data.dayNotes ?? []) {
+    add({ id: `day:${d.id}`, area: 'Journal', source: 'Day note', date: d.date, raw: d.text, target: field('dayNotes', d.id, 'text'),
+      context: '', jump: { page: 'All Notes' } });
+  }
 
   // ---- Health ----
   for (const e of data.sleepEntries) {
@@ -129,6 +147,7 @@ export function collectLoggedNotes(data: AppData): LoggedNote[] {
     add({ id: `trade:${l.id}`, area: 'Trading', source: 'Trading day', date: l.date, raw: l.notes, target: field('dailyLogs', l.id),
       context: `${l.totalTrades} trade${l.totalTrades === 1 ? '' : 's'}${l.emotion ? ` · ${l.emotion}` : ''}`,
       badge: { text: `${l.dailyPL >= 0 ? '+' : '−'}${money(l.dailyPL)}`, tone: l.dailyPL >= 0 ? 'pos' : 'neg' },
+      images: l.screenshots?.length ? l.screenshots.map(s => ({ src: s.src, label: s.label })) : undefined,
       jump: { page: 'Trading Journal', collection: 'dailyLogs', id: l.id, date: l.date } });
   }
 

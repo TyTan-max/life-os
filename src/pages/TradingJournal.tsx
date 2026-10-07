@@ -1,10 +1,10 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { takeJumpFor } from '../lib/jumpTo';
 import type { KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, ReactNode } from 'react';
-import { Calculator as CalculatorIcon, Calendar as CalendarIcon, ChevronDown, ChevronLeft, ChevronRight, ImagePlus, Minus, PanelRightOpen, Plus, RotateCcw, StickyNote, Table2, TrendingDown, TrendingUp, Trash2, Upload, X } from 'lucide-react';
+import { Calculator as CalculatorIcon, Calendar as CalendarIcon, ChevronDown, ChevronLeft, ChevronRight, ImagePlus, Minus, PanelRightOpen, Plus, RotateCcw, Star, StickyNote, Table2, TrendingDown, TrendingUp, Trash2, Upload, X } from 'lucide-react';
 import { useStore, newRecord } from '../store';
 import type { DailyLog, TradingScreenshot } from '../types';
-import { formatCurrency, formatCurrencyCompact, Modal } from '../components/UI';
+import { formatCurrency, formatCurrencyCompact, formatDate, Modal } from '../components/UI';
 import { DatePicker } from '../components/DatePicker';
 import { DetailPanel } from '../components/DetailPanel';
 import { useContextMenu } from '../components/ContextMenu';
@@ -1239,6 +1239,11 @@ export function TradingJournal() {
   // Arriving from All Notes: open that trading day.
   const [jump] = useState(() => takeJumpFor('dailyLogs'));
   const [editingLogId, setEditingLogId] = useState<string | null>(jump?.id ?? null);
+  // Trading-day notes starred on the All Notes page: your own lessons, in front of you before you trade.
+  const myRules = useMemo(() => {
+    const starredIds = new Set(data.settings.starredNoteIds ?? []);
+    return logs.filter(l => l.notes?.trim() && starredIds.has(`trade:${l.id}`)).sort((a, b) => b.date.localeCompare(a.date));
+  }, [logs, data.settings.starredNoteIds]);
   const startBalance = data.settings.tradingStartBalance ?? 50000;
   const setStartBalance = (n: number) => void updateSettings({ tradingStartBalance: n });
   // "+ Deposit" raises the total and keeps a dated log, so the balance reads as deposits + P/L.
@@ -1484,6 +1489,20 @@ export function TradingJournal() {
           <p>Daily aggregate view — built for high-frequency scalpers.</p>
         </div>
       </div>
+
+      {myRules.length > 0 && (
+        <details className="tj-rules" open>
+          <summary><Star size={14} fill="currentColor" /> My rules <span>{myRules.length} starred note{myRules.length === 1 ? '' : 's'} — star or unstar them in All Notes</span></summary>
+          <ul>
+            {myRules.map(l => (
+              <li key={l.id}>
+                <p>{l.notes}</p>
+                <small>{formatDate(l.date)} · <b className={l.dailyPL >= 0 ? 'positive' : 'negative'}>{l.dailyPL >= 0 ? '+' : '−'}${Math.abs(l.dailyPL).toFixed(2)}</b></small>
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
 
       <div className="tj-period-row">
         <div className="filter-row">
