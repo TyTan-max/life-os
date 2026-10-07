@@ -7316,3 +7316,117 @@ button.bucket-status-pill:hover { background: rgba(255, 255, 255, 0.22); }
   .bucket-map-legend { position: static; border-radius: 0; justify-content: center; }
   .bucket-memory-grid { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* Travel & Bucket List — v3 */
+/* Top picks */
+.bucket-card-top-right { display: inline-flex; align-items: center; gap: 6px; }
+.bucket-pick { display: grid; place-items: center; width: 22px; height: 22px; padding: 0; border: 1px solid rgba(255, 255, 255, 0.26); border-radius: 50%; background: rgba(255, 255, 255, 0.1); color: rgba(255, 255, 255, 0.85); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); opacity: 0; transition: opacity 0.15s ease; cursor: pointer; }
+.bucket-card:hover .bucket-pick, .bucket-pick:focus-visible, .bucket-pick.on { opacity: 1; }
+.bucket-pick.on { border-color: rgba(234, 176, 77, 0.7); background: rgba(234, 176, 77, 0.2); color: #f3cf8a; }
+@media (hover: none) { .bucket-pick { opacity: 1; } }
+button.bucket-detail-chip { background: transparent; font: inherit; font-size: 12.5px; cursor: pointer; }
+.bucket-pick-chip.on { border-color: rgba(234, 176, 77, 0.55); color: #eab04d; }
+
+/* Year target */
+.bucket-year { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border: 1px dashed var(--border); border-radius: 999px; background: transparent; color: var(--text-muted); font: inherit; font-size: 13px; cursor: pointer; }
+.bucket-year:hover { background: var(--surface-hover); color: var(--text); }
+.bucket-year b { color: var(--text); font-size: 15px; }
+.bucket-year svg { width: 20px; height: 20px; transform: rotate(-90deg); }
+.bucket-year svg circle { fill: none; stroke-width: 4; }
+.bucket-year svg .track { stroke: var(--border); }
+.bucket-year svg .fill { stroke: #eab04d; stroke-linecap: round; transition: stroke-dasharray 0.4s ease; }
+.bucket-year.editing { border-style: solid; cursor: default; }
+.bucket-year.editing input { width: 58px; height: 26px; padding: 0 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); font: inherit; font-size: 13px; }
+
+/* Categories you add */
+.bucket-chip-wrap { position: relative; display: inline-flex; }
+.bucket-chip-remove { position: absolute; top: -5px; right: -5px; display: grid; place-items: center; width: 16px; height: 16px; padding: 0; border: 1px solid var(--border); border-radius: 50%; background: var(--surface); color: var(--text-muted); cursor: pointer; }
+.bucket-chip-remove:hover { background: var(--red); border-color: var(--red); color: #fff; }
+.bucket-chip-add { display: inline-grid; place-items: center; min-width: 30px; padding-inline: 8px; border-style: dashed; }
+.bucket-chip-input { width: 130px; height: 30px; padding: 0 10px; border: 1px solid var(--accent); border-radius: 999px; background: var(--surface); color: var(--text); font: inherit; font-size: 12.5px; outline: 0; }
+
+/* The panel's editable details */
+.bucket-detail-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 12px; }
+.bucket-detail-fields label { display: grid; gap: 4px; min-width: 0; }
+.bucket-detail-fields label.wide { grid-column: 1 / -1; }
+.bucket-detail-fields label > span:first-child { font-size: 11.5px; color: var(--text-faint); }
+.bucket-detail-fields input[type="text"], .bucket-detail-fields select { height: 38px; width: 100%; min-width: 0; padding: 0 10px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); color: var(--text); font: inherit; font-size: 13.5px; }
+.bucket-detail-fields input[type="text"]:focus, .bucket-detail-fields select:focus { outline: 0; border-color: var(--accent); }
+.bucket-cover-edit { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.bucket-cover-edit input { flex: 1 1 180px; }
+
+/* Checklists: grab to reorder, type to rename */
+.bucket-check-row { gap: 6px; border-radius: 6px; }
+.bucket-check-row.dragging { opacity: 0.4; }
+.bucket-check-grip { display: grid; place-items: center; flex-shrink: 0; width: 16px; color: var(--text-faint); cursor: grab; opacity: 0.45; }
+.bucket-check-row:hover .bucket-check-grip { opacity: 1; }
+.bucket-check-text { flex: 1; min-width: 0; height: 32px; padding: 0 6px; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--text); font: inherit; font-size: 14px; }
+.bucket-check-text:hover { border-color: var(--border); }
+.bucket-check-text:focus { outline: 0; border-color: var(--accent); background: var(--surface); }
+.bucket-check-text.done { color: var(--text-faint); text-decoration: line-through; }
+.bucket-check-up { display: none; }
+@media (hover: none) { .bucket-check-up { display: inline-flex; } .bucket-check-grip { display: none; } }
+.bucket-basics { margin-left: auto; font-size: 12.5px; font-weight: 500; }
+
+/* Trip plan extras */
+.bucket-trip-warn { display: flex; align-items: center; gap: 6px; margin: 0; font-size: 12.5px; color: var(--amber); }
+.bucket-savings { display: grid; grid-template-columns: auto minmax(60px, 1fr) auto; align-items: center; gap: 10px; padding: 8px 12px; border: 1px solid var(--border); border-radius: 10px; font-size: 13px; }
+.bucket-savings > span { display: inline-flex; align-items: center; gap: 6px; color: var(--text-muted); }
+.bucket-savings b { color: var(--text); }
+.bucket-savings-start { justify-self: start; display: inline-flex; align-items: center; gap: 6px; }
+
+/* Map v2 */
+.bucket-map svg { touch-action: none; user-select: none; }
+.bucket-map.zoomed svg { cursor: grab; }
+.bucket-map.placing svg { cursor: crosshair; }
+.bucket-map-sea { fill: transparent; }
+.bucket-map-pin.dragging { cursor: grabbing; }
+.bucket-map-label { font-size: 10px; font-weight: 600; fill: var(--text); paint-order: stroke; stroke: var(--surface); stroke-width: 3px; stroke-linejoin: round; pointer-events: none; }
+.bucket-map-zoom { position: absolute; top: 10px; right: 10px; display: grid; gap: 4px; }
+.bucket-map-zoom button { display: grid; place-items: center; width: 30px; height: 30px; padding: 0; border: 1px solid var(--border); border-radius: 8px; background: color-mix(in srgb, var(--surface) 92%, transparent); color: var(--text); cursor: pointer; }
+.bucket-map-zoom button:disabled { opacity: 0.4; cursor: default; }
+.bucket-map-zoom button:not(:disabled):hover { background: var(--surface-hover); }
+.bucket-map-legend b { font-weight: 600; color: var(--text); padding-left: 10px; border-left: 1px solid var(--border); }
+.bucket-map-placing { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border: 1px solid var(--accent); border-radius: 10px; background: color-mix(in srgb, var(--accent) 10%, var(--surface)); font-size: 13.5px; }
+.bucket-map-placing svg { color: var(--accent); }
+.bucket-map-placing span { flex: 1; }
+.bucket-map-chip { display: inline-flex; align-items: center; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); overflow: hidden; }
+.bucket-map-list .bucket-map-chip button { border: 0; border-radius: 0; background: transparent; }
+.bucket-map-list .bucket-map-chip button:hover { background: var(--surface-hover); }
+.bucket-map-list .bucket-map-unpin { padding: 6px 9px 6px 4px; color: var(--text-faint); }
+.bucket-map-unplaced { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 12.5px; }
+.bucket-map-place { display: inline-flex; align-items: center; gap: 5px; padding: 5px 11px; border: 1px dashed var(--border); border-radius: 999px; background: transparent; color: var(--text); font: inherit; font-size: 12.5px; cursor: pointer; }
+.bucket-map-place:hover, .bucket-map-place.on { border-style: solid; border-color: var(--accent); color: var(--accent); }
+
+/* Memories + viewer */
+div.bucket-memory:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+button.bucket-memory-hero { width: 100%; height: 100%; padding: 0; border: 0; cursor: zoom-in; }
+.photo-lightbox-nav { position: absolute; top: 50%; display: grid; place-items: center; width: 44px; height: 44px; border: 0; border-radius: 50%; background: rgba(255, 255, 255, 0.14); color: #fff; transform: translateY(-50%); cursor: pointer; }
+.photo-lightbox-nav:hover { background: rgba(255, 255, 255, 0.26); }
+.photo-lightbox-nav.prev { left: 16px; }
+.photo-lightbox-nav.next { right: 16px; }
+.photo-lightbox-count { position: absolute; bottom: 18px; left: 50%; transform: translateX(-50%); padding: 3px 10px; border-radius: 999px; background: rgba(0, 0, 0, 0.55); color: #fff; font-size: 12.5px; }
+
+/* Confetti */
+.bucket-confetti { position: fixed; inset: 0; z-index: 2000; overflow: hidden; pointer-events: none; }
+.bucket-confetti i { position: absolute; top: -14px; width: 8px; height: 13px; border-radius: 2px; animation-name: bucket-confetti-fall; animation-timing-function: cubic-bezier(0.2, 0.6, 0.4, 1); animation-fill-mode: forwards; }
+@keyframes bucket-confetti-fall {
+  0% { transform: translate3d(0, 0, 0) rotate(0deg); opacity: 1; }
+  80% { opacity: 1; }
+  100% { transform: translate3d(var(--drift, 0px), 105vh, 0) rotate(var(--spin, 360deg)); opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) { .bucket-confetti { display: none; } }
+
+@media (max-width: 760px) {
+  .bucket-detail-fields { grid-template-columns: minmax(0, 1fr); }
+  .bucket-savings { grid-template-columns: minmax(0, 1fr); }
+  .bucket-chip-wrap { flex: none; }
+  .bucket-year { flex: none; }
+  .photo-lightbox-nav.prev { left: 6px; }
+  .photo-lightbox-nav.next { right: 6px; }
+}
+/* The map's own drawing fills its box; the icons inside its buttons must not. */
+.bucket-map-zoom svg, .bucket-map-placing svg { display: inline; width: auto; height: auto; }
+@media (max-width: 760px) { .bucket-map-legend { flex-wrap: wrap; row-gap: 4px; } .bucket-map-legend b { border-left: 0; padding-left: 0; flex-basis: 100%; text-align: center; } }
+.bucket-photo-probes { position: absolute; width: 1px; height: 1px; overflow: hidden; opacity: 0; pointer-events: none; }
+.bucket-photo-probes img { width: 1px; height: 1px; }

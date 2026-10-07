@@ -50,6 +50,10 @@ interface ImportantDate {
   date: string;
   time?: string;
   kind: ImportantKind;
+  /** The record this stands for, when `id` had to be made unique per day (a trip's days). */
+  refId?: string;
+  /** One of the days of a trip — drawn on the month grid, but not listed (or counted overdue). */
+  trip?: 'start' | 'mid' | 'end';
 }
 
 // Tasks and Goals no longer have their own pages — they live in Second Brain's tabs now.
@@ -143,7 +147,23 @@ export function Calendar({ navigate }: { navigate: (page: string, tab?: string) 
       if (g.targetDate && g.status !== 'Completed') items.push({ id: g.id, title: g.title, date: g.targetDate, kind: 'Goal' });
     });
     data.bucketList.forEach(b => {
-      if (b.targetDate && b.status !== 'Achieved') items.push({ id: b.id, title: b.title, date: b.targetDate, kind: 'Bucket' });
+      if (b.status === 'Achieved') return;
+      const tripOk = Boolean(b.tripStart && b.tripEnd && b.tripEnd >= b.tripStart);
+      if (b.targetDate && !(tripOk && b.targetDate === b.tripStart)) items.push({ id: b.id, title: b.title, date: b.targetDate, kind: 'Bucket' });
+      if (tripOk) {
+        const day = new Date(`${b.tripStart}T12:00:00`);
+        // Capped so a mistyped year can't fill the calendar.
+        for (let n = 0; n < 60; n++) {
+          const iso = `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, '0')}-${String(day.getDate()).padStart(2, '0')}`;
+          if (iso > b.tripEnd!) break;
+          const trip = iso === b.tripStart ? 'start' : iso === b.tripEnd ? 'end' : 'mid';
+          const title = trip === 'start' ? `✈ ${b.title} — leaving` : trip === 'end' ? `✈ ${b.title} — back` : `✈ ${b.title}`;
+          items.push({ id: `${b.id}@${iso}`, refId: b.id, title, date: iso, kind: 'Bucket', trip });
+          day.setDate(day.getDate() + 1);
+        }
+      } else if (b.tripStart) {
+        items.push({ id: `${b.id}@${b.tripStart}`, refId: b.id, title: `✈ ${b.title} — leaving`, date: b.tripStart, kind: 'Bucket', trip: 'start' });
+      }
     });
     // Cover both the currently-visible year and today's year (±1) so the grid stays correct
     // wherever you've navigated to, and the Upcoming list (always relative to today) doesn't run dry.
@@ -194,7 +214,7 @@ export function Calendar({ navigate }: { navigate: (page: string, tab?: string) 
   const weeks: Date[][] = [];
   for (let i = 0; i < cells.length; i += 7) weeks.push(cells.slice(i, i + 7));
 
-  const upcoming = importantDates.filter(item => item.date >= todayIso && item.kind !== 'Holiday').slice(0, 15);
+  const upcoming = importantDates.filter(item => item.date >= todayIso && item.kind !== 'Holiday' && item.trip !== 'mid').slice(0, 15);
 
   // Agenda groups everything still ahead by day — on a phone "what's next" is the question being
   // asked. Holidays are part of that answer when their filter chip is on, even though they
@@ -202,7 +222,7 @@ export function Calendar({ navigate }: { navigate: (page: string, tab?: string) 
   const agendaDays = useMemo(() => {
     const byDay = new Map<string, ImportantDate[]>();
     for (const item of shownDates) {
-      if (item.date < todayIso) continue;
+      if (item.date < todayIso || item.trip === 'mid') continue;
       if (!byDay.has(item.date)) byDay.set(item.date, []);
       byDay.get(item.date)!.push(item);
     }
@@ -218,7 +238,7 @@ export function Calendar({ navigate }: { navigate: (page: string, tab?: string) 
   // vanish from it entirely the day after they were due — while the Dashboard kept counting them
   // as overdue. Pinned above Today instead, oldest first.
   const overdueItems = useMemo(
-    () => shownDates.filter(item => item.date < todayIso && (item.kind === 'Task' || item.kind === 'Goal' || item.kind === 'Bucket')),
+    () => shownDates.filter(item => item.date < todayIso && !item.trip && (item.kind === 'Task' || item.kind === 'Goal' || item.kind === 'Bucket')),
     [shownDates, todayIso]
   );
 
@@ -235,7 +255,7 @@ export function Calendar({ navigate }: { navigate: (page: string, tab?: string) 
     }
     if (item.kind === 'Holiday') return;
     // A bucket-list goal opens on that goal, not just its page.
-    if (item.kind === 'Bucket') requestJump({ page: KIND_PAGE.Bucket, collection: 'bucketList', id: item.id });
+    if (item.kind === 'Bucket') requestJump({ page: KIND_PAGE.Bucket, collection: 'bucketList', id: item.refId ?? item.id });
     navigate(KIND_PAGE[item.kind], KIND_TAB[item.kind] || undefined);
   };
 
@@ -243,8 +263,9 @@ export function Calendar({ navigate }: { navigate: (page: string, tab?: string) 
     if (item.kind === 'Holiday') return;
     // Removing a bucket-list goal from the calendar only clears its target date — the goal stays.
     if (item.kind === 'Bucket') {
-      const goal = data.bucketList.find(b => b.id === item.id);
-      if (goal) await upsert('bucketList', { ...goal, targetDate: undefined });
+      const goal = data.bucketList.find(b => b.id === (item.refId ?? item.id));
+      // A trip day clears the trip's dates; the plain entry clears the target date.
+      if (goal) await upsert('bucketList', item.trip ? { ...goal, tripStart: undefined, tripEnd: undefined } : { ...goal, targetDate: undefined });
       return;
     }
     await remove(KIND_COLLECTION[item.kind], item.id);

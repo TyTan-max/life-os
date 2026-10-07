@@ -2,16 +2,18 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { takeJumpFor } from '../lib/jumpTo';
 import type { ChangeEvent } from 'react';
 import {
-  AlertTriangle, ArrowUpDown, CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight, Columns3, Globe, Image as ImageIcon, ImageOff, Images,
-  LayoutGrid, MapPin, Pencil, Plus, Search, Sparkles, Trash2, Trophy, Upload, Wallet, X
+  AlertTriangle, ArrowUp, ArrowUpDown, CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight, Columns3, Globe, GripVertical, Image as ImageIcon,
+  ImageOff, Images, LayoutGrid, MapPin, Pencil, PiggyBank, Plus, Search, Sparkles, Star, Trash2, Trophy, Upload, Wallet, X
 } from 'lucide-react';
 import { useStore, newRecord } from '../store';
-import type { BucketListCategory, BucketListItem, BucketListStatus, BucketListSubtask, CostTier } from '../types';
+import type { BucketListCategory, BucketListItem, BucketListStatus, BucketListSubtask, CostTier, FinanceGoal } from '../types';
 import { Card, EmptyState, Modal, PageHeader, ProgressBar, formatCurrency, formatDate } from '../components/UI';
 import { DatePicker } from '../components/DatePicker';
-import { RichTextEditor, sanitizeHtml } from '../components/RichTextEditor';
+import { RichTextEditor } from '../components/RichTextEditor';
 import { toPlainText } from '../lib/loggedNotes';
-import { LAND_PATH, MAP_H, MAP_W, locate, project } from '../lib/worldMap';
+import { continentOf, locate } from '../lib/worldMap';
+import { BucketMap, type MapEntry } from '../components/BucketMap';
+import { requestJump } from '../lib/jumpTo';
 import { generateId } from '../utils/id';
 import { useIsMobile } from '../hooks/useIsMobile';
 import { useFabAction } from '../hooks/useFabAction';
@@ -30,17 +32,52 @@ const COST_TIERS: CostTier[] = ['$', '$$', '$$$'];
 type StatusTab = 'All' | BucketListStatus;
 const STATUS_TABS: StatusTab[] = ['All', ...STATUSES];
 
-type SortBy = 'recent' | 'title' | 'target' | 'custom';
+type SortBy = 'smart' | 'recent' | 'title' | 'target' | 'custom';
 
 const SORT_STORAGE_KEY = 'travel-sort-by';
-const SORT_VALUES: SortBy[] = ['recent', 'title', 'target', 'custom'];
+const SORT_VALUES: SortBy[] = ['smart', 'recent', 'title', 'target', 'custom'];
 
 // Sort choice lives in component state, which resets on unmount — switching tabs and back
 // would otherwise silently drop back to "Recently updated" even though the underlying
 // `order` values are still saved, making a custom drag order look like it didn't persist.
 function loadSavedSort(): SortBy {
   const saved = window.localStorage.getItem(SORT_STORAGE_KEY);
-  return (SORT_VALUES as string[]).includes(saved ?? '') ? (saved as SortBy) : 'recent';
+  return (SORT_VALUES as string[]).includes(saved ?? '') ? (saved as SortBy) : 'smart';
+}
+
+// The default order: what you're planning first (soonest date on top), then someday, then what's
+// done (newest first) — with top picks leading their group. Unlike "recently updated", ticking a
+// step or typing a reflection doesn't send the card to the front.
+const STATUS_RANK: Record<BucketListStatus, number> = { Planning: 0, Someday: 1, Achieved: 2 };
+function smartCompare(a: BucketListItem, b: BucketListItem): number {
+  if (a.status !== b.status) return STATUS_RANK[a.status] - STATUS_RANK[b.status];
+  if (Boolean(a.topPick) !== Boolean(b.topPick)) return a.topPick ? -1 : 1;
+  if (a.status === 'Achieved') return (b.achievedAt ?? '').localeCompare(a.achievedAt ?? '');
+  if (a.status === 'Planning') return (a.targetDate ?? '9999').localeCompare(b.targetDate ?? '9999') || a.title.localeCompare(b.title);
+  return (b.createdAt ?? '').localeCompare(a.createdAt ?? '');
+}
+
+const PACKING_BASICS = [
+  'Passport / ID', 'Tickets & booking confirmations', 'Travel insurance', 'Phone charger & adapter',
+  'Medications', 'Cards & some cash', 'Toiletries', 'Clothes for the weather'
+];
+const COVER_MAX_DIM = 1400;
+const COVER_QUALITY = 0.82;
+
+// A short burst when a goal is achieved. Skipped for anyone who's asked for less motion.
+function Confetti() {
+  const pieces = useMemo(() => Array.from({ length: 44 }, (_, i) => ({
+    left: Math.random() * 100, delay: Math.random() * 0.25, duration: 1.1 + Math.random() * 0.8,
+    hue: [42, 172, 238, 12, 280][i % 5], drift: (Math.random() - 0.5) * 160, spin: Math.random() * 720 - 360
+  })), []);
+  return (
+    <div className="bucket-confetti" aria-hidden="true">
+      {pieces.map((p, i) => (
+        <i key={i} style={{ left: `${p.left}%`, background: `hsl(${p.hue} 85% 62%)`, animationDelay: `${p.delay}s`, animationDuration: `${p.duration}s`,
+          ['--drift' as string]: `${p.drift}px`, ['--spin' as string]: `${p.spin}deg` }} />
+      ))}
+    </div>
+  );
 }
 
 function localIso(): string {
@@ -112,8 +149,9 @@ function fileToDataUrl(file: File, maxDim = MEMORY_PHOTO_MAX_DIM, quality = MEMO
 }
 
 function ItemFormModal({
-  item, onClose, onSave
-}: { item: BucketListItem | null; onClose: () => void; onSave: (patch: Partial<BucketListItem>) => void }) {
+  item, categories, onClose, onSave
+}: { item: BucketListItem | null; categories: BucketListCategory[]; onClose: () => void; onSave: (patch: Partial<BucketListItem>) => void }) {
+  const coverFileRef = useRef<HTMLInputElement>(null);
   const [form, setForm] = useState<Partial<BucketListItem>>(item ? { ...item } : emptyForm());
   const [subtaskDraft, setSubtaskDraft] = useState('');
   const unsplashReady = useMemo(isUnsplashConfigured, []);
@@ -196,15 +234,21 @@ function ItemFormModal({
           <div className="image-field">
             <input
               type="text"
-              value={form.coverArt ?? ''}
+              value={form.coverArt?.startsWith('data:') ? '' : form.coverArt ?? ''}
               onChange={e => set('coverArt', e.target.value)}
-              placeholder={unsplashReady ? 'Paste a URL, or search below…' : 'https://…'}
+              placeholder={form.coverArt?.startsWith('data:') ? 'Using your uploaded photo' : unsplashReady ? 'Paste a URL, search, or upload…' : 'Paste a URL or upload…'}
             />
             {unsplashReady && (
               <button type="button" className="btn ghost small" onClick={() => (pickerOpen ? setPickerOpen(false) : openPicker())}>
                 <Search size={13} /> {pickerOpen ? 'Close' : 'Search photos'}
               </button>
             )}
+            <button type="button" className="btn ghost small" onClick={() => coverFileRef.current?.click()}><Upload size={13} /> Upload</button>
+            <input ref={coverFileRef} type="file" accept="image/*" hidden onChange={e => {
+              const file = e.target.files?.[0];
+              e.target.value = '';
+              if (file) void fileToDataUrl(file, COVER_MAX_DIM, COVER_QUALITY).then(url => set('coverArt', url)).catch(() => {});
+            }} />
             {Boolean(form.coverArt) && <img className="image-field-preview" src={form.coverArt} alt="" />}
           </div>
           {pickerOpen && (
@@ -242,7 +286,7 @@ function ItemFormModal({
         <label>
           <span>Category</span>
           <select value={form.category ?? 'Travel'} onChange={e => set('category', e.target.value as BucketListCategory)}>
-            {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+            {categories.map(c => <option key={c} value={c}>{c}</option>)}
           </select>
         </label>
         <label>
@@ -483,10 +527,31 @@ function DiscoveryDeck({
 }
 
 export function Travel() {
-  const { data, upsert, remove } = useStore();
+  const { data, upsert, remove, updateSettings } = useStore();
   const isMobile = useIsMobile();
   const items = data.bucketList;
   const today = localIso();
+  const thisYear = today.slice(0, 4);
+
+  // Built-in categories, the ones you've added, and any a goal already carries.
+  const customCategories = data.settings.bucketCategories ?? [];
+  const allCategories: BucketListCategory[] = useMemo(
+    () => [...new Set<string>([...CATEGORIES, ...customCategories, ...items.map(i => i.category).filter(Boolean)])],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [customCategories.join('|'), items]
+  );
+  const [addingCategory, setAddingCategory] = useState(false);
+  const [categoryDraft, setCategoryDraft] = useState('');
+  const addCategory = () => {
+    const name = categoryDraft.trim();
+    if (name && !allCategories.some(c => c.toLowerCase() === name.toLowerCase())) void updateSettings({ bucketCategories: [...customCategories, name] });
+    setCategoryDraft('');
+    setAddingCategory(false);
+  };
+  const removeCategory = (name: string) => {
+    void updateSettings({ bucketCategories: customCategories.filter(c => c !== name) });
+    if (categoryTab === name) setCategoryTab(null);
+  };
 
   const [statusTab, setStatusTab] = useState<StatusTab>('All');
   const [categoryTab, setCategoryTab] = useState<BucketListCategory | null>(null);
@@ -508,20 +573,40 @@ export function Travel() {
   const [uploadingFor, setUploadingFor] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const uploadTargetRef = useRef<BucketListItem | null>(null);
-  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
+  // The photo viewer steps through one goal's photos.
+  const [lightbox, setLightbox] = useState<{ urls: string[]; index: number } | null>(null);
   const [dragId, setDragId] = useState<string | null>(null);
+  const [checkDrag, setCheckDrag] = useState<{ key: 'subtasks' | 'packing'; id: string } | null>(null);
+  const coverFileRef = useRef<HTMLInputElement>(null);
+  const coverTargetRef = useRef<string | null>(null);
+  const [celebrate, setCelebrate] = useState(0);
+  const [editingTarget, setEditingTarget] = useState(false);
+  const [targetDraft, setTargetDraft] = useState('');
   // Photos whose link no longer loads (a pasted URL that has since died).
   const [brokenPhotos, setBrokenPhotos] = useState<Set<string>>(new Set());
   const markBroken = (url: string) => setBrokenPhotos(prev => (prev.has(url) ? prev : new Set(prev).add(url)));
+  // Memory photos are checked as soon as the page opens — not only when a goal's panel happens to
+  // show one — so the Memories view can fall back to the cover instead of drawing a dead link blank.
+  const photoUrls = useMemo(() => [...new Set(items.flatMap(i => i.memoryPhotos ?? []))].filter(u => !u.startsWith('data:')), [items]);
   // "Did you do it?" prompts put off for this visit.
   const [snoozed, setSnoozed] = useState<Set<string>>(new Set());
 
   useEffect(() => {
-    if (!lightboxUrl) return;
-    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') setLightboxUrl(null); };
+    if (!lightbox) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setLightbox(null);
+      if (e.key === 'ArrowRight') setLightbox(l => (l ? { ...l, index: (l.index + 1) % l.urls.length } : l));
+      if (e.key === 'ArrowLeft') setLightbox(l => (l ? { ...l, index: (l.index - 1 + l.urls.length) % l.urls.length } : l));
+    };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [lightboxUrl]);
+  }, [lightbox]);
+
+  useEffect(() => {
+    if (!celebrate) return;
+    const timer = window.setTimeout(() => setCelebrate(0), 2200);
+    return () => window.clearTimeout(timer);
+  }, [celebrate]);
 
   const existingTitles = useMemo(
     () => new Set(items.map(i => i.title.trim().toLowerCase())),
@@ -541,7 +626,8 @@ export function Travel() {
       .filter(i => !categoryTab || i.category === categoryTab)
       .filter(i => matchesSearch(i, q));
     const sorted = list.slice();
-    if (sortBy === 'title') sorted.sort((a, b) => a.title.localeCompare(b.title));
+    if (sortBy === 'smart') sorted.sort(smartCompare);
+    else if (sortBy === 'title') sorted.sort((a, b) => a.title.localeCompare(b.title));
     else if (sortBy === 'target') sorted.sort((a, b) => (a.targetDate ?? '9999-99-99').localeCompare(b.targetDate ?? '9999-99-99'));
     else if (sortBy === 'custom') sorted.sort((a, b) => (a.order ?? 9999) - (b.order ?? 9999));
     else sorted.sort((a, b) => (b.updatedAt ?? '').localeCompare(a.updatedAt ?? ''));
@@ -563,8 +649,20 @@ export function Travel() {
   }), [items]);
   const next = useMemo(() => nextUp(items), [items]);
   const nextLabel = next ? targetLabel(next, today) : null;
-  // Goals whose target date has arrived without being marked achieved.
-  const duePrompts = items.filter(i => i.status !== 'Achieved' && i.targetDate && i.targetDate <= today && !snoozed.has(i.id));
+  const achievedThisYear = items.filter(i => i.status === 'Achieved' && (i.achievedAt ?? '').startsWith(thisYear)).length;
+  const yearTarget = data.settings.bucketYearTarget;
+  const saveYearTarget = () => {
+    const n = Math.round(Number(targetDraft));
+    void updateSettings({ bucketYearTarget: Number.isFinite(n) && n > 0 ? n : undefined });
+    setEditingTarget(false);
+  };
+  // Goals whose target date has arrived without being marked achieved (and not put off).
+  const duePrompts = items.filter(i => i.status !== 'Achieved' && i.targetDate && i.targetDate <= today
+    && !snoozed.has(i.id) && !(i.askAgainOn && i.askAgainOn > today));
+  const askInAWeek = (item: BucketListItem) => {
+    const d = new Date(`${today}T12:00:00`); d.setDate(d.getDate() + 7);
+    patchItem(item, { askAgainOn: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` });
+  };
 
   // Dragging always works, regardless of which sort is currently active — starting a drag is a
   // clear enough signal of intent to take manual control that it switches to "Custom order"
@@ -592,9 +690,16 @@ export function Travel() {
     void upsert('bucketList', { ...item, ...patch });
   };
 
+  // Achieving something gets a moment: confetti, and the memory section ready to write in.
   const markAchieved = (item: BucketListItem) => {
+    if (item.status !== 'Achieved') setCelebrate(Date.now());
     patchItem(item, { status: 'Achieved', achievedAt: item.achievedAt ?? localIso() });
     setDetailId(item.id);
+    window.setTimeout(() => {
+      const memory = document.querySelector<HTMLElement>('.bucket-detail-memory');
+      memory?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      memory?.querySelector<HTMLElement>('[contenteditable]')?.focus({ preventScroll: true });
+    }, 350);
   };
 
   // Steps and the packing list are the same kind of checklist.
@@ -607,6 +712,56 @@ export function Travel() {
     const value = text.trim();
     if (!value) return;
     patchItem(item, { [key]: [...(item[key] ?? []), { id: generateId(), text: value, done: false }] });
+  };
+  const renameEntry = (item: BucketListItem, key: ListKey, id: string, text: string) =>
+    patchItem(item, { [key]: (item[key] ?? []).map(t => (t.id === id ? { ...t, text } : t)) });
+  // Moves one entry to sit where another is (drag), or one place up/down (the arrow, Alt+↑/↓).
+  const moveEntry = (item: BucketListItem, key: ListKey, id: string, toIndex: number) => {
+    const list = [...(item[key] ?? [])];
+    const from = list.findIndex(t => t.id === id);
+    const to = Math.max(0, Math.min(list.length - 1, toIndex));
+    if (from < 0 || from === to) return;
+    const [moved] = list.splice(from, 1);
+    list.splice(to, 0, moved);
+    patchItem(item, { [key]: list });
+  };
+  const addPackingBasics = (item: BucketListItem) => {
+    const have = new Set((item.packing ?? []).map(p => p.text.trim().toLowerCase()));
+    const fresh = PACKING_BASICS.filter(text => !have.has(text.toLowerCase())).map(text => ({ id: generateId(), text, done: false }));
+    if (fresh.length) patchItem(item, { packing: [...(item.packing ?? []), ...fresh] });
+  };
+
+  // A trip's budget can become a savings goal in Finance, and report its progress back here.
+  const savingsGoalOf = (item: BucketListItem) => (item.savingsGoalId ? data.financeGoals.find(g => g.id === item.savingsGoalId) : undefined);
+  const startSaving = (item: BucketListItem) => {
+    if (!item.budget) return;
+    const goal = newRecord<FinanceGoal>({
+      name: `Trip: ${item.title}`, category: 'Vacation', targetAmount: item.budget, currentAmount: 0,
+      targetDate: item.tripStart ?? item.targetDate, notes: 'Created from Travel & Bucket List.'
+    });
+    void upsert('financeGoals', goal);
+    patchItem(item, { savingsGoalId: goal.id });
+  };
+  const openFinanceSavings = () => {
+    requestJump({ page: 'Finance', tab: 'Savings' });
+    window.dispatchEvent(new CustomEvent('lifeos:navigate', { detail: { page: 'Finance', tab: 'Savings' } }));
+  };
+
+  const triggerCoverUpload = (item: BucketListItem) => {
+    coverTargetRef.current = item.id;
+    coverFileRef.current?.click();
+  };
+  const onCoverFileSelected = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    const id = coverTargetRef.current;
+    coverTargetRef.current = null;
+    if (!file || !id) return;
+    try {
+      const dataUrl = await fileToDataUrl(file, COVER_MAX_DIM, COVER_QUALITY);
+      const latest = items.find(i => i.id === id);
+      if (latest) patchItem(latest, { coverArt: dataUrl });
+    } catch { /* unreadable file — leave the cover as it was */ }
   };
 
   const addPhoto = (item: BucketListItem) => {
@@ -712,11 +867,24 @@ export function Travel() {
   };
 
   // ---- Map ----
-  const placed = useMemo(() => filteredAllStatuses
-    .map(item => ({ item, at: locate(item.location, item.title) }))
-    .filter((p): p is { item: BucketListItem; at: NonNullable<ReturnType<typeof locate>> } => p.at !== null),
-  [filteredAllStatuses]);
+  const placed: MapEntry[] = useMemo(() => filteredAllStatuses.flatMap((item): MapEntry[] => {
+    if (item.pin) return [{ item, lon: item.pin.lon, lat: item.pin.lat, manual: true }];
+    const at = locate(item.location, item.title);
+    return at ? [{ item, lon: at.lon, lat: at.lat, manual: false }] : [];
+  }), [filteredAllStatuses]);
   const unplaced = filteredAllStatuses.filter(i => !placed.some(p => p.item.id === i.id));
+  // Where you've actually been: achieved Travel goals that are on the map.
+  const visitedStat = useMemo(() => {
+    const visited = items.filter(i => i.status === 'Achieved' && i.category === 'Travel').flatMap(i => {
+      if (i.pin) return [{ key: `${Math.round(i.pin.lon)}:${Math.round(i.pin.lat)}`, lon: i.pin.lon, lat: i.pin.lat }];
+      const at = locate(i.location, i.title);
+      return at ? [{ key: at.name, lon: at.lon, lat: at.lat }] : [];
+    });
+    if (!visited.length) return undefined;
+    const places = new Set(visited.map(v => v.key)).size;
+    const continents = new Set(visited.map(v => continentOf(v.lon, v.lat))).size;
+    return `${places} place${places === 1 ? '' : 's'} visited · ${continents} continent${continents === 1 ? '' : 's'}`;
+  }, [items]);
 
   // ---- Memories: what you've done, by year ----
   const memoryYears = useMemo(() => {
@@ -736,12 +904,29 @@ export function Travel() {
 
   const renderChecklist = (item: BucketListItem, key: ListKey, draft: string, setDraft: (v: string) => void, placeholder: string) => (
     <div className="bucket-checklist">
-      {(item[key] ?? []).map(t => (
-        <div className="bucket-check-row" key={t.id}>
-          <label>
-            <input type="checkbox" checked={t.done} onChange={() => toggleEntry(item, key, t.id)} />
-            <span className={t.done ? 'done' : ''}>{t.text}</span>
-          </label>
+      {(item[key] ?? []).map((t, index) => (
+        <div
+          className={`bucket-check-row ${checkDrag?.id === t.id ? 'dragging' : ''}`} key={t.id}
+          onDragOver={e => { if (checkDrag?.key === key) e.preventDefault(); }}
+          onDrop={e => { e.preventDefault(); if (checkDrag?.key === key) moveEntry(item, key, checkDrag.id, index); setCheckDrag(null); }}
+        >
+          <span
+            className="bucket-check-grip" draggable title="Drag to reorder"
+            onDragStart={e => { setCheckDrag({ key, id: t.id }); e.dataTransfer.effectAllowed = 'move'; }}
+            onDragEnd={() => setCheckDrag(null)}
+          ><GripVertical size={13} /></span>
+          <input type="checkbox" checked={t.done} onChange={() => toggleEntry(item, key, t.id)} aria-label={`Done: ${t.text}`} />
+          <input
+            type="text" className={`bucket-check-text ${t.done ? 'done' : ''}`} value={t.text} aria-label="Step"
+            onChange={e => renameEntry(item, key, t.id, e.target.value)}
+            onKeyDown={e => {
+              if (e.altKey && e.key === 'ArrowUp') { e.preventDefault(); moveEntry(item, key, t.id, index - 1); }
+              if (e.altKey && e.key === 'ArrowDown') { e.preventDefault(); moveEntry(item, key, t.id, index + 1); }
+            }}
+          />
+          {index > 0 && (
+            <button type="button" className="icon-btn bucket-check-up" onClick={() => moveEntry(item, key, t.id, index - 1)} aria-label={`Move ${t.text} up`} title="Move up"><ArrowUp size={13} /></button>
+          )}
           <button type="button" className="icon-btn" onClick={() => removeEntry(item, key, t.id)} aria-label={`Remove ${t.text}`}><X size={13} /></button>
         </div>
       ))}
@@ -761,6 +946,9 @@ export function Travel() {
     const target = targetLabel(item, today);
     const nights = item.tripStart && item.tripEnd ? daysBetween(item.tripStart, item.tripEnd) : null;
     const packing = item.packing ?? [];
+    const savings = savingsGoalOf(item);
+    const photos = item.memoryPhotos ?? [];
+    const uploadedCover = item.coverArt?.startsWith('data:');
     return (
       <Modal
         eyebrow={[item.category, item.location].filter(Boolean).join(' · ')}
@@ -769,7 +957,6 @@ export function Travel() {
         size="wide"
         footer={<>
           <button type="button" className="btn ghost danger bucket-detail-delete" onClick={() => deleteItem(item.id)}><Trash2 size={14} /> Delete</button>
-          <button type="button" className="btn ghost" onClick={() => { closeDetail(); startEdit(item); }}><Pencil size={14} /> Edit details</button>
           {item.status !== 'Achieved' && <button type="button" className="btn teal" onClick={() => markAchieved(item)}><Trophy size={14} /> Mark achieved</button>}
           <button type="button" className="btn primary" onClick={closeDetail}>Done</button>
         </>}
@@ -783,17 +970,49 @@ export function Travel() {
                 <button type="button" key={st} className={item.status === st ? 'on' : ''} onClick={() => moveToStatus(item.id, st)}>{st}</button>
               ))}
             </div>
-            {item.costTier && <span className="bucket-detail-chip">{item.costTier}</span>}
+            <button type="button" className={`bucket-detail-chip bucket-pick-chip ${item.topPick ? 'on' : ''}`} onClick={() => patchItem(item, { topPick: !item.topPick })} aria-pressed={Boolean(item.topPick)}>
+              <Star size={13} fill={item.topPick ? 'currentColor' : 'none'} /> Top pick
+            </button>
             {target && <span className={`bucket-detail-chip tone-${target.tone}`}><CalendarDays size={13} /> {target.text}</span>}
             {item.status === 'Achieved' && item.achievedAt && <span className="bucket-detail-chip tone-gold"><Trophy size={13} /> Achieved {formatDate(item.achievedAt)}</span>}
           </div>
 
-          {item.notes && toPlainText(item.notes) && (
-            <section>
-              <h3>Why it matters</h3>
-              <div className="bucket-detail-notes" dangerouslySetInnerHTML={{ __html: sanitizeHtml(item.notes) }} />
-            </section>
-          )}
+          <section>
+            <h3>Details</h3>
+            <div className="bucket-detail-fields">
+              <label className="wide"><span>Title</span><input type="text" value={item.title} onChange={e => patchItem(item, { title: e.target.value })} placeholder="What's the goal?" /></label>
+              <label><span>Location</span><input type="text" value={item.location ?? ''} onChange={e => patchItem(item, { location: e.target.value || undefined })} placeholder="Country or city" /></label>
+              <label>
+                <span>Category</span>
+                <select value={item.category} onChange={e => patchItem(item, { category: e.target.value })}>
+                  {allCategories.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </label>
+              <label><span>Target date</span><DatePicker value={item.targetDate} onChange={v => patchItem(item, { targetDate: v || undefined, askAgainOn: undefined })} placeholder="No target date" allowClear /></label>
+              <label>
+                <span>Cost</span>
+                <select value={item.costTier ?? ''} onChange={e => patchItem(item, { costTier: (e.target.value || undefined) as CostTier | undefined })}>
+                  <option value="">Not set</option>
+                  {COST_TIERS.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </label>
+              <label className="wide">
+                <span>Cover photo</span>
+                <span className="bucket-cover-edit">
+                  <input type="text" value={uploadedCover ? '' : item.coverArt ?? ''} placeholder={uploadedCover ? 'Using your uploaded photo' : 'Paste an image link…'}
+                    onChange={e => patchItem(item, { coverArt: e.target.value || undefined })} />
+                  <button type="button" className="btn ghost small" onClick={() => triggerCoverUpload(item)}><Upload size={13} /> Upload</button>
+                  <button type="button" className="btn ghost small" onClick={() => { closeDetail(); startEdit(item); }} title="Search for a photo in the full form"><Search size={13} /> Search</button>
+                  {item.coverArt && <button type="button" className="btn ghost small" onClick={() => patchItem(item, { coverArt: undefined })}>Remove</button>}
+                </span>
+              </label>
+            </div>
+          </section>
+
+          <section>
+            <h3>Why it matters</h3>
+            <RichTextEditor value={item.notes ?? ''} onChange={v => patchItem(item, { notes: v })} placeholder="What makes this one matter…" />
+          </section>
 
           <section>
             <h3>Steps to get there {total > 0 && <span>{done} of {total} done</span>}</h3>
@@ -813,10 +1032,27 @@ export function Travel() {
                     onChange={e => patchItem(item, { budget: e.target.value === '' ? undefined : Number(e.target.value) })} />
                 </label>
               </div>
+              {nights != null && nights < 0 && (
+                <p className="bucket-trip-warn"><AlertTriangle size={13} /> “Back” is before “Leaving” — fix one of the dates and the trip will show on the Calendar.</p>
+              )}
               {item.budget != null && nights != null && nights > 0 && (
                 <p className="muted bucket-trip-note">About {formatCurrency(item.budget / nights)} a night.</p>
               )}
-              <h4>Pack &amp; book {packing.length > 0 && <span>{packing.filter(p => p.done).length} of {packing.length}</span>}</h4>
+              {item.budget != null && item.budget > 0 && (savings ? (
+                <div className="bucket-savings">
+                  <span><PiggyBank size={14} /> Saved <b>{formatCurrency(savings.currentAmount)}</b> of {formatCurrency(savings.targetAmount)}</span>
+                  <ProgressBar value={savings.targetAmount > 0 ? Math.min(100, (savings.currentAmount / savings.targetAmount) * 100) : 0} />
+                  <button type="button" className="text-btn" onClick={openFinanceSavings}>Open in Finance</button>
+                </div>
+              ) : (
+                <button type="button" className="btn ghost small bucket-savings-start" onClick={() => startSaving(item)}>
+                  <PiggyBank size={14} /> Save for this in Finance
+                </button>
+              ))}
+              <h4>
+                Pack &amp; book {packing.length > 0 && <span>{packing.filter(p => p.done).length} of {packing.length}</span>}
+                <button type="button" className="text-btn bucket-basics" onClick={() => addPackingBasics(item)}>+ Add the basics</button>
+              </h4>
               {renderChecklist(item, 'packing', packDraft, setPackDraft, 'Add something — e.g. Passport, travel insurance')}
             </section>
           )}
@@ -834,12 +1070,12 @@ export function Travel() {
                 placeholder="How did it feel? What will you remember?"
               />
               <div className="bucket-journal-photos">
-                {(item.memoryPhotos ?? []).map(url => (
+                {photos.map(url => (
                   <div className={`bucket-journal-photo ${brokenPhotos.has(url) ? 'broken' : ''}`} key={url}>
                     {brokenPhotos.has(url) ? (
                       <span className="bucket-photo-missing" title="This photo's link no longer works"><ImageOff size={18} /><small>Photo unavailable</small></span>
                     ) : (
-                      <button type="button" className="bucket-journal-photo-expand" onClick={() => setLightboxUrl(url)} aria-label="View full-size photo">
+                      <button type="button" className="bucket-journal-photo-expand" onClick={() => { const ok = photos.filter(u => !brokenPhotos.has(u)); setLightbox({ urls: ok, index: Math.max(0, ok.indexOf(url)) }); }} aria-label="View full-size photo">
                         <img src={url} alt="" onError={() => markBroken(url)} />
                       </button>
                     )}
@@ -895,6 +1131,30 @@ export function Travel() {
               <b>{counts[st]}</b> {st.toLowerCase()}
             </button>
           ))}
+          {editingTarget ? (
+            <span className="bucket-year editing">
+              <input type="number" min="1" max="99" autoFocus value={targetDraft} placeholder="e.g. 4" aria-label="Goals to achieve each year"
+                onChange={e => setTargetDraft(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') saveYearTarget(); if (e.key === 'Escape') setEditingTarget(false); }} />
+              <span>a year</span>
+              <button type="button" className="text-btn" onClick={saveYearTarget}>Set</button>
+            </span>
+          ) : (
+            <button type="button" className="bucket-year" onClick={() => { setTargetDraft(yearTarget ? String(yearTarget) : ''); setEditingTarget(true); }}
+              title={yearTarget ? 'Change your yearly target' : 'Set how many you want to achieve each year'}>
+              {yearTarget ? (
+                <>
+                  <svg viewBox="0 0 36 36" aria-hidden="true">
+                    <circle cx="18" cy="18" r="15" className="track" />
+                    <circle cx="18" cy="18" r="15" className="fill" strokeDasharray={`${Math.min(1, achievedThisYear / yearTarget) * 94.2} 94.2`} />
+                  </svg>
+                  <b>{achievedThisYear}</b> of {yearTarget} in {thisYear}
+                </>
+              ) : (
+                <>+ Yearly target</>
+              )}
+            </button>
+          )}
           {next && nextLabel && (
             <button type="button" className={`bucket-summary-next tone-${nextLabel.tone}`} onClick={() => setDetailId(next.id)}>
               <span>Next up</span> <b>{next.title}</b> <i>{nextLabel.text}</i>
@@ -909,7 +1169,8 @@ export function Travel() {
           <span><b>{item.title}</b> — its target date ({formatDate(item.targetDate)}) has arrived. Did you do it?</span>
           <button type="button" className="btn teal" onClick={() => markAchieved(item)}>Yes, achieved</button>
           <button type="button" className="btn ghost" onClick={() => startEdit(item)}>New date</button>
-          <button type="button" className="icon-btn" onClick={() => setSnoozed(prev => new Set(prev).add(item.id))} aria-label="Ask me later" title="Ask me later"><X size={14} /></button>
+          <button type="button" className="btn ghost" onClick={() => askInAWeek(item)}>Ask in a week</button>
+          <button type="button" className="icon-btn" onClick={() => setSnoozed(prev => new Set(prev).add(item.id))} aria-label="Hide for now" title="Hide for now"><X size={14} /></button>
         </div>
       ))}
 
@@ -928,16 +1189,31 @@ export function Travel() {
             ))}
           </div>}
           <div className="bucket-chip-row">
-            {CATEGORIES.map(cat => (
-              <button
-                type="button"
-                key={cat}
-                className={`bucket-chip ${categoryTab === cat ? 'on' : ''}`}
-                onClick={() => setCategoryTab(prev => (prev === cat ? null : cat))}
-              >
-                {cat}
-              </button>
-            ))}
+            {allCategories.map(cat => {
+              const removable = customCategories.includes(cat) && !items.some(i => i.category === cat);
+              return (
+                <span className="bucket-chip-wrap" key={cat}>
+                  <button
+                    type="button"
+                    className={`bucket-chip ${categoryTab === cat ? 'on' : ''}`}
+                    onClick={() => setCategoryTab(prev => (prev === cat ? null : cat))}
+                  >
+                    {cat}
+                  </button>
+                  {removable && <button type="button" className="bucket-chip-remove" onClick={() => removeCategory(cat)} aria-label={`Remove the ${cat} category`} title="Remove this category (no goals use it)"><X size={10} /></button>}
+                </span>
+              );
+            })}
+            {addingCategory ? (
+              <input
+                className="bucket-chip-input" autoFocus value={categoryDraft} placeholder="New category" aria-label="New category name"
+                onChange={e => setCategoryDraft(e.target.value)}
+                onBlur={addCategory}
+                onKeyDown={e => { if (e.key === 'Enter') addCategory(); if (e.key === 'Escape') { setCategoryDraft(''); setAddingCategory(false); } }}
+              />
+            ) : (
+              <button type="button" className="bucket-chip bucket-chip-add" onClick={() => setAddingCategory(true)} aria-label="Add a category" title="Add your own category"><Plus size={12} /></button>
+            )}
           </div>
         </div>
         <div className="bucket-toolbar-right">
@@ -949,6 +1225,7 @@ export function Travel() {
             <div className="bucket-sort">
               <ArrowUpDown size={13} />
               <select value={sortBy} onChange={e => setSortBy(e.target.value as SortBy)} aria-label="Sort goals">
+                <option value="smart">Planning first</option>
                 <option value="recent">Recently updated</option>
                 <option value="title">Title A–Z</option>
                 <option value="target">Target date</option>
@@ -1009,45 +1286,18 @@ export function Travel() {
           })}
         </div>
       ) : layout === 'map' ? (
-        <div className="bucket-map-wrap">
-          <div className="bucket-map">
-            <svg viewBox={`0 0 ${MAP_W} ${MAP_H}`} role="img" aria-label="World map of your goals">
-              <path d={LAND_PATH} className="bucket-map-land" />
-              {placed.map(({ item, at }) => {
-                const [x, y] = project(at.lon, at.lat);
-                return (
-                  <g key={item.id} className={`bucket-map-pin status-${item.status.toLowerCase()}`} transform={`translate(${x} ${y})`}
-                    onClick={() => setDetailId(item.id)} role="button" tabIndex={0}
-                    onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setDetailId(item.id); } }}>
-                    <title>{`${item.title}${item.location ? ` — ${item.location}` : ''} (${item.status})`}</title>
-                    <circle r="11" className="bucket-map-halo" />
-                    <circle r="5.5" />
-                  </g>
-                );
-              })}
-            </svg>
-            <div className="bucket-map-legend">
-              <span className="status-achieved"><i /> Achieved</span>
-              <span className="status-planning"><i /> Planning</span>
-              <span className="status-someday"><i /> Someday</span>
-            </div>
-          </div>
-          {placed.length > 0 && (
-            <div className="bucket-map-list">
-              {placed.map(({ item }) => (
-                <button type="button" key={item.id} onClick={() => setDetailId(item.id)}>
-                  <i className={`status-${item.status.toLowerCase()}`} /> <b>{item.title}</b> <small>{item.location ?? ''}</small>
-                </button>
-              ))}
-            </div>
-          )}
-          {unplaced.length > 0 && (
-            <p className="muted bucket-map-unplaced">
-              Not on the map ({unplaced.length}): {unplaced.map(i => i.title).join(', ')}. Add a country or city to a goal’s Location to place it.
-            </p>
-          )}
-          {!filteredAllStatuses.length && <Card><EmptyState>Nothing matches these filters.</EmptyState></Card>}
-        </div>
+        filteredAllStatuses.length ? (
+          <BucketMap
+            entries={placed}
+            unplaced={unplaced}
+            stat={visitedStat}
+            onOpen={setDetailId}
+            onPlace={(id, lon, lat) => { const item = items.find(i => i.id === id); if (item) patchItem(item, { pin: { lon, lat } }); }}
+            onClearPin={id => { const item = items.find(i => i.id === id); if (item) patchItem(item, { pin: undefined }); }}
+          />
+        ) : (
+          <Card><EmptyState>Nothing matches these filters.</EmptyState></Card>
+        )
       ) : layout === 'memories' ? (
         memoryYears.length ? (
           <div className="bucket-memories">
@@ -1060,16 +1310,22 @@ export function Travel() {
                     const hero = photos[0] ?? item.coverArt;
                     const words = toPlainText(item.reflection ?? '');
                     return (
-                      <button type="button" key={item.id} className="bucket-memory" onClick={() => setDetailId(item.id)}>
-                        <span className="bucket-memory-hero" style={hero ? { backgroundImage: `url(${hero})` } : undefined}>
-                          {photos.length > 1 && <i>+{photos.length - 1}</i>}
-                        </span>
+                      <div key={item.id} className="bucket-memory" role="button" tabIndex={0} onClick={() => setDetailId(item.id)}
+                        onKeyDown={e => { if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); setDetailId(item.id); } }}>
+                        {photos.length ? (
+                          <button type="button" className="bucket-memory-hero" style={{ backgroundImage: `url(${hero})` }}
+                            onClick={e => { e.stopPropagation(); setLightbox({ urls: photos, index: 0 }); }} aria-label={`View ${photos.length} photo${photos.length === 1 ? '' : 's'} from ${item.title}`}>
+                            {photos.length > 1 && <i>+{photos.length - 1}</i>}
+                          </button>
+                        ) : (
+                          <span className="bucket-memory-hero" style={hero ? { backgroundImage: `url(${hero})` } : undefined} />
+                        )}
                         <span className="bucket-memory-body">
                           <b>{item.title}</b>
                           <small><Trophy size={11} /> {item.achievedAt ? formatDate(item.achievedAt) : 'No date'}{item.location ? ` · ${item.location}` : ''}</small>
                           <span className={words ? '' : 'muted'}>{words || 'No reflection written yet — tap to add one.'}</span>
                         </span>
-                      </button>
+                      </div>
                     );
                   })}
                 </div>
@@ -1127,7 +1383,13 @@ export function Travel() {
                       >
                         {item.status === 'Achieved' && <Trophy size={9} />}{item.status} <ChevronDown size={9} />
                       </button>
-                      {item.costTier && <span className="bucket-cost-pill">{item.costTier}</span>}
+                      <span className="bucket-card-top-right">
+                        <button type="button" className={`bucket-pick ${item.topPick ? 'on' : ''}`} onClick={e => { e.stopPropagation(); patchItem(item, { topPick: !item.topPick }); }}
+                          aria-pressed={Boolean(item.topPick)} aria-label={item.topPick ? 'Remove from top picks' : 'Make this a top pick'} title={item.topPick ? 'Top pick — tap to remove' : 'Make this a top pick'}>
+                          <Star size={12} fill={item.topPick ? 'currentColor' : 'none'} />
+                        </button>
+                        {item.costTier && <span className="bucket-cost-pill">{item.costTier}</span>}
+                      </span>
                     </div>
                     <div className="bucket-card-actions">
                       <button type="button" className="icon-btn" onClick={e => { e.stopPropagation(); startEdit(item); }} aria-label={`Edit ${item.title}`}><Pencil size={13} /></button>
@@ -1167,17 +1429,38 @@ export function Travel() {
       )}
 
       {detail && renderDetail(detail)}
-      {showForm && <ItemFormModal item={formItem} onClose={closeForm} onSave={save} />}
+      {showForm && <ItemFormModal item={formItem} categories={allCategories} onClose={closeForm} onSave={save} />}
       {deckOpen && <DiscoveryDeck existingTitles={existingTitles} onAdd={addFromDeck} onClose={() => setDeckOpen(false)} />}
-      {lightboxUrl && (
-        <div className="photo-lightbox-overlay" onClick={() => setLightboxUrl(null)}>
-          <button type="button" className="photo-lightbox-close" onClick={() => setLightboxUrl(null)} aria-label="Close">
+      {lightbox && lightbox.urls.length > 0 && (
+        <div className="photo-lightbox-overlay" onClick={() => setLightbox(null)}>
+          <button type="button" className="photo-lightbox-close" onClick={() => setLightbox(null)} aria-label="Close">
             <X size={20} />
           </button>
-          <img src={lightboxUrl} alt="" className="photo-lightbox-image" onClick={e => e.stopPropagation()} />
+          {lightbox.urls.length > 1 && (
+            <button type="button" className="photo-lightbox-nav prev" aria-label="Previous photo"
+              onClick={e => { e.stopPropagation(); setLightbox({ ...lightbox, index: (lightbox.index - 1 + lightbox.urls.length) % lightbox.urls.length }); }}>
+              <ChevronLeft size={22} />
+            </button>
+          )}
+          <img src={lightbox.urls[lightbox.index]} alt="" className="photo-lightbox-image" onClick={e => e.stopPropagation()} />
+          {lightbox.urls.length > 1 && (
+            <>
+              <button type="button" className="photo-lightbox-nav next" aria-label="Next photo"
+                onClick={e => { e.stopPropagation(); setLightbox({ ...lightbox, index: (lightbox.index + 1) % lightbox.urls.length }); }}>
+                <ChevronRight size={22} />
+              </button>
+              <span className="photo-lightbox-count">{lightbox.index + 1} of {lightbox.urls.length}</span>
+            </>
+          )}
         </div>
       )}
+      {celebrate > 0 && <Confetti key={celebrate} />}
+      <input ref={coverFileRef} type="file" accept="image/*" hidden onChange={e => void onCoverFileSelected(e)} />
       <input ref={fileInputRef} type="file" accept="image/*" hidden onChange={e => void onPhotoFileSelected(e)} />
+      {/* Off-screen copies of every linked memory photo: one that fails to load is marked broken. */}
+      <div className="bucket-photo-probes" aria-hidden="true">
+        {photoUrls.filter(u => !brokenPhotos.has(u)).map(u => <img key={u} src={u} alt="" onError={() => markBroken(u)} />)}
+      </div>
     </>
   );
 }

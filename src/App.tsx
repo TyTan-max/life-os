@@ -85,8 +85,14 @@ function Shell() {
     // Pages can open the palette too (e.g. Second Brain's "Jump to…" button).
     const openPalette = () => { setShortcutsOpen(false); setPaletteOpen(true); };
     window.addEventListener('keydown', handler);
+    const onNavigate = (e: Event) => {
+      const detail = (e as CustomEvent<{ page?: string; tab?: string }>).detail;
+      if (detail?.page) navigate(detail.page, detail.tab);
+    };
     window.addEventListener('lifeos:open-palette', openPalette);
+    window.addEventListener('lifeos:navigate', onNavigate);
     return () => {
+      window.removeEventListener('lifeos:navigate', onNavigate);
       window.removeEventListener('keydown', handler);
       window.removeEventListener('lifeos:open-palette', openPalette);
     };

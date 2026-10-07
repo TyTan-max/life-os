@@ -654,7 +654,8 @@ export function AllNotes({ onOpen }: { onOpen: (note: LoggedNote) => void }) {
           <span className="allnotes-images">
             {n.images.slice(0, 3).map((img, i) => (
               <button type="button" key={i} onClick={e => { e.stopPropagation(); setLightbox({ images: n.images!, index: i }); }} title={img.label || 'Screenshot — tap to enlarge'} aria-label={img.label || `Screenshot ${i + 1}`}>
-                <img src={img.src} alt={img.label ?? ''} loading="lazy" />
+                {/* A picture whose link has died hides its tile rather than showing a broken image. */}
+                <img src={img.src} alt={img.label ?? ''} loading="lazy" onError={e => { const tile = e.currentTarget.closest('button'); if (tile) tile.style.display = 'none'; }} />
               </button>
             ))}
             {n.images.length > 3 && (

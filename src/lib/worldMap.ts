@@ -129,3 +129,21 @@ export function locate(location?: string, title?: string): { lon: number; lat: n
   }
   return null;
 }
+
+/** x/y on the map → longitude/latitude (the reverse of `project`). */
+export function unproject(x: number, y: number): [number, number] {
+  const lon = (x / MAP_W) * 360 - 180;
+  const lat = LAT_TOP - (y / MAP_H) * (LAT_TOP - LAT_BOTTOM);
+  return [Math.round(lon * 10) / 10, Math.round(lat * 10) / 10];
+}
+
+/** Roughly which continent a point is on — for "3 continents" style counts, not borders. */
+export function continentOf(lon: number, lat: number): string {
+  if (lat < -56) return 'Antarctica';
+  if (lon < -30) return lat > 12.5 ? 'North America' : 'South America';
+  if (lon > 110 && lat < -8) return 'Oceania';
+  if (lon > 160 && lat < 0) return 'Oceania';
+  if (lon >= -30 && lon < 60 && lat < 37 && !(lon > 34 && lat > 12)) return 'Africa';
+  if (lon < 45 && lat >= 35) return 'Europe';
+  return 'Asia';
+}

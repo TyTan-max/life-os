@@ -557,7 +557,8 @@ export interface Medication extends BaseRecord {
   flags?: MedicationFlag[];
 }
 
-export type BucketListCategory = 'Travel' | 'Experience' | 'Skill' | 'Other';
+// The four built-ins, plus any you add yourself (Settings.bucketCategories).
+export type BucketListCategory = 'Travel' | 'Experience' | 'Skill' | 'Other' | (string & {});
 export type BucketListStatus = 'Someday' | 'Planning' | 'Achieved';
 export type CostTier = '$' | '$$' | '$$$';
 
@@ -578,6 +579,14 @@ export interface BucketListItem extends BaseRecord {
   notes?: string;
   subtasks?: BucketListSubtask[];
   order?: number;
+  /** Kept at the front of its group — the few you most want to get to. */
+  topPick?: boolean;
+  /** A pin dropped on the map by hand, for places the built-in lookup doesn't know. */
+  pin?: { lon: number; lat: number };
+  /** "Did you do it?" was put off until this date. */
+  askAgainOn?: string;
+  /** The Finance savings goal created for this trip's budget. */
+  savingsGoalId?: string;
   // Trip plan (Travel goals): when you're going, a rough budget, and what to pack or book.
   tripStart?: string;
   tripEnd?: string;
@@ -667,6 +676,10 @@ export type Theme = 'light' | 'dark' | 'system';
 export interface Settings {
   /** Notes starred on the All Notes page (ids from lib/loggedNotes). */
   starredNoteIds?: string[];
+  /** Bucket-list categories added on top of the built-in four. */
+  bucketCategories?: string[];
+  /** How many bucket-list goals you're aiming to achieve each year. */
+  bucketYearTarget?: number;
   /** HH:MM — nudge to write a day note if none exists for today by then (All Notes). */
   dayNoteReminderTime?: string;
   userName: string;
