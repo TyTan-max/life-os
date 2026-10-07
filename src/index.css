@@ -6960,3 +6960,141 @@ tr.recur-paused td:nth-child(4) { opacity: 1; }
 .allnotes-context:empty { display: none; }
 .allnotes-range .date-picker { min-width: 138px; }
 @media (max-width: 560px) { .allnotes-range { flex: 1 1 100%; } .allnotes-range .date-picker { flex: 1; min-width: 0; } }
+
+/* All Notes — v4: layout and reading pass */
+/* .main-content hides sideways overflow, which would make it (not the page) the scroller for
+   anything sticky inside it — the month headers and the side rail here. */
+.main-content:has(.allnotes-root) { overflow-x: clip; overflow-y: visible; min-width: 0; }
+@keyframes allnotes-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+.allnotes-root .page-header { margin-bottom: 12px; }
+.allnotes-share { width: 38px; height: 38px; justify-content: center; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
+.allnotes-share:hover { background: var(--surface-hover); }
+.allnotes-menu-title { padding: 6px 10px 4px; font-size: 11.5px; color: var(--text-faint); }
+.allnotes-done { display: flex; align-items: center; gap: 6px; margin: -4px 0 10px; font-size: 13px; color: var(--green); }
+
+/* One bar: search, filters, new note. */
+.allnotes-sticky { margin-bottom: 12px; }
+.allnotes-bar { display: flex; align-items: center; gap: 8px; }
+.allnotes-bar .allnotes-search { flex: 1; max-width: none; }
+.allnotes-bar-btn { flex-shrink: 0; height: 42px; padding: 0 14px; gap: 6px; font-size: 13.5px; }
+.allnotes-bar-btn.on { border-color: var(--accent); color: var(--accent); }
+.allnotes-bar-btn i { display: grid; place-items: center; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px; background: var(--accent); color: #fff; font-size: 11px; font-style: normal; font-weight: 700; }
+.allnotes-filters { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px 18px; margin-bottom: 12px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); animation: allnotes-in 0.16s ease-out; }
+.allnotes-filters label { display: grid; gap: 4px; }
+.allnotes-filters label > span:first-child { font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-faint); }
+.allnotes-filters select { height: 34px; padding: 0 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); color: var(--text); font: inherit; font-size: 13px; }
+.allnotes-filters .segmented button { min-height: 32px; padding: 0 12px; font-size: 13px; }
+.allnotes-filters .text-btn { height: 34px; font-size: 13px; }
+.allnotes-subchips { margin-bottom: 12px; }
+.allnotes-compose { max-width: none; animation: allnotes-in 0.16s ease-out; }
+
+/* Notes beside a jump rail on wide screens; one column otherwise. */
+.allnotes-layout { display: grid; grid-template-columns: minmax(0, 860px); gap: 28px; align-items: start; }
+.allnotes-sticky, .allnotes-filters, .allnotes-subchips, .allnotes-compose { max-width: 860px; }
+.allnotes-rail { display: none; }
+@media (min-width: 1240px) {
+  .allnotes-layout { grid-template-columns: minmax(0, 1fr) 220px; }
+  .allnotes-sticky, .allnotes-filters, .allnotes-subchips, .allnotes-compose { max-width: none; }
+  .allnotes-rail { display: grid; gap: 20px; position: sticky; top: 16px; max-height: calc(100vh - 32px); overflow-y: auto; }
+}
+.allnotes-rail h3 { display: flex; align-items: center; gap: 6px; margin: 0 0 6px; font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-faint); }
+.allnotes-rail h3 svg { color: var(--amber); }
+.allnotes-rail > div { display: grid; gap: 1px; }
+.allnotes-rail button { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; width: 100%; padding: 6px 8px; border: 0; border-radius: 7px; background: transparent; color: var(--text-muted); font: inherit; font-size: 13px; text-align: left; cursor: pointer; }
+.allnotes-rail button:hover { background: var(--surface-hover); color: var(--text); }
+.allnotes-rail button i { font-style: normal; font-size: 11.5px; color: var(--text-faint); }
+.allnotes-rail-note span { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; font-size: 12.5px; line-height: 1.4; }
+
+/* On this day: one line until opened. */
+.allnotes-onthisday { max-width: none; margin-bottom: 14px; grid-template-columns: minmax(0, 1fr); }
+.allnotes-main { min-width: 0; }
+.allnotes-otd-strip { display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); color: var(--text); font: inherit; font-size: 13px; text-align: left; cursor: pointer; }
+.allnotes-otd-strip:hover { background: var(--surface-hover); }
+.allnotes-otd-strip svg { flex-shrink: 0; color: var(--text-faint); }
+.allnotes-otd-strip b { flex-shrink: 0; font-size: 12px; color: var(--accent); }
+.allnotes-otd-strip span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-muted); }
+.allnotes-otd-strip i { flex-shrink: 0; font-style: normal; font-size: 11.5px; color: var(--text-faint); }
+.allnotes-otd-list { animation: allnotes-in 0.16s ease-out; }
+
+/* The timeline: one list per month, the day in a gutter on the left. */
+.allnotes-days { max-width: none; gap: 22px; animation: allnotes-in 0.18s ease-out; }
+.allnotes-month { gap: 8px; }
+.allnotes-month-head { position: sticky; top: var(--allnotes-top, 0px); z-index: 3; padding: 9px 2px; background: var(--bg); }
+.allnotes-month-head b { font-size: 16.5px; font-weight: 700; }
+.allnotes-timeline { animation: allnotes-in 0.18s ease-out; }
+.allnotes-dayrow { display: grid; grid-template-columns: 92px minmax(0, 1fr); border-bottom: 1px solid var(--border); }
+.allnotes-dayrow:last-child { border-bottom: 0; }
+.allnotes-date { display: grid; align-content: start; gap: 1px; padding: 14px 8px 12px 14px; line-height: 1.25; }
+.allnotes-date b { font-size: 13.5px; }
+.allnotes-date small { font-size: 11.5px; color: var(--text-faint); }
+.allnotes-daynotes { min-width: 0; border-left: 1px solid var(--border); }
+.allnotes-daynotes .allnotes-item:last-child { border-bottom: 0; }
+.allnotes-standing { max-width: none; }
+
+/* The note is what you read; its labels step back. */
+.allnotes-item { gap: 7px; padding: 13px 14px; }
+.allnotes-text { font-size: 15px; line-height: 1.55; }
+.allnotes-context { font-size: 12px; color: var(--text-faint); }
+.allnotes-tag { font-size: 10.5px; }
+.allnotes-item.starred { background: color-mix(in srgb, var(--amber) 7%, transparent); box-shadow: inset 3px 0 0 var(--amber); }
+.allnotes-item.starred:hover { background: color-mix(in srgb, var(--amber) 11%, transparent); }
+
+/* A workout's short notes: exercise on the left, its sets on the same line. */
+.allnotes-part.inline { grid-template-columns: minmax(0, 44%) minmax(0, 1fr) auto; align-items: baseline; column-gap: 12px; }
+.allnotes-part.inline > b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; font-weight: 600; color: var(--text-muted); }
+.allnotes-part.inline .allnotes-text { font-size: 14px; white-space: normal; }
+.allnotes-part.inline + .allnotes-part.inline { padding-top: 4px; border-top: 0; }
+.allnotes-part.inline .allnotes-icon { opacity: 0; transition: opacity 0.1s; }
+.allnotes-item:hover .allnotes-part.inline .allnotes-icon, .allnotes-part.inline .allnotes-icon:focus-visible { opacity: 1; }
+
+/* Screenshots big enough to read as charts. */
+.allnotes-images { gap: 8px; margin-top: 4px; }
+.allnotes-images button { width: 156px; height: 100px; border-radius: 8px; }
+.allnotes-images button.allnotes-images-more { display: grid; place-items: center; width: 64px; color: var(--text-muted); font: inherit; font-size: 15px; font-weight: 700; cursor: pointer; }
+.allnotes-lightbox img { max-height: calc(100vh - 100px); }
+.allnotes-lightbox figcaption span { opacity: 0.7; }
+.allnotes-lightbox-nav { position: absolute; top: 50%; display: grid; place-items: center; width: 44px; height: 44px; border: 0; border-radius: 50%; background: rgba(255, 255, 255, 0.14); color: #fff; transform: translateY(-50%); cursor: pointer; }
+.allnotes-lightbox-nav:hover { background: rgba(255, 255, 255, 0.24); }
+.allnotes-lightbox-nav.prev { left: 16px; }
+.allnotes-lightbox-nav.next { right: 16px; }
+
+.allnotes-empty { display: grid; justify-items: center; gap: 6px; padding: 44px 16px; border: 1px dashed var(--border); border-radius: 12px; text-align: center; color: var(--text-muted); animation: allnotes-in 0.18s ease-out; }
+.allnotes-empty svg { color: var(--text-faint); }
+.allnotes-empty b { font-size: 15px; color: var(--text); }
+.allnotes-empty p { max-width: 420px; margin: 0 0 6px; font-size: 13.5px; }
+
+/* Fingers need more room than a cursor. */
+@media (hover: none) {
+  .allnotes-icon { width: 34px; height: 34px; margin: -6px -4px; }
+  .allnotes-actions { gap: 12px; }
+  .allnotes-part.inline .allnotes-icon { opacity: 0.7; }
+}
+@media (max-width: 560px) {
+  .allnotes-bar-btn { padding: 0 12px; }
+  .allnotes-bar-btn > span { display: none; }
+  /* The chip row scrolls sideways; fading its end says so. */
+  .allnotes-chips-main { padding-right: 28px; -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 32px), transparent); mask-image: linear-gradient(to right, #000 calc(100% - 32px), transparent); }
+  .allnotes-filters { gap: 10px 12px; }
+  .allnotes-filters label { flex: 1 1 auto; }
+  .allnotes-filters select { width: 100%; }
+  /* The day becomes a slim divider above its notes. */
+  .allnotes-dayrow { grid-template-columns: minmax(0, 1fr); }
+  .allnotes-date { display: flex; align-items: baseline; gap: 6px; padding: 7px 14px 6px; border-bottom: 1px solid var(--border); background: color-mix(in srgb, var(--surface-hover) 55%, transparent); }
+  .allnotes-date b { font-size: 12.5px; }
+  .allnotes-daynotes { border-left: 0; }
+  /* Too narrow for side by side: the exercise, then its sets on one line beneath. */
+  .allnotes-part.inline { grid-template-columns: minmax(0, 1fr) auto; column-gap: 8px; row-gap: 1px; }
+  .allnotes-part.inline > b { grid-column: 1; grid-row: 1; white-space: normal; }
+  .allnotes-part.inline .allnotes-text { grid-column: 1; grid-row: 2; }
+  .allnotes-part.inline .allnotes-icon { grid-column: 2; grid-row: 1 / span 2; align-self: center; }
+  .allnotes-images button { flex: 1 1 0; width: auto; max-width: 156px; height: 78px; }
+  .allnotes-images button.allnotes-images-more { flex: 0 0 48px; }
+  .allnotes-lightbox { padding: 12px; }
+  .allnotes-lightbox-nav.prev { left: 6px; }
+  .allnotes-lightbox-nav.next { right: 6px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .allnotes-days, .allnotes-timeline, .allnotes-filters, .allnotes-compose, .allnotes-otd-list, .allnotes-empty { animation: none; }
+}
+/* Inside one card, exercises are separated by space, not rules. */
+.allnotes-part + .allnotes-part { padding-top: 6px; border-top: 0; }

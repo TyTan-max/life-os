@@ -1,8 +1,8 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import {
-  ArrowDownWideNarrow, ArrowUpNarrowWide, ArrowUpRight, BookmarkPlus, Check, ChevronDown, ChevronRight, ClipboardCopy,
-  FileText, List, Pencil, Plus, Rows3, Search, Share, Star, X
+  ArrowUpRight, BookmarkPlus, Check, ChevronDown, ChevronLeft, ChevronRight, ClipboardCopy,
+  FileText, NotebookText, Pencil, Plus, Search, Share, SlidersHorizontal, Star, X
 } from 'lucide-react';
 import { useStore, newRecord } from '../store';
 import { PageHeader } from '../components/UI';
@@ -125,7 +125,10 @@ export function AllNotes({ onOpen }: { onOpen: (note: LoggedNote) => void }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [done, setDone] = useState<string | null>(null);
   const [flashId, setFlashId] = useState<string | null>(null);
-  const [lightbox, setLightbox] = useState<{ src: string; label?: string } | null>(null);
+  const [lightbox, setLightbox] = useState<{ images: { src: string; label?: string }[]; index: number } | null>(null);
+  const [filtersOpen, setFiltersOpen] = useState(() => saved.range === 'custom');
+  const [otdOpen, setOtdOpen] = useState(false);
+  const stickyRef = useRef<HTMLDivElement>(null);
   const [composing, setComposing] = useState(false);
   const [draft, setDraft] = useState('');
   const [draftDate, setDraftDate] = useState(() => isoOf(new Date()));
@@ -171,6 +174,31 @@ export function AllNotes({ onOpen }: { onOpen: (note: LoggedNote) => void }) {
     reveal(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // On a phone the search + chips bar is pinned; month headers pin just under it.
+  useLayoutEffect(() => {
+    const bar = stickyRef.current;
+    const root = rootRef.current;
+    if (!bar || !root) return;
+    const measure = () => root.style.setProperty('--allnotes-top', getComputedStyle(bar).position === 'sticky' ? `${bar.offsetHeight}px` : '0px');
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(bar);
+    window.addEventListener('resize', measure);
+    return () => { observer.disconnect(); window.removeEventListener('resize', measure); };
+  }, []);
+
+  // Screenshot viewer: arrows step through a day's screenshots, Esc closes.
+  useEffect(() => {
+    if (!lightbox) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setLightbox(null);
+      if (e.key === 'ArrowRight') setLightbox(l => (l ? { ...l, index: (l.index + 1) % l.images.length } : l));
+      if (e.key === 'ArrowLeft') setLightbox(l => (l ? { ...l, index: (l.index - 1 + l.images.length) % l.images.length } : l));
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [lightbox]);
 
   // "/" jumps to the search box.
   useEffect(() => {
@@ -338,6 +366,21 @@ export function AllNotes({ onOpen }: { onOpen: (note: LoggedNote) => void }) {
     // Formatted notes are edited in their own editor (there's no rich-text box here).
     const editable = Boolean(p.target) && !p.html;
     const clamp = long && !open ? (compact ? 'clamped-1' : 'clamped') : '';
+    // Short notes under an exercise ("10-10" per set) read better on one line beside its name.
+    const lines = p.text.split('\n');
+    if (p.label && !isEditing && !p.html && lines.length <= 6 && lines.every(l => l.length <= 16)) {
+      return (
+        <div className="allnotes-part inline" key={key}>
+          <b>{highlight(p.label, q)}</b>
+          <span className="allnotes-text">{highlight(lines.join('  ·  '), q)}</span>
+          {editable && (
+            <button type="button" className="allnotes-icon" onClick={e => { e.stopPropagation(); setEditing({ key, draft: p.text }); }} aria-label="Edit this note" title="Edit here">
+              <Pencil size={13} />
+            </button>
+          )}
+        </div>
+      );
+    }
     return (
       <div className="allnotes-part" key={key}>
         {/* A card's only note keeps its pencil up in the header row; a workout's exercises each get their own. */}
@@ -435,11 +478,16 @@ export function AllNotes({ onOpen }: { onOpen: (note: LoggedNote) => void }) {
         {n.parts.map((p, i) => renderPart(n, p, i, single))}
         {n.images && !compact && (
           <span className="allnotes-images">
-            {n.images.map((img, i) => (
-              <button type="button" key={i} onClick={e => { e.stopPropagation(); setLightbox(img); }} title={img.label || 'Screenshot — tap to enlarge'} aria-label={img.label || `Screenshot ${i + 1}`}>
+            {n.images.slice(0, 3).map((img, i) => (
+              <button type="button" key={i} onClick={e => { e.stopPropagation(); setLightbox({ images: n.images!, index: i }); }} title={img.label || 'Screenshot — tap to enlarge'} aria-label={img.label || `Screenshot ${i + 1}`}>
                 <img src={img.src} alt={img.label ?? ''} loading="lazy" />
               </button>
             ))}
+            {n.images.length > 3 && (
+              <button type="button" className="allnotes-images-more" onClick={e => { e.stopPropagation(); setLightbox({ images: n.images!, index: 3 }); }} aria-label={`${n.images.length - 3} more screenshots`}>
+                +{n.images.length - 3}
+              </button>
+            )}
           </span>
         )}
       </div>
@@ -453,20 +501,44 @@ export function AllNotes({ onOpen }: { onOpen: (note: LoggedNote) => void }) {
     window.setTimeout(() => standingRef.current?.scrollIntoView({ block: 'start', behavior: 'smooth' }), 80);
   };
 
+  const activeFilters = (range !== 'all' ? 1 : 0) + (oldestFirst ? 1 : 0) + (compact ? 1 : 0);
+  const clearFilters = () => { setView({ area: 'All', source: '', query: '', range: 'all', from: '', to: '', starredOnly: false }); setShown(PAGE_SIZE); };
+  const liveAreas = NOTE_AREAS.filter(a => counts.get(a));
+  const emptyAreas = NOTE_AREAS.filter(a => !counts.get(a));
+  const starredNotes = useMemo(() => all.filter(n => starred.has(n.id)), [all, starred]);
+  const goToMonth = (key: string) => {
+    if (!monthOpen(key)) toggleMonth(key);
+    window.setTimeout(() => rootRef.current?.querySelector<HTMLElement>(`[data-month="${key}"]`)?.scrollIntoView({ block: 'start', behavior: 'smooth' }), 60);
+  };
+  const dayLabel = (iso: string): [string, string] => {
+    const d = dateOf(iso);
+    const today = new Date();
+    const yesterday = new Date(); yesterday.setDate(today.getDate() - 1);
+    const md = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    const wd = d.toLocaleDateString('en-US', { weekday: 'short' });
+    if (d.toDateString() === today.toDateString()) return ['Today', `${wd}, ${md}`];
+    if (d.toDateString() === yesterday.toDateString()) return ['Yesterday', `${wd}, ${md}`];
+    return [wd, md];
+  };
+  // Changing a filter re-keys the list so it fades in rather than snapping (typing in search doesn't).
+  const listKey = `${area}|${source}|${range}|${from}|${to}|${starredOnly}|${oldestFirst}|${compact}`;
+
   return (
-    <div ref={rootRef} className={compact ? 'allnotes-compact' : ''}>
+    <div ref={rootRef} className={`allnotes-root ${compact ? 'allnotes-compact' : ''}`}>
       <PageHeader
         title="All Notes"
         subtitle={`Every note you've written across the app, in one place — ${all.length} so far. Tap one to open where it was written.`}
         action={showing.length > 0 ? (
           <div className="allnotes-menu-wrap">
-            <button type="button" className="btn ghost" onClick={() => setMenuOpen(o => !o)} aria-haspopup="menu" aria-expanded={menuOpen} title="Copy or save the notes showing">
-              {done ? <Check size={16} /> : <Share size={16} />} {done ?? `Copy / save ${showing.length}`}
+            <button type="button" className="icon-btn allnotes-share" onClick={() => setMenuOpen(o => !o)} aria-haspopup="menu" aria-expanded={menuOpen}
+              aria-label={`Copy or save the ${showing.length} notes showing`} title={done ?? `Copy or save the ${showing.length} notes showing`}>
+              {done ? <Check size={17} /> : <Share size={17} />}
             </button>
             {menuOpen && (
               <>
                 <div className="allnotes-menu-backdrop" onClick={() => setMenuOpen(false)} />
                 <div className="allnotes-menu" role="menu">
+                  <span className="allnotes-menu-title">{showing.length} note{showing.length === 1 ? '' : 's'} showing</span>
                   <button type="button" role="menuitem" onClick={copyText}><FileText size={15} /> Copy as text</button>
                   <button type="button" role="menuitem" onClick={copyRows}><ClipboardCopy size={15} /> Copy for a spreadsheet</button>
                   <button type="button" role="menuitem" onClick={saveToSecondBrain}><BookmarkPlus size={15} /> Save as a Second Brain note</button>
@@ -476,174 +548,248 @@ export function AllNotes({ onOpen }: { onOpen: (note: LoggedNote) => void }) {
           </div>
         ) : undefined}
       />
+      {done && <p className="allnotes-done" role="status"><Check size={14} /> {done}</p>}
 
-      <div className="allnotes-compose">
-        {composing ? (
-          <>
-            <textarea
-              autoFocus rows={3} value={draft} placeholder="How did today go? Anything to remember?"
-              onChange={e => setDraft(e.target.value)}
-              onKeyDown={e => {
-                if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) addDayNote();
-                if (e.key === 'Escape' && !draft.trim()) setComposing(false);
-              }}
+      <div className="allnotes-sticky" ref={stickyRef}>
+        <div className="allnotes-bar">
+          <label className="allnotes-search">
+            <Search size={15} />
+            <input
+              ref={searchRef} type="search" value={query} placeholder="Search notes — words, or a day like “sep 29”" aria-label="Search notes"
+              onChange={e => { setView({ query: e.target.value }); setShown(PAGE_SIZE); }}
+              onKeyDown={e => { if (e.key === 'Escape') { setView({ query: '' }); e.currentTarget.blur(); } }}
             />
-            <div className="allnotes-compose-row">
-              <span className="allnotes-range"><DatePicker value={draftDate} onChange={v => setDraftDate(v || isoOf(new Date()))} /></span>
-              <button type="button" className="btn ghost" onClick={() => { setComposing(false); setDraft(''); }}>Cancel</button>
-              <button type="button" className="btn primary" disabled={!draft.trim()} onClick={addDayNote}>Save note</button>
-            </div>
-          </>
-        ) : (
-          <button type="button" className="btn ghost allnotes-compose-open" onClick={() => { setDraftDate(isoOf(new Date())); setComposing(true); }}>
-            <Plus size={16} /> Note for today
+            {query ? <button type="button" onClick={() => setView({ query: '' })} aria-label="Clear search"><X size={14} /></button> : <kbd>/</kbd>}
+          </label>
+          <button type="button" className={`btn ghost allnotes-bar-btn ${filtersOpen ? 'on' : ''}`} onClick={() => setFiltersOpen(o => !o)} aria-expanded={filtersOpen} title="Date range, order and view">
+            <SlidersHorizontal size={15} /> <span>Filters</span>{activeFilters > 0 && <i>{activeFilters}</i>}
           </button>
-        )}
-      </div>
-
-      <div className="allnotes-sticky">
-        <label className="allnotes-search">
-          <Search size={15} />
-          <input
-            ref={searchRef} type="search" value={query} placeholder="Search notes — words, or a day like “sep 29”" aria-label="Search notes"
-            onChange={e => { setView({ query: e.target.value }); setShown(PAGE_SIZE); }}
-            onKeyDown={e => { if (e.key === 'Escape') { setView({ query: '' }); e.currentTarget.blur(); } }}
-          />
-          {query ? <button type="button" onClick={() => setView({ query: '' })} aria-label="Clear search"><X size={14} /></button> : <kbd>/</kbd>}
-        </label>
-        <div className="allnotes-chips">
+          <button type="button" className="btn primary allnotes-bar-btn" onClick={() => { setDraftDate(isoOf(new Date())); setComposing(c => !c); }} aria-expanded={composing} title="Write a note for today">
+            <Plus size={16} /> <span>Note</span>
+          </button>
+        </div>
+        <div className="allnotes-chips allnotes-chips-main">
           <button type="button" className={`chip ${area === 'All' && !starredOnly ? 'active' : ''}`} onClick={() => { setView({ area: 'All', source: '', starredOnly: false }); setShown(PAGE_SIZE); }}>All <i>{all.length}</i></button>
           {starredCount > 0 && (
             <button type="button" className={`chip allnotes-chip-star ${starredOnly ? 'active' : ''}`} onClick={() => { setView({ starredOnly: !starredOnly }); setShown(PAGE_SIZE); }}>
               <Star size={12} fill="currentColor" /> Starred <i>{starredCount}</i>
             </button>
           )}
-          {NOTE_AREAS.map(a => {
-            const count = counts.get(a) ?? 0;
-            return (
-              <button
-                type="button" key={a} className={`chip ${area === a ? 'active' : ''}`} disabled={!count}
-                title={count ? undefined : `Nothing yet — this collects ${NOTE_AREA_HINTS[a]}`}
-                onClick={() => { setView({ area: a, source: '' }); setShown(PAGE_SIZE); }}
-              >{a} <i>{count}</i></button>
-            );
-          })}
+          {liveAreas.map(a => (
+            <button type="button" key={a} className={`chip ${area === a ? 'active' : ''}`} onClick={() => { setView({ area: a, source: '' }); setShown(PAGE_SIZE); }}>{a} <i>{counts.get(a)}</i></button>
+          ))}
           {standingTotal > 0 && (
             <button type="button" className="chip allnotes-chip-standing" onClick={goToStanding} title="Notes on things with no date of their own — jump to them">
               Standing <i>{standingTotal}</i>
             </button>
           )}
+          {/* Nothing in these yet — kept at the end so it's clear they're covered. */}
+          {emptyAreas.map(a => (
+            <button type="button" key={a} className="chip" disabled title={`Nothing yet — this collects ${NOTE_AREA_HINTS[a]}`}>{a}</button>
+          ))}
         </div>
       </div>
 
-      <div className="allnotes-tools">
-        {sources.length > 1 && (
-          <div className="allnotes-chips allnotes-subchips">
-            {sources.map(([s, count]) => (
-              <button type="button" key={s} className={`chip ${source === s ? 'active' : ''}`} onClick={() => { setView({ source: source === s ? '' : s }); setShown(PAGE_SIZE); }}>{s} <i>{count}</i></button>
-            ))}
-          </div>
-        )}
-        <div className="allnotes-controls">
-          <select value={range} onChange={e => { setView({ range: e.target.value as Range }); setShown(PAGE_SIZE); }} aria-label="Date range">
-            {RANGES.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
-          </select>
+      {filtersOpen && (
+        <div className="allnotes-filters">
+          <label>
+            <span>When</span>
+            <select value={range} onChange={e => { setView({ range: e.target.value as Range }); setShown(PAGE_SIZE); }} aria-label="Date range">
+              {RANGES.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
+            </select>
+          </label>
           {range === 'custom' && (
-            <>
+            <span className="allnotes-range">
               {/* The app's own calendar, with the days that have notes marked. */}
-              <span className="allnotes-range">
-                <DatePicker value={from} onChange={v => setView({ from: v, to: to && v && to < v ? v : to })} placeholder="From" markedDates={noteDates} markedLabel="Has notes" allowClear />
-                <span className="muted">to</span>
-                <DatePicker value={to} onChange={v => setView({ to: v, from: from && v && from > v ? v : from })} placeholder="To" markedDates={noteDates} markedLabel="Has notes" allowClear />
-              </span>
-            </>
+              <DatePicker value={from} onChange={v => setView({ from: v, to: to && v && to < v ? v : to })} placeholder="From" markedDates={noteDates} markedLabel="Has notes" allowClear />
+              <span className="muted">to</span>
+              <DatePicker value={to} onChange={v => setView({ to: v, from: from && v && from > v ? v : from })} placeholder="To" markedDates={noteDates} markedLabel="Has notes" allowClear />
+            </span>
           )}
-          <button type="button" className="btn ghost allnotes-sort" onClick={() => setView({ oldestFirst: !oldestFirst })} title="Switch the order">
-            {oldestFirst ? <ArrowUpNarrowWide size={15} /> : <ArrowDownWideNarrow size={15} />} {oldestFirst ? 'Oldest first' : 'Newest first'}
-          </button>
-          <button type="button" className="btn ghost allnotes-sort" onClick={() => setView({ compact: !compact })} aria-pressed={compact} title={compact ? 'Show full notes' : 'One line per note'}>
-            {compact ? <Rows3 size={15} /> : <List size={15} />} {compact ? 'Full' : 'Compact'}
-          </button>
+          <label>
+            <span>Order</span>
+            <span className="segmented">
+              <button type="button" className={!oldestFirst ? 'on' : ''} onClick={() => setView({ oldestFirst: false })}>Newest</button>
+              <button type="button" className={oldestFirst ? 'on' : ''} onClick={() => setView({ oldestFirst: true })}>Oldest</button>
+            </span>
+          </label>
+          <label>
+            <span>View</span>
+            <span className="segmented">
+              <button type="button" className={!compact ? 'on' : ''} onClick={() => setView({ compact: false })}>Full</button>
+              <button type="button" className={compact ? 'on' : ''} onClick={() => setView({ compact: true })}>Compact</button>
+            </span>
+          </label>
+          {activeFilters > 0 && (
+            <button type="button" className="text-btn" onClick={() => setView({ range: 'all', from: '', to: '', oldestFirst: false, compact: false })}>Reset</button>
+          )}
         </div>
-      </div>
+      )}
 
-      {onThisDay.length > 0 && !narrowing && area === 'All' && (
-        <section className="allnotes-onthisday">
-          <h2>On this day</h2>
-          <div className="allnotes-otd-list">
-            {onThisDay.map(({ label, note }) => (
-              <button type="button" key={note.id} className="allnotes-otd" onClick={() => reveal(note.id)}>
-                <span><b>{label}</b> · {shortDate(note.date)} · {note.source}</span>
-                <small>{note.parts[0].text}</small>
-              </button>
-            ))}
+      {sources.length > 1 && (
+        <div className="allnotes-chips allnotes-subchips">
+          {sources.map(([src, count]) => (
+            <button type="button" key={src} className={`chip ${source === src ? 'active' : ''}`} onClick={() => { setView({ source: source === src ? '' : src }); setShown(PAGE_SIZE); }}>{src} <i>{count}</i></button>
+          ))}
+        </div>
+      )}
+
+      {composing && (
+        <div className="allnotes-compose">
+          <textarea
+            autoFocus rows={3} value={draft} placeholder="How did today go? Anything to remember?"
+            onChange={e => setDraft(e.target.value)}
+            onKeyDown={e => {
+              if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) addDayNote();
+              if (e.key === 'Escape' && !draft.trim()) setComposing(false);
+            }}
+          />
+          <div className="allnotes-compose-row">
+            <span className="allnotes-range"><DatePicker value={draftDate} onChange={v => setDraftDate(v || isoOf(new Date()))} /></span>
+            <button type="button" className="btn ghost" onClick={() => { setComposing(false); setDraft(''); }}>Cancel</button>
+            <button type="button" className="btn primary" disabled={!draft.trim()} onClick={addDayNote}>Save note</button>
           </div>
-        </section>
+        </div>
       )}
 
-      {nothing && (
-        <p className="muted empty-state">
-          {all.length ? 'No notes match that.' : 'No notes yet. Anything you type into a Notes box — on a sleep night, a workout, a trading day, a bill — shows up here.'}
-        </p>
-      )}
-
-      <div className="allnotes-days">
-        {months.map(m => {
-          const open = monthOpen(m.key);
-          if (open && budget <= 0) return null;
-          return (
-            <section key={m.key} className="allnotes-month">
-              <button type="button" className="allnotes-month-head" onClick={() => toggleMonth(m.key)} aria-expanded={open} disabled={narrowing}>
-                {!narrowing && (open ? <ChevronDown size={15} /> : <ChevronRight size={15} />)}
-                <b>{monthLabel(m.key)}</b>
-                <span>{m.total} note{m.total === 1 ? '' : 's'}</span>
+      <div className="allnotes-layout">
+        <div className="allnotes-main">
+          {onThisDay.length > 0 && !narrowing && area === 'All' && (
+            <section className={`allnotes-onthisday ${otdOpen ? 'open' : ''}`}>
+              <button type="button" className="allnotes-otd-strip" onClick={() => setOtdOpen(o => !o)} aria-expanded={otdOpen}>
+                {otdOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                <b>On this day</b>
+                {!otdOpen && <span>{onThisDay[0].label}: {onThisDay[0].note.parts[0].text.split('\n')[0]}</span>}
+                {!otdOpen && onThisDay.length > 1 && <i>+{onThisDay.length - 1}</i>}
               </button>
-              {open && m.days.map(g => {
-                if (budget <= 0) return null;
-                const notes = g.notes.slice(0, budget);
-                budget -= notes.length;
-                return (
-                  <div key={g.date} className="allnotes-day">
-                    <h2>{dayHeading(g.date)}</h2>
-                    <div className="allnotes-list">{notes.map(renderNote)}</div>
-                  </div>
-                );
-              })}
-            </section>
-          );
-        })}
-      </div>
-
-      {budget <= 0 && timeline.length > shown && (
-        <button type="button" className="btn ghost allnotes-more" onClick={() => setShown(s => s + PAGE_SIZE)}>Show older notes</button>
-      )}
-
-      {standing.length > 0 && (
-        <section className="allnotes-standing" ref={standingRef}>
-          <button type="button" className="allnotes-month-head" onClick={() => setView({ standingOpen: !standingOpen })} aria-expanded={standingOpen || Boolean(q)} disabled={Boolean(q)}>
-            {!q && (standingOpen ? <ChevronDown size={15} /> : <ChevronRight size={15} />)}
-            <b>Standing notes</b>
-            <span>{standing.length} · on things with no date of their own (accounts, bills, programs, people…)</span>
-          </button>
-          {(standingOpen || q) && (
-            <div className="allnotes-list">
-              {standing.map(n => (
-                <div key={n.id} className="allnotes-standing-row">
-                  {renderNote(n)}
-                  <small className="allnotes-edited">Last edited {shortDate(n.date)}</small>
+              {otdOpen && (
+                <div className="allnotes-otd-list">
+                  {onThisDay.map(({ label, note }) => (
+                    <button type="button" key={note.id} className="allnotes-otd" onClick={() => reveal(note.id)}>
+                      <span><b>{label}</b> · {shortDate(note.date)} · {note.source}</span>
+                      <small>{note.parts[0].text}</small>
+                    </button>
+                  ))}
                 </div>
-              ))}
+              )}
+            </section>
+          )}
+
+          {nothing && (
+            <div className="allnotes-empty">
+              <NotebookText size={30} />
+              <b>{all.length ? 'No notes match that' : 'No notes yet'}</b>
+              <p>{all.length
+                ? 'Try a different word, or loosen the filters.'
+                : 'Anything you type into a Notes box — on a sleep night, a workout, a trading day, a bill — shows up here. Or write one now with “+ Note”.'}</p>
+              {all.length > 0 && <button type="button" className="btn ghost" onClick={clearFilters}>Clear filters</button>}
             </div>
           )}
-        </section>
-      )}
+
+          <div className="allnotes-days" key={listKey}>
+            {months.map(m => {
+              const open = monthOpen(m.key);
+              if (open && budget <= 0) return null;
+              return (
+                <section key={m.key} className="allnotes-month" data-month={m.key}>
+                  <button type="button" className="allnotes-month-head" onClick={() => toggleMonth(m.key)} aria-expanded={open} disabled={narrowing}>
+                    {!narrowing && (open ? <ChevronDown size={16} /> : <ChevronRight size={16} />)}
+                    <b>{monthLabel(m.key)}</b>
+                    <span>{m.total} note{m.total === 1 ? '' : 's'}</span>
+                  </button>
+                  {open && (
+                    <div className="allnotes-list allnotes-timeline">
+                      {m.days.map(g => {
+                        if (budget <= 0) return null;
+                        const notes = g.notes.slice(0, budget);
+                        budget -= notes.length;
+                        const [strong, rest] = dayLabel(g.date);
+                        return (
+                          <div key={g.date} className="allnotes-dayrow">
+                            <div className="allnotes-date" title={dayHeading(g.date)}><b>{strong}</b><small>{rest}</small></div>
+                            <div className="allnotes-daynotes">{notes.map(renderNote)}</div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </section>
+              );
+            })}
+          </div>
+
+          {budget <= 0 && timeline.length > shown && (
+            <button type="button" className="btn ghost allnotes-more" onClick={() => setShown(n => n + PAGE_SIZE)}>Show older notes</button>
+          )}
+
+          {standing.length > 0 && (
+            <section className="allnotes-standing" ref={standingRef}>
+              <button type="button" className="allnotes-month-head" onClick={() => setView({ standingOpen: !standingOpen })} aria-expanded={standingOpen || Boolean(q)} disabled={Boolean(q)}>
+                {!q && (standingOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />)}
+                <b>Standing notes</b>
+                <span>{standing.length} · on things with no date of their own (accounts, bills, programs, people…)</span>
+              </button>
+              {(standingOpen || q) && (
+                <div className="allnotes-list allnotes-timeline">
+                  {standing.map(n => (
+                    <div key={n.id} className="allnotes-standing-row">
+                      {renderNote(n)}
+                      <small className="allnotes-edited">Last edited {shortDate(n.date)}</small>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+          )}
+        </div>
+
+        {/* Wide screens: the space beside the notes holds a month index and your starred notes. */}
+        {(months.length > 1 || starredNotes.length > 0) && (
+          <aside className="allnotes-rail" aria-label="Jump to">
+            {months.length > 1 && (
+              <div>
+                <h3>Jump to</h3>
+                {months.map(m => (
+                  <button type="button" key={m.key} onClick={() => goToMonth(m.key)}><span>{monthLabel(m.key)}</span><i>{m.total}</i></button>
+                ))}
+                {standing.length > 0 && <button type="button" onClick={goToStanding}><span>Standing notes</span><i>{standing.length}</i></button>}
+              </div>
+            )}
+            {starredNotes.length > 0 && (
+              <div>
+                <h3><Star size={12} fill="currentColor" /> Starred</h3>
+                {starredNotes.slice(0, 8).map(n => (
+                  <button type="button" key={n.id} className="allnotes-rail-note" onClick={() => reveal(n.id)} title={n.text}>
+                    <span>{n.parts[0].text.split('\n')[0]}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </aside>
+        )}
+      </div>
 
       {lightbox && (
         <figure className="allnotes-lightbox" onClick={() => setLightbox(null)}>
+          {lightbox.images.length > 1 && (
+            <button type="button" className="allnotes-lightbox-nav prev" aria-label="Previous screenshot"
+              onClick={e => { e.stopPropagation(); setLightbox({ ...lightbox, index: (lightbox.index - 1 + lightbox.images.length) % lightbox.images.length }); }}>
+              <ChevronLeft size={22} />
+            </button>
+          )}
           <div>
-            <img src={lightbox.src} alt={lightbox.label ?? 'Screenshot'} />
-            {lightbox.label && <figcaption>{lightbox.label}</figcaption>}
+            <img src={lightbox.images[lightbox.index].src} alt={lightbox.images[lightbox.index].label ?? 'Screenshot'} />
+            <figcaption>
+              {lightbox.images[lightbox.index].label}
+              {lightbox.images.length > 1 && <span> {lightbox.index + 1} of {lightbox.images.length}</span>}
+            </figcaption>
           </div>
+          {lightbox.images.length > 1 && (
+            <button type="button" className="allnotes-lightbox-nav next" aria-label="Next screenshot"
+              onClick={e => { e.stopPropagation(); setLightbox({ ...lightbox, index: (lightbox.index + 1) % lightbox.images.length }); }}>
+              <ChevronRight size={22} />
+            </button>
+          )}
         </figure>
       )}
     </div>
