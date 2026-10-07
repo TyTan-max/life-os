@@ -1,11 +1,11 @@
 import { useMemo, useState } from 'react';
 import {
   ArrowRight, Bell, BookOpen, Brain, Check, CheckCircle2, ChevronDown, Clapperboard,
-  AlarmClock, CircleCheck, Flame, Gamepad2, HeartPulse, ListTodo, NotebookPen, NotebookText, Plane, Quote as QuoteIcon, Sparkles, TrendingUp, Users, Wallet
+  AlarmClock, CircleCheck, Flame, Gamepad2, HeartPulse, ListTodo, NotebookPen, NotebookText, Quote as QuoteIcon, Sparkles, TrendingUp, Users, Wallet
 } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { useStore, newRecord } from '../store';
-import { requestNoteFocus, useRecentNotes } from './AllNotes';
+import { requestCompose, requestNoteFocus, useRecentNotes } from './AllNotes';
 import type { Habit, Medication, Note, Task } from '../types';
 import { DEFAULT_WORKSPACE_ID } from '../storage';
 import { actualSpendByCategory } from '../lib/budgetMath';
@@ -201,11 +201,6 @@ export function Dashboard({navigate}:{navigate:(page:string, tab?: string)=>void
   // Bills that were due, are covered by imported data, and have no matching charge.
   const possiblyUnpaid = data.bills.map(b => ({ bill: b, dates: missedPaymentDates(b, data.transactions) })).filter(x => x.dates.length);
   const lowMeds = data.medications.filter(m=>m.active && m.pillsRemaining!=null && m.refillThreshold!=null && m.pillsRemaining<=m.refillThreshold).length;
-  const thisYear = today.slice(0,4);
-  const achievedThisYear = data.bucketList.filter(b=>b.status==='Achieved' && b.achievedAt?.startsWith(thisYear)).length;
-  const nextTrip = data.bucketList
-    .filter(b=>b.status==='Planning' && b.targetDate)
-    .slice().sort((a,b)=>(a.targetDate ?? '').localeCompare(b.targetDate ?? ''))[0];
   const sbDueProjects = data.notes
     .filter(n=>n.paraType==='Project' && !n.archived && n.status!=='Completed' && n.dueDate && n.dueDate<=today)
     .sort((a,b)=>(a.dueDate ?? '').localeCompare(b.dueDate ?? ''));
@@ -419,7 +414,10 @@ export function Dashboard({navigate}:{navigate:(page:string, tab?: string)=>void
         icon={<NotebookText size={19}/>} title="Recent notes" isMobile={isMobile}
         quiet expanded={expandedCards.has('notes')} onToggle={()=>toggleCard('notes')}
         summary={`${notesTotal} note${notesTotal===1?'':'s'} across the app`}
-        action={<button className="text-btn" onClick={()=>navigate('All Notes')}>Open <ArrowRight size={15}/></button>}
+        action={<span className="dash-notes-actions">
+          <button className="text-btn" onClick={()=>{ requestCompose(); navigate('All Notes'); }}>+ Note</button>
+          <button className="text-btn" onClick={()=>navigate('All Notes')}>Open <ArrowRight size={15}/></button>
+        </span>}
         empty={!recentNotes.length && 'No notes written yet'}
         orderStyle={slot(9)}
       >
@@ -446,19 +444,6 @@ export function Dashboard({navigate}:{navigate:(page:string, tab?: string)=>void
         <div className="metric-pair"><span>Deposited</span><b>{formatCurrency(data.settings.tradingStartBalance ?? 50000)}</b></div>
         <div className="metric-pair"><span>Win rate</span><b>{tradingWinRate}%</b></div>
         <div className="metric-pair"><span>Net P/L</span><b className={tradingPnl >= 0 ? 'positive' : 'negative'}>{tradingPnl >= 0 ? '+' : ''}{tradingPnl.toFixed(2)}</b></div>
-      </DashCard>
-  );
-  const travelCard = (
-      <DashCard
-        icon={<Plane size={19}/>} title="Travel & Bucket List" isMobile={isMobile}
-        quiet expanded={expandedCards.has('travel')} onToggle={()=>toggleCard('travel')}
-        summary={`${achievedThisYear} achieved this year`}
-        action={<button className="text-btn" onClick={()=>navigate('Travel & Bucket List')}>Open <ArrowRight size={15}/></button>}
-        empty={!data.bucketList.length && 'No goals yet'}
-        orderStyle={slot(8)}
-      >
-        <div className="metric-pair"><span>Achieved this year</span><b>{achievedThisYear}</b></div>
-        {nextTrip ? <div className="metric-pair"><span>Next up</span><b>{nextTrip.title}</b></div> : <p className="muted">No trips planned yet.</p>}
       </DashCard>
   );
   const financeCard = (
@@ -544,7 +529,7 @@ export function Dashboard({navigate}:{navigate:(page:string, tab?: string)=>void
     {contextMenu}
     {isMobile ? (
       <div className="dashboard-grid">
-        {nowCard}{remindersCard}{healthCard}{crmCard}{tradingCard}{travelCard}{financeCard}{backlogCard}{secondBrainCard}{notesCard}
+        {nowCard}{remindersCard}{healthCard}{crmCard}{tradingCard}{financeCard}{backlogCard}{secondBrainCard}{notesCard}
       </div>
     ) : (
       <div className="dash-cols">
@@ -552,7 +537,7 @@ export function Dashboard({navigate}:{navigate:(page:string, tab?: string)=>void
         <div className="dash-col dash-col-today"><h3 className="dash-col-label">Routines &amp; plans</h3>{habitCard}{healthCard}{secondBrainCard}</div>
         <div className="dash-col dash-pulse">
           <h3 className="dash-col-label">Money &amp; life</h3>
-          {financeCard}{tradingCard}{crmCard}{travelCard}{backlogCard}{notesCard}
+          {financeCard}{tradingCard}{crmCard}{backlogCard}{notesCard}
         </div>
       </div>
     )}

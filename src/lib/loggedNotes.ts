@@ -47,6 +47,8 @@ export interface LoggedNote {
   badge?: { text: string; tone: 'pos' | 'neg' };
   /** Pictures that belong with the note (a trading day's screenshots). */
   images?: { src: string; label?: string }[];
+  /** Cover art for the thing the note is about (a movie, game, book, bucket-list item). */
+  cover?: string;
   parts: NotePart[];
   /** All parts as plain text, for searching and copying. */
   text: string;
@@ -58,6 +60,19 @@ const day = (iso?: string) => (iso ?? '').slice(0, 10);
 const has = (s?: string): s is string => Boolean(s && s.trim());
 const money = (n: number) => `$${Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const isHtml = (text: string) => /<[a-z][^>]*>/i.test(text);
+
+/** #tags written inside a note — "#lesson", "#sleep". A leading letter, so "#1" isn't one. */
+export const HASHTAG = /(^|\s)(#[a-zA-Z][\w-]{1,30})/g;
+const tagCache = new Map<string, string[]>();
+export function tagsOf(text: string): string[] {
+  let tags = tagCache.get(text);
+  if (!tags) {
+    tags = [...new Set(Array.from(text.matchAll(HASHTAG), m => m[2].slice(1).toLowerCase()))];
+    if (tagCache.size > 5000) tagCache.clear();
+    tagCache.set(text, tags);
+  }
+  return tags;
+}
 
 // A few notes boxes are rich-text editors and store HTML. For searching, copying and previews
 // they're flattened: block ends and table rows become line breaks, cells are spaced apart.
@@ -192,20 +207,21 @@ export function collectLoggedNotes(data: AppData): LoggedNote[] {
   // ---- Backlog ---- (a finished item's note belongs to the day it was finished)
   for (const m of data.movies) {
     add({ id: `movie:${m.id}`, area: 'Backlog', source: m.mediaType ?? 'Movie', date: day(m.dateCompleted) || edited(m), dated: Boolean(m.dateCompleted), raw: m.notes,
-      target: field('movies', m.id), context: `${m.title}${m.rating != null ? ` · ${m.rating}/10` : ''}`, jump: { page: 'Movies', collection: 'movies', id: m.id } });
+      cover: m.coverArt, target: field('movies', m.id), context: `${m.title}${m.rating != null ? ` · ${m.rating}/10` : ''}`, jump: { page: 'Movies', collection: 'movies', id: m.id } });
   }
   for (const g of data.videogames) {
     add({ id: `game:${g.id}`, area: 'Backlog', source: 'Game', date: day(g.dateCompleted) || edited(g), dated: Boolean(g.dateCompleted), raw: g.notes,
-      target: field('videogames', g.id), context: `${g.title}${g.rating != null ? ` · ${g.rating}/10` : ''}`, jump: { page: 'Videogames', collection: 'videogames', id: g.id } });
+      cover: g.coverArt, target: field('videogames', g.id), context: `${g.title}${g.rating != null ? ` · ${g.rating}/10` : ''}`, jump: { page: 'Videogames', collection: 'videogames', id: g.id } });
   }
   for (const b of data.books) {
     add({ id: `book:${b.id}`, area: 'Backlog', source: 'Book', date: day(b.dateFinished) || edited(b), dated: Boolean(b.dateFinished), raw: b.notes,
-      target: field('books', b.id), context: `${b.title}${b.author ? ` · ${b.author}` : ''}`, jump: { page: 'Books', collection: 'books', id: b.id } });
+      cover: b.coverArt, target: field('books', b.id), context: `${b.title}${b.author ? ` · ${b.author}` : ''}`, jump: { page: 'Books', collection: 'books', id: b.id } });
   }
   for (const b of data.bucketList) {
     const jump: Jump = { page: 'Travel & Bucket List', collection: 'bucketList', id: b.id };
-    add({ id: `bucket:${b.id}`, area: 'Backlog', source: 'Bucket list', date: edited(b), dated: false, raw: b.notes, target: field('bucketList', b.id), context: b.title, jump });
+    add({ id: `bucket:${b.id}`, area: 'Backlog', source: 'Bucket list', date: edited(b), dated: false, raw: b.notes, cover: b.coverArt, target: field('bucketList', b.id), context: b.title, jump });
     add({ id: `reflect:${b.id}`, area: 'Backlog', source: 'Reflection', date: day(b.achievedAt) || edited(b), dated: Boolean(b.achievedAt), raw: b.reflection,
+      images: b.memoryPhotos?.length ? b.memoryPhotos.map(src => ({ src })) : undefined,
       target: field('bucketList', b.id, 'reflection'), context: b.title, jump });
   }
 

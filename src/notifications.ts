@@ -92,6 +92,18 @@ function dueReminders(data: AppData, now: Date): DueReminder[] {
     }
   }
 
+  // Day-note nudge — once a day, after the chosen time, only if today has no day note yet.
+  const noteTime = data.settings.dayNoteReminderTime;
+  if (noteTime) {
+    const today = localIso(now);
+    const [hours, minutes] = noteTime.split(':').map(Number);
+    const scheduled = new Date(now);
+    scheduled.setHours(hours, minutes, 0, 0);
+    if (now >= scheduled && !(data.dayNotes ?? []).some(d => d.date === today && d.text.trim())) {
+      items.push({ id: `day-note-${today}`, title: 'Write today’s note', body: 'You haven’t written a note for today yet — a line or two is plenty.' });
+    }
+  }
+
   return items;
 }
 

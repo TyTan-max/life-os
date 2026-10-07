@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
-import { takeJump } from '../lib/jumpTo';
+import { requestJump, takeJump } from '../lib/jumpTo';
 import { createPortal } from 'react-dom';
 import { Check, ChevronLeft, ChevronRight, Clock, Plus, RotateCcw, Trash2 } from 'lucide-react';
 import { useStore, newRecord } from '../store';
@@ -40,7 +40,9 @@ function formatFullDate(dateStr: string): string {
   return new Date(`${dateStr}T12:00:00`).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
 }
 
-type ImportantKind = 'Event' | 'Task' | 'Goal' | 'Holiday';
+// 'Bucket' = a Travel & Bucket List goal's target date.
+type ImportantKind = 'Event' | 'Task' | 'Goal' | 'Bucket' | 'Holiday';
+const KIND_LABEL: Record<ImportantKind, string> = { Event: 'Event', Task: 'Task', Goal: 'Goal', Bucket: 'Bucket list', Holiday: 'Holiday' };
 
 interface ImportantDate {
   id: string;
@@ -53,14 +55,16 @@ interface ImportantDate {
 // Tasks and Goals no longer have their own pages — they live in Second Brain's tabs now.
 const KIND_PAGE: Record<Exclude<ImportantKind, 'Event' | 'Holiday'>, string> = {
   Task: 'Second Brain',
-  Goal: 'Second Brain'
+  Goal: 'Second Brain',
+  Bucket: 'Travel & Bucket List'
 };
 const KIND_TAB: Record<Exclude<ImportantKind, 'Event' | 'Holiday'>, string> = {
   Task: 'Tasks',
-  Goal: 'Goals'
+  Goal: 'Goals',
+  Bucket: ''
 };
 
-const KIND_COLLECTION: Record<Exclude<ImportantKind, 'Holiday'>, 'events' | 'tasks' | 'goals'> = {
+const KIND_COLLECTION: Record<Exclude<ImportantKind, 'Holiday' | 'Bucket'>, 'events' | 'tasks' | 'goals'> = {
   Event: 'events',
   Task: 'tasks',
   Goal: 'goals'
@@ -138,6 +142,9 @@ export function Calendar({ navigate }: { navigate: (page: string, tab?: string) 
     data.goals.forEach(g => {
       if (g.targetDate && g.status !== 'Completed') items.push({ id: g.id, title: g.title, date: g.targetDate, kind: 'Goal' });
     });
+    data.bucketList.forEach(b => {
+      if (b.targetDate && b.status !== 'Achieved') items.push({ id: b.id, title: b.title, date: b.targetDate, kind: 'Bucket' });
+    });
     // Cover both the currently-visible year and today's year (±1) so the grid stays correct
     // wherever you've navigated to, and the Upcoming list (always relative to today) doesn't run dry.
     const todayYear = new Date().getFullYear();
@@ -147,7 +154,7 @@ export function Calendar({ navigate }: { navigate: (page: string, tab?: string) 
       getHolidays(y).forEach(h => items.push({ id: `${h.date}-${h.title}`, title: h.title, date: h.date, kind: 'Holiday' }));
     });
     return items.sort((a, b) => a.date.localeCompare(b.date) || (a.time ?? '').localeCompare(b.time ?? ''));
-  }, [events, data.tasks, data.goals, anchor]);
+  }, [events, data.tasks, data.goals, data.bucketList, anchor]);
 
   // Phone-only kind filters (the legend doubles as the toggle row). Holidays start hidden: the
   // agenda runs ~60 days ahead and most of that was holiday rows, burying the user's own items.
@@ -211,7 +218,7 @@ export function Calendar({ navigate }: { navigate: (page: string, tab?: string) 
   // vanish from it entirely the day after they were due — while the Dashboard kept counting them
   // as overdue. Pinned above Today instead, oldest first.
   const overdueItems = useMemo(
-    () => shownDates.filter(item => item.date < todayIso && (item.kind === 'Task' || item.kind === 'Goal')),
+    () => shownDates.filter(item => item.date < todayIso && (item.kind === 'Task' || item.kind === 'Goal' || item.kind === 'Bucket')),
     [shownDates, todayIso]
   );
 
@@ -227,11 +234,19 @@ export function Calendar({ navigate }: { navigate: (page: string, tab?: string) 
       return;
     }
     if (item.kind === 'Holiday') return;
-    navigate(KIND_PAGE[item.kind], KIND_TAB[item.kind]);
+    // A bucket-list goal opens on that goal, not just its page.
+    if (item.kind === 'Bucket') requestJump({ page: KIND_PAGE.Bucket, collection: 'bucketList', id: item.id });
+    navigate(KIND_PAGE[item.kind], KIND_TAB[item.kind] || undefined);
   };
 
   const deleteItem = async (item: ImportantDate) => {
     if (item.kind === 'Holiday') return;
+    // Removing a bucket-list goal from the calendar only clears its target date — the goal stays.
+    if (item.kind === 'Bucket') {
+      const goal = data.bucketList.find(b => b.id === item.id);
+      if (goal) await upsert('bucketList', { ...goal, targetDate: undefined });
+      return;
+    }
     await remove(KIND_COLLECTION[item.kind], item.id);
   };
 
@@ -321,7 +336,7 @@ export function Calendar({ navigate }: { navigate: (page: string, tab?: string) 
       {isMobile ? (
         // Doubles as the filter row on a phone — each kind toggles on/off.
         <div className="cal-legend cal-legend-filters" role="group" aria-label="Show on calendar">
-          {(['Event', 'Task', 'Goal', 'Holiday'] as const).map(kind => (
+          {(['Event', 'Task', 'Goal', 'Bucket', 'Holiday'] as const).map(kind => (
             <button
               type="button"
               key={kind}
@@ -329,7 +344,7 @@ export function Calendar({ navigate }: { navigate: (page: string, tab?: string) 
               aria-pressed={!hiddenKinds.has(kind)}
               onClick={() => toggleKind(kind)}
             >
-              <i className={`cal-dot kind-${kind.toLowerCase()}`} />{kind}
+              <i className={`cal-dot kind-${kind.toLowerCase()}`} />{KIND_LABEL[kind]}
             </button>
           ))}
         </div>
@@ -338,6 +353,7 @@ export function Calendar({ navigate }: { navigate: (page: string, tab?: string) 
           <span className="cal-legend-item"><i className="cal-dot kind-event" />Event</span>
           <span className="cal-legend-item"><i className="cal-dot kind-task" />Task</span>
           <span className="cal-legend-item"><i className="cal-dot kind-goal" />Goal</span>
+          <span className="cal-legend-item"><i className="cal-dot kind-bucket" />Bucket list</span>
           <span className="cal-legend-item"><i className="cal-dot kind-holiday" />Holiday</span>
         </div>
       )}

@@ -578,6 +578,11 @@ export interface BucketListItem extends BaseRecord {
   notes?: string;
   subtasks?: BucketListSubtask[];
   order?: number;
+  // Trip plan (Travel goals): when you're going, a rough budget, and what to pack or book.
+  tripStart?: string;
+  tripEnd?: string;
+  budget?: number;
+  packing?: BucketListSubtask[];
   // Memory Journal — populated once the item flips to Achieved.
   achievedAt?: string;
   memoryPhotos?: string[];
@@ -662,6 +667,8 @@ export type Theme = 'light' | 'dark' | 'system';
 export interface Settings {
   /** Notes starred on the All Notes page (ids from lib/loggedNotes). */
   starredNoteIds?: string[];
+  /** HH:MM — nudge to write a day note if none exists for today by then (All Notes). */
+  dayNoteReminderTime?: string;
   userName: string;
   theme: Theme;
   notificationsEnabled: boolean;

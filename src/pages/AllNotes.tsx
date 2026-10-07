@@ -1,17 +1,17 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import {
-  ArrowUpRight, BookmarkPlus, Check, ChevronDown, ChevronLeft, ChevronRight, ClipboardCopy,
-  FileText, NotebookText, Pencil, Plus, Search, Share, SlidersHorizontal, Star, X
+  ArrowUp, ArrowUpRight, Bell, BookmarkPlus, CalendarDays, CalendarRange, Check, CheckSquare, ChevronDown, ChevronLeft, ChevronRight,
+  ClipboardCopy, FileText, ListChecks, ListTodo, NotebookText, Pencil, Plus, Search, Share, SlidersHorizontal, Square, Star, Trash2, X
 } from 'lucide-react';
 import { useStore, newRecord } from '../store';
-import { PageHeader } from '../components/UI';
+import { Modal, PageHeader } from '../components/UI';
 import { DatePicker } from '../components/DatePicker';
-import { sanitizeHtml } from '../components/RichTextEditor';
+import { RichTextEditor, isEmptyHtml, sanitizeHtml } from '../components/RichTextEditor';
 import { DEFAULT_WORKSPACE_ID } from '../storage';
-import { NOTE_AREAS, NOTE_AREA_HINTS, collectLoggedNotes, type LoggedNote, type NoteArea, type NotePart, type NoteTarget } from '../lib/loggedNotes';
+import { HASHTAG, NOTE_AREAS, NOTE_AREA_HINTS, collectLoggedNotes, tagsOf, type LoggedNote, type NoteArea, type NotePart, type NoteTarget } from '../lib/loggedNotes';
 import { escapeHtml } from '../lib/markdown';
-import type { CollectionName, CollectionRecord, DayNote, Note, WorkoutRoutine } from '../types';
+import type { CollectionName, CollectionRecord, DayNote, Note, Task, WorkoutRoutine } from '../types';
 
 const PAGE_SIZE = 150;
 // Notes longer than this (characters or lines) fold behind "Show more".
@@ -27,15 +27,28 @@ const RANGES: { value: Range; label: string }[] = [
 ];
 
 interface ViewState {
-  area: NoteArea | 'All'; source: string; query: string; range: Range; from: string; to: string;
+  area: NoteArea | 'All'; source: string; tag: string; query: string; range: Range; from: string; to: string;
   oldestFirst: boolean; starredOnly: boolean; compact: boolean;
   openMonths: string[]; closedMonths: string[]; standingOpen: boolean; scrollY: number;
 }
 // Kept for the session, so coming back from a note you jumped to lands where you left off.
 let saved: ViewState = {
-  area: 'All', source: '', query: '', range: 'all', from: '', to: '', oldestFirst: false, starredOnly: false, compact: false,
+  area: 'All', source: '', tag: '', query: '', range: 'all', from: '', to: '', oldestFirst: false, starredOnly: false, compact: false,
   openMonths: [], closedMonths: [], standingOpen: false, scrollY: 0
 };
+
+// How you like to read the list sticks between visits and reloads.
+const PREFS_KEY = 'lifeos.allnotes.prefs';
+try {
+  const prefs = JSON.parse(localStorage.getItem(PREFS_KEY) ?? 'null') as { compact?: boolean; oldestFirst?: boolean } | null;
+  if (prefs) saved = { ...saved, compact: Boolean(prefs.compact), oldestFirst: Boolean(prefs.oldestFirst) };
+} catch { /* storage unavailable — defaults it is */ }
+
+// Open with the "write a note" box showing (the Dashboard's "+ Note").
+let composeRequested = false;
+export function requestCompose(): void {
+  composeRequested = true;
+}
 
 // A note to scroll to and flash when the page opens (the Dashboard's "Recent notes" card).
 let focusId: string | null = null;
@@ -102,6 +115,26 @@ function highlight(text: string, q: string): ReactNode {
   return out;
 }
 
+// Note text with the search match highlighted and any #tags turned into tappable filters.
+function renderText(text: string, q: string, onTag: (tag: string) => void): ReactNode {
+  const out: ReactNode[] = [];
+  let last = 0;
+  for (const m of text.matchAll(HASHTAG)) {
+    const start = (m.index ?? 0) + m[1].length;
+    if (start > last) out.push(<Fragment key={`t${last}`}>{highlight(text.slice(last, start), q)}</Fragment>);
+    const tag = m[2];
+    out.push(
+      <button type="button" key={`h${start}`} className="allnotes-hashtag" onClick={e => { e.stopPropagation(); onTag(tag.slice(1).toLowerCase()); }} title={`Show notes tagged ${tag}`}>{tag}</button>
+    );
+    last = start + tag.length;
+  }
+  if (!out.length) return highlight(text, q);
+  if (last < text.length) out.push(<Fragment key={`t${last}`}>{highlight(text.slice(last), q)}</Fragment>);
+  return out;
+}
+
+const weekStartOf = (d: Date) => { const s = new Date(d); s.setHours(12, 0, 0, 0); s.setDate(s.getDate() - s.getDay()); return s; };
+
 function scrollerOf(el: HTMLElement | null): HTMLElement | Window {
   for (let p = el?.parentElement; p; p = p.parentElement) {
     const oy = getComputedStyle(p).overflowY;
@@ -117,11 +150,22 @@ const isTyping = (el: Element | null) =>
 // pencil edits it right here; "+ Note for today" writes one that lives on this page.
 export function AllNotes({ onOpen }: { onOpen: (note: LoggedNote) => void }) {
   const { data, upsert, remove, updateSettings } = useStore();
-  const [view, setViewRaw] = useState<ViewState>(() => (focusId ? { ...saved, area: 'All', source: '', query: '', range: 'all', starredOnly: false } : saved));
-  const setView = (patch: Partial<ViewState>) => setViewRaw(prev => { saved = { ...prev, ...patch, scrollY: saved.scrollY }; return saved; });
+  const [view, setViewRaw] = useState<ViewState>(() => (focusId ? { ...saved, area: 'All', source: '', tag: '', query: '', range: 'all', starredOnly: false } : saved));
+  const setView = (patch: Partial<ViewState>) => setViewRaw(prev => {
+    saved = { ...prev, ...patch, scrollY: saved.scrollY };
+    if ('compact' in patch || 'oldestFirst' in patch) {
+      try { localStorage.setItem(PREFS_KEY, JSON.stringify({ compact: saved.compact, oldestFirst: saved.oldestFirst })); } catch { /* ignore */ }
+    }
+    return saved;
+  });
   const [shown, setShown] = useState(PAGE_SIZE);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  const [editing, setEditing] = useState<{ key: string; draft: string } | null>(null);
+  // `rich`: the note is formatted text, edited in the formatting editor. `date`: a day note's day.
+  const [editing, setEditing] = useState<{ key: string; draft: string; rich?: boolean; date?: string } | null>(null);
+  const [selecting, setSelecting] = useState(false);
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [review, setReview] = useState<string | null>(null);
+  const [showTop, setShowTop] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [done, setDone] = useState<string | null>(null);
   const [flashId, setFlashId] = useState<string | null>(null);
@@ -129,13 +173,15 @@ export function AllNotes({ onOpen }: { onOpen: (note: LoggedNote) => void }) {
   const [filtersOpen, setFiltersOpen] = useState(() => saved.range === 'custom');
   const [otdOpen, setOtdOpen] = useState(false);
   const stickyRef = useRef<HTMLDivElement>(null);
-  const [composing, setComposing] = useState(false);
+  // Read here, cleared after mount: React's dev mode runs this initializer twice.
+  const [composing, setComposing] = useState(() => composeRequested);
+  useEffect(() => { composeRequested = false; }, []);
   const [draft, setDraft] = useState('');
   const [draftDate, setDraftDate] = useState(() => isoOf(new Date()));
   const rootRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const standingRef = useRef<HTMLElement>(null);
-  const { area, source, query, range, from, to, oldestFirst, starredOnly, standingOpen, compact } = view;
+  const { area, source, tag, query, range, from, to, oldestFirst, starredOnly, standingOpen, compact } = view;
 
   const all = useMemo(() => collectLoggedNotes(data), [data]);
   const noteDates = useMemo(() => [...new Set(all.filter(n => n.dated).map(n => n.date))], [all]);
@@ -144,7 +190,10 @@ export function AllNotes({ onOpen }: { onOpen: (note: LoggedNote) => void }) {
   useLayoutEffect(() => {
     const scroller = scrollerOf(rootRef.current);
     if (saved.scrollY && !focusId) scroller.scrollTo(0, saved.scrollY);
-    const remember = () => { saved.scrollY = scroller === window ? window.scrollY : (scroller as HTMLElement).scrollTop; };
+    const remember = () => {
+      saved.scrollY = scroller === window ? window.scrollY : (scroller as HTMLElement).scrollTop;
+      setShowTop(saved.scrollY > 700);
+    };
     scroller.addEventListener('scroll', remember, { passive: true });
     return () => scroller.removeEventListener('scroll', remember);
   }, []);
@@ -200,13 +249,34 @@ export function AllNotes({ onOpen }: { onOpen: (note: LoggedNote) => void }) {
     return () => window.removeEventListener('keydown', onKey);
   }, [lightbox]);
 
-  // "/" jumps to the search box.
+  // "/" jumps to the search box; j / k step through the notes; s stars and e edits the focused one.
+  const keyActions = useRef<{ star: (id: string) => void; edit: (id: string) => void }>({ star: () => {}, edit: () => {} });
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== '/' || e.ctrlKey || e.metaKey || e.altKey || isTyping(document.activeElement)) return;
+      if (e.ctrlKey || e.metaKey || e.altKey || isTyping(document.activeElement) || document.querySelector('.modal-overlay')) return;
+      if (e.key === '/') {
+        e.preventDefault();
+        searchRef.current?.focus();
+        searchRef.current?.select();
+        return;
+      }
+      const key = e.key.toLowerCase();
+      if (!['j', 'k', 's', 'e'].includes(key)) return;
+      const items = Array.from(rootRef.current?.querySelectorAll<HTMLElement>('.allnotes-item') ?? []);
+      if (!items.length) return;
+      const current = (document.activeElement as HTMLElement | null)?.closest<HTMLElement>('.allnotes-item') ?? null;
+      const index = current ? items.indexOf(current) : -1;
+      if (key === 'j' || key === 'k') {
+        e.preventDefault();
+        const next = items[Math.max(0, Math.min(items.length - 1, index < 0 ? 0 : index + (key === 'j' ? 1 : -1)))];
+        next.focus({ preventScroll: true });
+        next.scrollIntoView({ block: 'nearest' });
+        return;
+      }
+      const id = current?.dataset.noteId;
+      if (!id) return;
       e.preventDefault();
-      searchRef.current?.focus();
-      searchRef.current?.select();
+      if (key === 's') keyActions.current.star(id); else keyActions.current.edit(id);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -232,27 +302,36 @@ export function AllNotes({ onOpen }: { onOpen: (note: LoggedNote) => void }) {
   }, [all, area]);
   const starredCount = useMemo(() => all.filter(n => starred.has(n.id)).length, [all, starred]);
 
+  // #tags found anywhere in your notes, most used first.
+  const tagCounts = useMemo(() => {
+    const c = new Map<string, number>();
+    for (const n of all) for (const t of tagsOf(n.text)) c.set(t, (c.get(t) ?? 0) + 1);
+    return Array.from(c.entries()).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  }, [all]);
+  const pickTag = (t: string) => { setView({ tag: tag === t ? '' : t }); setShown(PAGE_SIZE); };
+
   const q = query.trim().toLowerCase();
   const bounds = rangeBounds(range, from, to);
   const matches = (n: LoggedNote) =>
     (area === 'All' || n.area === area)
     && (!source || n.source === source)
     && (!starredOnly || starred.has(n.id))
+    && (!tag || tagsOf(n.text).includes(tag))
     && (!q || n.text.toLowerCase().includes(q) || n.context.toLowerCase().includes(q) || n.source.toLowerCase().includes(q)
       || (n.dated && dateWords(n.date).includes(q)));
   const timeline = useMemo(() => {
     const list = all.filter(n => n.dated && matches(n) && (!bounds || (n.date >= bounds[0] && n.date <= bounds[1])));
     return oldestFirst ? [...list].reverse() : list;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [all, area, source, starredOnly, q, range, from, to, oldestFirst, starred]);
+  }, [all, area, source, tag, starredOnly, q, range, from, to, oldestFirst, starred]);
   // Standing notes have no day, so a date filter leaves them out.
   const standing = useMemo(() => (bounds ? [] : all.filter(n => !n.dated && matches(n)).sort((a, b) => a.area.localeCompare(b.area) || a.context.localeCompare(b.context))),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [all, area, source, starredOnly, q, range, from, to, starred]);
+    [all, area, source, tag, starredOnly, q, range, from, to, starred]);
 
   // Months: the two most recent with notes are open; older ones fold to a single line. While
   // searching or filtering, everything is open — you're looking for something.
-  const narrowing = Boolean(q || source || starredOnly || bounds);
+  const narrowing = Boolean(q || source || tag || starredOnly || bounds);
   const months = useMemo(() => {
     const groups: { key: string; total: number; days: { date: string; notes: LoggedNote[] }[] }[] = [];
     for (const n of timeline) {
@@ -287,8 +366,8 @@ export function AllNotes({ onOpen }: { onOpen: (note: LoggedNote) => void }) {
   // "Show older notes" pages through the open months' notes.
   let budget = shown;
 
-  const save = async (target: NoteTarget, text: string) => {
-    const value = text.trim();
+  const save = async (target: NoteTarget, text: string, opts: { rich?: boolean; date?: string } = {}) => {
+    const value = opts.rich ? (isEmptyHtml(text) ? '' : text) : text.trim();
     if (!value) {
       // A check-in needs its summary; anything else, make sure emptying it was meant.
       if (target.kind === 'field' && target.field === 'summary') return;
@@ -298,7 +377,8 @@ export function AllNotes({ onOpen }: { onOpen: (note: LoggedNote) => void }) {
       if (target.collection === 'dayNotes' && !value) { await remove('dayNotes', target.id); return; }
       const record = (data[target.collection] as CollectionRecord[]).find(r => r.id === target.id);
       if (!record) return;
-      await upsert(target.collection as CollectionName, { ...record, [target.field]: value || undefined } as never);
+      const moved = target.collection === 'dayNotes' && opts.date ? { date: opts.date } : {};
+      await upsert(target.collection as CollectionName, { ...record, [target.field]: value || undefined, ...moved } as never);
     } else {
       const routine = data.workoutRoutines.find(r => r.id === target.routineId) as WorkoutRoutine | undefined;
       if (!routine) return;
@@ -307,6 +387,42 @@ export function AllNotes({ onOpen }: { onOpen: (note: LoggedNote) => void }) {
         .filter(l => l.notes || l.lastReps != null || l.weights.some(w => w != null));
       await upsert('workoutRoutines', { ...routine, exerciseLogs });
     }
+  };
+
+  const beginEdit = (key: string, p: NotePart) => {
+    const t = p.target;
+    const dayNote = t?.kind === 'field' && t.collection === 'dayNotes' ? data.dayNotes.find(d => d.id === t.id) : undefined;
+    setEditing({ key, draft: p.html ?? p.text, rich: Boolean(p.html), date: dayNote?.date });
+  };
+  const commitEdit = (p: NotePart) => {
+    if (!editing || !p.target) return;
+    void save(p.target, editing.draft, { rich: editing.rich, date: editing.date });
+    setEditing(null);
+  };
+  const deleteDayNote = (id: string) => {
+    if (!window.confirm('Delete this note?')) return;
+    void remove('dayNotes', id);
+    setEditing(null);
+  };
+  keyActions.current = {
+    star: id => toggleStar(id),
+    edit: id => {
+      const note = all.find(n => n.id === id);
+      const i = note ? note.parts.findIndex(p => p.target) : -1;
+      if (note && i >= 0) beginEdit(`${id}#${i}`, note.parts[i]);
+    }
+  };
+
+  const addTask = (n: LoggedNote) => {
+    const firstLine = n.parts[0].text.split('\n')[0].replace(/\s+/g, ' ').trim();
+    const task = newRecord<Task>({
+      title: firstLine.length > 120 ? `${firstLine.slice(0, 117).trimEnd()}…` : firstLine,
+      status: 'Not Started', priority: 'Medium', dueDate: isoOf(new Date()),
+      notes: `From a ${n.source.toLowerCase()} note${n.dated ? ` on ${shortDate(n.date)}` : ''}${n.context ? ` (${n.context})` : ''}:\n${n.text}`,
+      workspaceId: data.settings.activeSecondBrainWorkspaceId ?? DEFAULT_WORKSPACE_ID
+    });
+    void upsert('tasks', task);
+    flashDone('Task added — it’s in Second Brain → Tasks');
   };
 
   const addDayNote = () => {
@@ -321,17 +437,20 @@ export function AllNotes({ onOpen }: { onOpen: (note: LoggedNote) => void }) {
 
   // ---- Copy / save what's showing ----
   const showing = [...timeline, ...standing];
+  const chosen = picked.size ? showing.filter(n => picked.has(n.id)) : showing;
+  const togglePick = (id: string) => setPicked(prev => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next; });
+  const stopSelecting = () => { setSelecting(false); setPicked(new Set()); };
   const flashDone = (label: string) => { setDone(label); setMenuOpen(false); window.setTimeout(() => setDone(null), 2000); };
   const about = (n: LoggedNote) => [n.context, n.badge?.text].filter(Boolean).join(' ');
   const copyRows = () => {
     const cell = (s: string) => `"${s.replace(/"/g, '""')}"`;
-    const rows = showing.map(n => [n.dated ? n.date : '', n.area, n.source, about(n), n.text].map(cell).join('\t'));
+    const rows = chosen.map(n => [n.dated ? n.date : '', n.area, n.source, about(n), n.text].map(cell).join('\t'));
     void navigator.clipboard?.writeText(['Date\tArea\tType\tAbout\tNote', ...rows].join('\n')).then(() => flashDone('Copied'));
   };
   const copyText = () => {
     const lines: string[] = [];
     let lastHeading = '';
-    for (const n of showing) {
+    for (const n of chosen) {
       const heading = n.dated ? longDate(n.date) : 'Standing notes';
       if (heading !== lastHeading) { if (lines.length) lines.push(''); lines.push(heading); lastHeading = heading; }
       lines.push(`• ${n.source}${about(n) ? ` — ${about(n)}` : ''}`);
@@ -339,22 +458,59 @@ export function AllNotes({ onOpen }: { onOpen: (note: LoggedNote) => void }) {
     }
     void navigator.clipboard?.writeText(lines.join('\n')).then(() => flashDone('Copied'));
   };
-  const filterLabel = [starredOnly ? 'Starred' : '', area !== 'All' ? area : '', source, q ? `“${query.trim()}”` : '', bounds ? RANGES.find(r => r.value === range)!.label : '']
+  const filterLabel = [starredOnly ? 'Starred' : '', area !== 'All' ? area : '', source, tag ? `#${tag}` : '', q ? `“${query.trim()}”` : '', bounds ? RANGES.find(r => r.value === range)!.label : '']
     .filter(Boolean).join(' · ') || 'All notes';
+  // One Second Brain note per title: saving the same view again refreshes that note.
+  const saveNote = (title: string, body: string) => {
+    const workspaceId = data.settings.activeSecondBrainWorkspaceId ?? DEFAULT_WORKSPACE_ID;
+    const existing = data.notes.find(x => x.title === title && (x.tags ?? []).includes('all-notes') && (x.workspaceId ?? DEFAULT_WORKSPACE_ID) === workspaceId);
+    if (existing) void upsert('notes', { ...existing, body });
+    else void upsert('notes', newRecord<Note>({ title, body, tags: ['all-notes'], pinned: false, workspaceId }));
+    flashDone(existing ? 'Second Brain note updated' : 'Saved to Second Brain');
+  };
+  const stamp = (count: number) => `<p><em>Updated ${escapeHtml(shortDate(isoOf(new Date())))} · ${count} note${count === 1 ? '' : 's'}</em></p>`;
   const saveToSecondBrain = () => {
-    const parts: string[] = [];
+    const parts: string[] = [stamp(chosen.length)];
     let lastHeading = '';
-    for (const n of showing) {
+    for (const n of chosen) {
       const heading = n.dated ? longDate(n.date) : 'Standing notes';
       if (heading !== lastHeading) { parts.push(`<h3>${escapeHtml(heading)}</h3>`); lastHeading = heading; }
       parts.push(`<p><strong>${escapeHtml(n.source)}${about(n) ? ` — ${escapeHtml(about(n))}` : ''}</strong><br>${escapeHtml(n.text).replace(/\n/g, '<br>')}</p>`);
     }
-    const note = newRecord<Note>({
-      title: `Notes — ${filterLabel} (${shortDate(isoOf(new Date()))})`, body: parts.join(''), tags: ['all-notes'], pinned: false,
-      workspaceId: data.settings.activeSecondBrainWorkspaceId ?? DEFAULT_WORKSPACE_ID
-    });
-    void upsert('notes', note);
-    flashDone('Saved to Second Brain');
+    saveNote(`Notes — ${picked.size ? `${picked.size} picked from ${filterLabel}` : filterLabel}`, parts.join(''));
+  };
+
+  // ---- Weekly review: one week's notes, laid out by area ----
+  const reviewNotes = useMemo(() => {
+    if (!review) return [];
+    const end = new Date(dateOf(review)); end.setDate(end.getDate() + 6);
+    const endIso = isoOf(end);
+    return all.filter(n => n.dated && n.date >= review && n.date <= endIso).sort((a, b) => a.date.localeCompare(b.date));
+  }, [all, review]);
+  const reviewByArea = NOTE_AREAS.map(a => ({ area: a, notes: reviewNotes.filter(n => n.area === a) })).filter(g => g.notes.length);
+  const reviewTitle = review ? `Week of ${shortDate(review)}` : '';
+  const shiftReview = (days: number) => { if (!review) return; const d = dateOf(review); d.setDate(d.getDate() + days); setReview(isoOf(d)); };
+  const copyReview = () => {
+    const lines: string[] = [reviewTitle];
+    for (const g of reviewByArea) {
+      lines.push('', g.area.toUpperCase());
+      for (const n of g.notes) {
+        lines.push(`• ${dateOf(n.date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })} — ${n.source}${about(n) ? ` (${about(n)})` : ''}`);
+        for (const line of n.text.split('\n')) lines.push(`  ${line}`);
+      }
+    }
+    void navigator.clipboard?.writeText(lines.join('\n')).then(() => flashDone('Week copied'));
+  };
+  const saveReview = () => {
+    const parts: string[] = [stamp(reviewNotes.length)];
+    for (const g of reviewByArea) {
+      parts.push(`<h3>${escapeHtml(g.area)}</h3>`);
+      for (const n of g.notes) {
+        const when = dateOf(n.date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+        parts.push(`<p><strong>${escapeHtml(when)} — ${escapeHtml(n.source)}${about(n) ? ` (${escapeHtml(about(n))})` : ''}</strong><br>${escapeHtml(n.text).replace(/\n/g, '<br>')}</p>`);
+      }
+    }
+    saveNote(`Weekly review — ${reviewTitle}`, parts.join(''));
   };
 
   const renderPart = (n: LoggedNote, p: NotePart, i: number, single: boolean) => {
@@ -363,8 +519,8 @@ export function AllNotes({ onOpen }: { onOpen: (note: LoggedNote) => void }) {
     const long = isLong(p.text, compact);
     const open = expanded.has(key);
     const toggle = () => setExpanded(prev => { const next = new Set(prev); if (next.has(key)) next.delete(key); else next.add(key); return next; });
-    // Formatted notes are edited in their own editor (there's no rich-text box here).
-    const editable = Boolean(p.target) && !p.html;
+    const editable = Boolean(p.target);
+    const dayNoteId = p.target?.kind === 'field' && p.target.collection === 'dayNotes' ? p.target.id : null;
     const clamp = long && !open ? (compact ? 'clamped-1' : 'clamped') : '';
     // Short notes under an exercise ("10-10" per set) read better on one line beside its name.
     const lines = p.text.split('\n');
@@ -372,9 +528,9 @@ export function AllNotes({ onOpen }: { onOpen: (note: LoggedNote) => void }) {
       return (
         <div className="allnotes-part inline" key={key}>
           <b>{highlight(p.label, q)}</b>
-          <span className="allnotes-text">{highlight(lines.join('  ·  '), q)}</span>
+          <span className="allnotes-text">{renderText(lines.join('  ·  '), q, pickTag)}</span>
           {editable && (
-            <button type="button" className="allnotes-icon" onClick={e => { e.stopPropagation(); setEditing({ key, draft: p.text }); }} aria-label="Edit this note" title="Edit here">
+            <button type="button" className="allnotes-icon" onClick={e => { e.stopPropagation(); beginEdit(key, p); }} aria-label="Edit this note" title="Edit here">
               <Pencil size={13} />
             </button>
           )}
@@ -388,34 +544,43 @@ export function AllNotes({ onOpen }: { onOpen: (note: LoggedNote) => void }) {
           <span className="allnotes-part-head">
             {p.label && <b>{highlight(p.label, q)}</b>}
             {editable && !single && !isEditing && (
-              <button type="button" className="allnotes-icon" onClick={e => { e.stopPropagation(); setEditing({ key, draft: p.text }); }} aria-label="Edit this note" title="Edit here">
+              <button type="button" className="allnotes-icon" onClick={e => { e.stopPropagation(); beginEdit(key, p); }} aria-label="Edit this note" title="Edit here">
                 <Pencil size={13} />
               </button>
             )}
           </span>
         )}
         {isEditing ? (
-          <div className="allnotes-edit" onClick={e => e.stopPropagation()}>
-            <textarea
-              autoFocus
-              rows={Math.min(10, Math.max(2, editing.draft.split('\n').length + 1))}
-              value={editing.draft}
-              onChange={e => setEditing({ key, draft: e.target.value })}
-              onKeyDown={e => {
-                e.stopPropagation();
-                if (e.key === 'Escape') setEditing(null);
-                if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { void save(p.target!, editing.draft); setEditing(null); }
-              }}
-            />
+          <div className="allnotes-edit" onClick={e => e.stopPropagation()} onKeyDown={e => e.stopPropagation()}>
+            {editing.rich ? (
+              <RichTextEditor value={editing.draft} onChange={html => setEditing(prev => (prev ? { ...prev, draft: html } : prev))} />
+            ) : (
+              <textarea
+                autoFocus
+                rows={Math.min(10, Math.max(2, editing.draft.split('\n').length + 1))}
+                value={editing.draft}
+                onChange={e => setEditing({ ...editing, draft: e.target.value })}
+                onKeyDown={e => {
+                  if (e.key === 'Escape') setEditing(null);
+                  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) commitEdit(p);
+                }}
+              />
+            )}
             <div className="allnotes-edit-actions">
+              {dayNoteId && (
+                <>
+                  <span className="allnotes-range"><DatePicker value={editing.date} onChange={v => setEditing({ ...editing, date: v || editing.date })} /></span>
+                  <button type="button" className="btn ghost danger allnotes-edit-delete" onClick={() => deleteDayNote(dayNoteId)}><Trash2 size={14} /> Delete</button>
+                </>
+              )}
               <button type="button" className="btn ghost" onClick={() => setEditing(null)}>Cancel</button>
-              <button type="button" className="btn primary" onClick={() => { void save(p.target!, editing.draft); setEditing(null); }}>Save</button>
+              <button type="button" className="btn primary" onClick={() => commitEdit(p)}>Save</button>
             </div>
           </div>
         ) : p.html && !q && !compact ? (
           <div className={`allnotes-text allnotes-rich ${long && !open ? 'clamped-rich' : ''}`} dangerouslySetInnerHTML={{ __html: sanitizeHtml(p.html) }} />
         ) : (
-          <span className={`allnotes-text ${clamp}`}>{highlight(p.text, q)}</span>
+          <span className={`allnotes-text ${clamp}`}>{renderText(p.text, q, pickTag)}</span>
         )}
         {long && !isEditing && (
           <button type="button" className="text-btn allnotes-toggle" onClick={e => { e.stopPropagation(); toggle(); }}>
@@ -431,14 +596,15 @@ export function AllNotes({ onOpen }: { onOpen: (note: LoggedNote) => void }) {
     const single = n.parts.length === 1;
     const first = n.parts[0];
     const own = n.jump.page === 'All Notes'; // a day note: it lives here, so tapping edits it
-    const canEditFirst = single && Boolean(first.target) && !first.html;
-    const startEdit = () => setEditing({ key: `${n.id}#0`, draft: first.text });
-    const activate = () => { if (own) { if (canEditFirst) startEdit(); } else onOpen(n); };
+    const canEditFirst = single && Boolean(first.target);
+    const startEdit = () => beginEdit(`${n.id}#0`, first);
+    const isPicked = picked.has(n.id);
+    const activate = () => { if (selecting) togglePick(n.id); else if (own) { if (canEditFirst) startEdit(); } else onOpen(n); };
     return (
       <div
         key={n.id}
         data-note-id={n.id}
-        className={`allnotes-item ${isStarred ? 'starred' : ''} ${flashId === n.id ? 'flash' : ''} ${own ? 'own' : ''}`}
+        className={`allnotes-item ${isStarred ? 'starred' : ''} ${flashId === n.id ? 'flash' : ''} ${own ? 'own' : ''} ${isPicked ? 'picked' : ''}`}
         role="button"
         tabIndex={0}
         onClick={e => {
@@ -448,9 +614,14 @@ export function AllNotes({ onOpen }: { onOpen: (note: LoggedNote) => void }) {
           activate();
         }}
         onKeyDown={e => { if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); activate(); } }}
-        title={own ? 'Tap to edit' : `Open in ${n.jump.page}${n.jump.tab ? ` → ${n.jump.tab}` : ''}`}
+        title={selecting ? 'Tap to pick' : own ? 'Tap to edit' : `Open in ${n.jump.page}${n.jump.tab ? ` → ${n.jump.tab}` : ''}`}
       >
+        {n.cover && !compact && <img className="allnotes-cover" src={n.cover} alt="" loading="lazy" />}
+        <div className="allnotes-body">
         <span className="allnotes-meta">
+          {selecting && (
+            <span className={`allnotes-pick ${isPicked ? 'on' : ''}`} aria-hidden="true">{isPicked ? <CheckSquare size={16} /> : <Square size={16} />}</span>
+          )}
           <button
             type="button"
             className={`allnotes-icon allnotes-star ${isStarred ? 'on' : ''}`}
@@ -472,6 +643,9 @@ export function AllNotes({ onOpen }: { onOpen: (note: LoggedNote) => void }) {
                 <Pencil size={13} />
               </button>
             )}
+            <button type="button" className="allnotes-icon" onClick={e => { e.stopPropagation(); addTask(n); }} aria-label="Add this as a task" title="Add as a task">
+              <ListTodo size={13} />
+            </button>
             {!own && <ArrowUpRight size={14} className="allnotes-go" />}
           </span>
         </span>
@@ -490,6 +664,7 @@ export function AllNotes({ onOpen }: { onOpen: (note: LoggedNote) => void }) {
             )}
           </span>
         )}
+        </div>
       </div>
     );
   };
@@ -502,7 +677,7 @@ export function AllNotes({ onOpen }: { onOpen: (note: LoggedNote) => void }) {
   };
 
   const activeFilters = (range !== 'all' ? 1 : 0) + (oldestFirst ? 1 : 0) + (compact ? 1 : 0);
-  const clearFilters = () => { setView({ area: 'All', source: '', query: '', range: 'all', from: '', to: '', starredOnly: false }); setShown(PAGE_SIZE); };
+  const clearFilters = () => { setView({ area: 'All', source: '', tag: '', query: '', range: 'all', from: '', to: '', starredOnly: false }); setShown(PAGE_SIZE); };
   const liveAreas = NOTE_AREAS.filter(a => counts.get(a));
   const emptyAreas = NOTE_AREAS.filter(a => !counts.get(a));
   const starredNotes = useMemo(() => all.filter(n => starred.has(n.id)), [all, starred]);
@@ -521,7 +696,7 @@ export function AllNotes({ onOpen }: { onOpen: (note: LoggedNote) => void }) {
     return [wd, md];
   };
   // Changing a filter re-keys the list so it fades in rather than snapping (typing in search doesn't).
-  const listKey = `${area}|${source}|${range}|${from}|${to}|${starredOnly}|${oldestFirst}|${compact}`;
+  const listKey = `${area}|${source}|${tag}|${range}|${from}|${to}|${starredOnly}|${oldestFirst}|${compact}`;
 
   return (
     <div ref={rootRef} className={`allnotes-root ${compact ? 'allnotes-compact' : ''}`}>
@@ -538,10 +713,17 @@ export function AllNotes({ onOpen }: { onOpen: (note: LoggedNote) => void }) {
               <>
                 <div className="allnotes-menu-backdrop" onClick={() => setMenuOpen(false)} />
                 <div className="allnotes-menu" role="menu">
-                  <span className="allnotes-menu-title">{showing.length} note{showing.length === 1 ? '' : 's'} showing</span>
+                  <span className="allnotes-menu-title">{picked.size ? `${picked.size} picked` : `${showing.length} note${showing.length === 1 ? '' : 's'} showing`}</span>
                   <button type="button" role="menuitem" onClick={copyText}><FileText size={15} /> Copy as text</button>
                   <button type="button" role="menuitem" onClick={copyRows}><ClipboardCopy size={15} /> Copy for a spreadsheet</button>
                   <button type="button" role="menuitem" onClick={saveToSecondBrain}><BookmarkPlus size={15} /> Save as a Second Brain note</button>
+                  <hr />
+                  <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); if (selecting) stopSelecting(); else setSelecting(true); }}>
+                    <ListChecks size={15} /> {selecting ? 'Stop picking' : 'Pick specific notes…'}
+                  </button>
+                  <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); setReview(isoOf(weekStartOf(new Date()))); }}>
+                    <CalendarRange size={15} /> Weekly review
+                  </button>
                 </div>
               </>
             )}
@@ -561,6 +743,19 @@ export function AllNotes({ onOpen }: { onOpen: (note: LoggedNote) => void }) {
             />
             {query ? <button type="button" onClick={() => setView({ query: '' })} aria-label="Clear search"><X size={14} /></button> : <kbd>/</kbd>}
           </label>
+          {months.length > 1 && (
+            <label className="btn ghost allnotes-bar-btn allnotes-jump" title="Jump to a month">
+              <CalendarDays size={15} />
+              <select
+                value="" aria-label="Jump to a month"
+                onChange={e => { const v = e.target.value; if (v === 'standing') goToStanding(); else if (v) goToMonth(v); }}
+              >
+                <option value="">Jump to…</option>
+                {months.map(m => <option key={m.key} value={m.key}>{monthLabel(m.key)} ({m.total})</option>)}
+                {standing.length > 0 && <option value="standing">Standing notes ({standing.length})</option>}
+              </select>
+            </label>
+          )}
           <button type="button" className={`btn ghost allnotes-bar-btn ${filtersOpen ? 'on' : ''}`} onClick={() => setFiltersOpen(o => !o)} aria-expanded={filtersOpen} title="Date range, order and view">
             <SlidersHorizontal size={15} /> <span>Filters</span>{activeFilters > 0 && <i>{activeFilters}</i>}
           </button>
@@ -634,6 +829,14 @@ export function AllNotes({ onOpen }: { onOpen: (note: LoggedNote) => void }) {
         </div>
       )}
 
+      {tagCounts.length > 0 && (
+        <div className="allnotes-chips allnotes-subchips allnotes-tagchips">
+          {tagCounts.slice(0, 24).map(([t, count]) => (
+            <button type="button" key={t} className={`chip ${tag === t ? 'active' : ''}`} onClick={() => pickTag(t)}>#{t} <i>{count}</i></button>
+          ))}
+        </div>
+      )}
+
       {composing && (
         <div className="allnotes-compose">
           <textarea
@@ -649,6 +852,16 @@ export function AllNotes({ onOpen }: { onOpen: (note: LoggedNote) => void }) {
             <button type="button" className="btn ghost" onClick={() => { setComposing(false); setDraft(''); }}>Cancel</button>
             <button type="button" className="btn primary" disabled={!draft.trim()} onClick={addDayNote}>Save note</button>
           </div>
+          <label className="allnotes-remind">
+            <Bell size={14} />
+            <span>Remind me at</span>
+            <input type="time" value={data.settings.dayNoteReminderTime ?? ''} onChange={e => void updateSettings({ dayNoteReminderTime: e.target.value || undefined })} aria-label="Reminder time" />
+            <span>if I haven’t written one</span>
+            {data.settings.dayNoteReminderTime && (
+              <button type="button" className="text-btn" onClick={() => void updateSettings({ dayNoteReminderTime: undefined })}>Off</button>
+            )}
+            {data.settings.dayNoteReminderTime && !data.settings.notificationsEnabled && <em>Turn on notifications in Settings for this to fire.</em>}
+          </label>
         </div>
       )}
 
@@ -731,11 +944,14 @@ export function AllNotes({ onOpen }: { onOpen: (note: LoggedNote) => void }) {
               </button>
               {(standingOpen || q) && (
                 <div className="allnotes-list allnotes-timeline">
-                  {standing.map(n => (
-                    <div key={n.id} className="allnotes-standing-row">
-                      {renderNote(n)}
-                      <small className="allnotes-edited">Last edited {shortDate(n.date)}</small>
-                    </div>
+                  {standing.map((n, i) => (
+                    <Fragment key={n.id}>
+                      {(i === 0 || standing[i - 1].area !== n.area) && <h3 className="allnotes-standing-area">{n.area}</h3>}
+                      <div className="allnotes-standing-row">
+                        {renderNote(n)}
+                        <small className="allnotes-edited">Last edited {shortDate(n.date)}</small>
+                      </div>
+                    </Fragment>
                   ))}
                 </div>
               )}
@@ -768,6 +984,55 @@ export function AllNotes({ onOpen }: { onOpen: (note: LoggedNote) => void }) {
           </aside>
         )}
       </div>
+
+      {selecting && (
+        <div className="allnotes-selectbar" role="toolbar" aria-label="Picked notes">
+          <b>{picked.size ? `${picked.size} picked` : 'Tap notes to pick them'}</b>
+          <button type="button" className="btn ghost" disabled={!picked.size} onClick={copyText}><FileText size={14} /> <span>Copy</span></button>
+          <button type="button" className="btn ghost" disabled={!picked.size} onClick={copyRows}><ClipboardCopy size={14} /> <span>Spreadsheet</span></button>
+          <button type="button" className="btn ghost" disabled={!picked.size} onClick={saveToSecondBrain}><BookmarkPlus size={14} /> <span>Save</span></button>
+          <button type="button" className="btn primary" onClick={stopSelecting}>Done</button>
+        </div>
+      )}
+
+      {showTop && !selecting && (
+        <button type="button" className="allnotes-top" onClick={() => scrollerOf(rootRef.current).scrollTo({ top: 0, behavior: 'smooth' })} aria-label="Back to top" title="Back to top">
+          <ArrowUp size={18} />
+        </button>
+      )}
+
+      {review && (
+        <Modal
+          title="Weekly review" eyebrow={`${shortDate(review)} – ${(() => { const e = dateOf(review); e.setDate(e.getDate() + 6); return shortDate(isoOf(e)); })()}`}
+          onClose={() => setReview(null)} size="wide"
+          footer={<>
+            <button type="button" className="btn ghost" disabled={!reviewNotes.length} onClick={copyReview}><FileText size={15} /> Copy</button>
+            <button type="button" className="btn ghost" disabled={!reviewNotes.length} onClick={saveReview}><BookmarkPlus size={15} /> Save to Second Brain</button>
+            <button type="button" className="btn primary" onClick={() => setReview(null)}>Done</button>
+          </>}
+        >
+          <div className="allnotes-review">
+            <div className="allnotes-review-nav">
+              <button type="button" className="btn ghost" onClick={() => shiftReview(-7)}><ChevronLeft size={15} /> Earlier</button>
+              <span>{reviewNotes.length} note{reviewNotes.length === 1 ? '' : 's'} this week</span>
+              <button type="button" className="btn ghost" onClick={() => shiftReview(7)} disabled={review >= isoOf(weekStartOf(new Date()))}>Later <ChevronRight size={15} /></button>
+            </div>
+            {done && <p className="allnotes-done" role="status"><Check size={14} /> {done}</p>}
+            {!reviewNotes.length && <p className="muted empty-state">Nothing written this week.</p>}
+            {reviewByArea.map(g => (
+              <section key={g.area}>
+                <h3><span className={`allnotes-tag area-${g.area.toLowerCase()}`}>{g.area}</span> {g.notes.length}</h3>
+                {g.notes.map(n => (
+                  <div key={n.id} className="allnotes-review-note">
+                    <small>{dateOf(n.date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })} · {n.source}{about(n) ? ` · ${about(n)}` : ''}</small>
+                    <p>{n.text}</p>
+                  </div>
+                ))}
+              </section>
+            ))}
+          </div>
+        </Modal>
+      )}
 
       {lightbox && (
         <figure className="allnotes-lightbox" onClick={() => setLightbox(null)}>

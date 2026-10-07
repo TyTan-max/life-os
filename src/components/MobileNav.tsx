@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { Check, MoreHorizontal, NotebookPen, Plus, RefreshCw, Redo2, Save, Undo2 } from 'lucide-react';
 import { useSyncDescription } from './SyncPanel';
 import { useStore, newRecord } from '../store';
-import type { Note } from '../types';
+import type { Note, DayNote } from '../types';
 import { MOBILE_TABS, MOBILE_TAB_LABELS, NAV_SECTIONS, navIconFor } from '../navigation';
 import { useIsMobile } from '../hooks/useIsMobile';
 import { getFabAction, subscribeFabActions } from '../lib/fabRegistry';
@@ -42,6 +42,17 @@ export function MobileNav({ page, navigate }: { page: string; navigate: (page: s
     const text = captureText.trim();
     if (!text) return;
     await upsert('notes', newRecord<Note>({ title: '', body: text, tags: [], pinned: false }));
+    setCaptureText('');
+    closeSheet();
+  };
+
+  // The same box can save a note for today instead — it shows up in All Notes under Journal.
+  const captureDayNote = async () => {
+    const text = captureText.trim();
+    if (!text) return;
+    const now = new Date();
+    const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    await upsert('dayNotes', newRecord<DayNote>({ date: today, text }));
     setCaptureText('');
     closeSheet();
   };
@@ -154,6 +165,9 @@ export function MobileNav({ page, navigate }: { page: string; navigate: (page: s
           />
           <button type="button" className="btn primary full" onClick={() => void capture()} disabled={!captureText.trim()}>
             Capture to Inbox
+          </button>
+          <button type="button" className="btn ghost full sheet-capture-alt" onClick={() => void captureDayNote()} disabled={!captureText.trim()}>
+            Save as today’s note
           </button>
         </Sheet>
       )}

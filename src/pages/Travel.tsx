@@ -2,14 +2,16 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { takeJumpFor } from '../lib/jumpTo';
 import type { ChangeEvent } from 'react';
 import {
-  AlertTriangle, ArrowUpDown, Check, ChevronLeft, ChevronRight, Columns3, Image as ImageIcon, LayoutGrid, MapPin,
-  Pencil, Plus, RotateCcw, Search, Sparkles, Trash2, Trophy, Upload, X
+  AlertTriangle, ArrowUpDown, CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight, Columns3, Globe, Image as ImageIcon, ImageOff, Images,
+  LayoutGrid, MapPin, Pencil, Plus, Search, Sparkles, Trash2, Trophy, Upload, Wallet, X
 } from 'lucide-react';
 import { useStore, newRecord } from '../store';
 import type { BucketListCategory, BucketListItem, BucketListStatus, BucketListSubtask, CostTier } from '../types';
-import { Card, EmptyState, Modal, PageHeader, ProgressBar, formatDate } from '../components/UI';
+import { Card, EmptyState, Modal, PageHeader, ProgressBar, formatCurrency, formatDate } from '../components/UI';
 import { DatePicker } from '../components/DatePicker';
-import { RichTextEditor } from '../components/RichTextEditor';
+import { RichTextEditor, sanitizeHtml } from '../components/RichTextEditor';
+import { toPlainText } from '../lib/loggedNotes';
+import { LAND_PATH, MAP_H, MAP_W, locate, project } from '../lib/worldMap';
 import { generateId } from '../utils/id';
 import { useIsMobile } from '../hooks/useIsMobile';
 import { useFabAction } from '../hooks/useFabAction';
@@ -51,11 +53,29 @@ function subtaskProgress(item: BucketListItem): { done: number; total: number } 
   return { done: list.filter(t => t.done).length, total: list.length };
 }
 
-// Editorial asymmetry: celebrate what's done, and spotlight what's actively being
-// pursued toward a real date — vague "someday" dreams stay small until they earn it.
-function isFeatured(item: BucketListItem): boolean {
-  return item.status === 'Achieved' || (item.status === 'Planning' && Boolean(item.targetDate));
+const dayMs = 24 * 60 * 60 * 1000;
+const daysBetween = (fromIso: string, toIso: string) =>
+  Math.round((new Date(`${toIso}T12:00:00`).getTime() - new Date(`${fromIso}T12:00:00`).getTime()) / dayMs);
+
+// "in 95 days" reads better than a bare date, and says when it's getting close or has slipped.
+function targetLabel(item: BucketListItem, today: string): { text: string; tone: 'ok' | 'soon' | 'late' } | null {
+  if (!item.targetDate || item.status === 'Achieved') return null;
+  const days = daysBetween(today, item.targetDate);
+  const when = formatDate(item.targetDate);
+  if (days < 0) return { text: `${when} · ${-days} day${days === -1 ? '' : 's'} overdue`, tone: 'late' };
+  if (days === 0) return { text: `${when} · today`, tone: 'soon' };
+  return { text: `${when} · in ${days} day${days === 1 ? '' : 's'}`, tone: days <= 14 ? 'soon' : 'ok' };
 }
+
+// The one goal worth the big card: what you're actively planning that comes up soonest.
+function nextUp(items: BucketListItem[]): BucketListItem | null {
+  return items
+    .filter(i => i.status === 'Planning' && i.targetDate)
+    .sort((a, b) => (a.targetDate ?? '').localeCompare(b.targetDate ?? ''))[0] ?? null;
+}
+
+type Layout = 'gallery' | 'board' | 'map' | 'memories';
+const LAYOUT_KEY = 'lifeos.view.bucketList';
 
 function emptyForm(status: BucketListStatus = 'Someday'): Partial<BucketListItem> {
   return { title: '', category: 'Travel', status, subtasks: [] };
@@ -246,6 +266,23 @@ function ItemFormModal({
           <span>Target date</span>
           <DatePicker value={form.targetDate} onChange={v => set('targetDate', v)} placeholder="No target date" />
         </label>
+        {(form.category ?? 'Travel') === 'Travel' && (
+          <>
+            <label>
+              <span>Trip starts</span>
+              <DatePicker value={form.tripStart} onChange={v => set('tripStart', v || undefined)} placeholder="Not set" allowClear />
+            </label>
+            <label>
+              <span>Trip ends</span>
+              <DatePicker value={form.tripEnd} onChange={v => set('tripEnd', v || undefined)} placeholder="Not set" allowClear />
+            </label>
+            <label>
+              <span>Budget</span>
+              <input type="number" inputMode="decimal" min="0" value={form.budget ?? ''} placeholder="e.g. 2500"
+                onChange={e => set('budget', e.target.value === '' ? undefined : Number(e.target.value))} />
+            </label>
+          </>
+        )}
         <label className="field-full">
           <span>Notes</span>
           <RichTextEditor value={form.notes ?? ''} onChange={v => set('notes', v)} placeholder="What makes this one matter…" />
@@ -449,6 +486,7 @@ export function Travel() {
   const { data, upsert, remove } = useStore();
   const isMobile = useIsMobile();
   const items = data.bucketList;
+  const today = localIso();
 
   const [statusTab, setStatusTab] = useState<StatusTab>('All');
   const [categoryTab, setCategoryTab] = useState<BucketListCategory | null>(null);
@@ -458,18 +496,25 @@ export function Travel() {
     setSortByState(next);
     window.localStorage.setItem(SORT_STORAGE_KEY, next);
   };
-  const [flippedIds, setFlippedIds] = useState<Set<string>>(new Set());
-  // Arriving from All Notes opens that item.
+  // Arriving from All Notes or the Calendar opens that goal.
   const [jumpItem] = useState(() => { const j = takeJumpFor('bucketList'); return (j && items.find(i => i.id === j.id)) || null; });
-  const [formItem, setFormItem] = useState<BucketListItem | null>(jumpItem);
-  const [showForm, setShowForm] = useState(Boolean(jumpItem));
-  const [photoDrafts, setPhotoDrafts] = useState<Record<string, string>>({});
+  const [detailId, setDetailId] = useState<string | null>(jumpItem?.id ?? null);
+  const [formItem, setFormItem] = useState<BucketListItem | null>(null);
+  const [showForm, setShowForm] = useState(false);
+  const [photoDraft, setPhotoDraft] = useState('');
+  const [stepDraft, setStepDraft] = useState('');
+  const [packDraft, setPackDraft] = useState('');
   const [deckOpen, setDeckOpen] = useState(false);
   const [uploadingFor, setUploadingFor] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const uploadTargetRef = useRef<BucketListItem | null>(null);
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
   const [dragId, setDragId] = useState<string | null>(null);
+  // Photos whose link no longer loads (a pasted URL that has since died).
+  const [brokenPhotos, setBrokenPhotos] = useState<Set<string>>(new Set());
+  const markBroken = (url: string) => setBrokenPhotos(prev => (prev.has(url) ? prev : new Set(prev).add(url)));
+  // "Did you do it?" prompts put off for this visit.
+  const [snoozed, setSnoozed] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     if (!lightboxUrl) return;
@@ -483,12 +528,18 @@ export function Travel() {
     [items]
   );
 
+  // Search looks through everything written on a goal, not just its title.
+  const matchesSearch = (i: BucketListItem, q: string) => !q || [
+    i.title, i.location ?? '', toPlainText(i.notes ?? ''), toPlainText(i.reflection ?? ''),
+    ...(i.subtasks ?? []).map(t => t.text), ...(i.packing ?? []).map(t => t.text)
+  ].some(text => text.toLowerCase().includes(q));
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     const list = items
       .filter(i => statusTab === 'All' || i.status === statusTab)
       .filter(i => !categoryTab || i.category === categoryTab)
-      .filter(i => !q || i.title.toLowerCase().includes(q) || (i.location ?? '').toLowerCase().includes(q));
+      .filter(i => matchesSearch(i, q));
     const sorted = list.slice();
     if (sortBy === 'title') sorted.sort((a, b) => a.title.localeCompare(b.title));
     else if (sortBy === 'target') sorted.sort((a, b) => (a.targetDate ?? '9999-99-99').localeCompare(b.targetDate ?? '9999-99-99'));
@@ -501,9 +552,19 @@ export function Travel() {
     const q = search.trim().toLowerCase();
     return items
       .filter(i => !categoryTab || i.category === categoryTab)
-      .filter(i => !q || i.title.toLowerCase().includes(q) || (i.location ?? '').toLowerCase().includes(q))
+      .filter(i => matchesSearch(i, q))
       .sort((a, b) => (a.order ?? 9999) - (b.order ?? 9999) || (b.updatedAt ?? '').localeCompare(a.updatedAt ?? ''));
   }, [items, categoryTab, search]);
+
+  const counts = useMemo(() => ({
+    Achieved: items.filter(i => i.status === 'Achieved').length,
+    Planning: items.filter(i => i.status === 'Planning').length,
+    Someday: items.filter(i => i.status === 'Someday').length
+  }), [items]);
+  const next = useMemo(() => nextUp(items), [items]);
+  const nextLabel = next ? targetLabel(next, today) : null;
+  // Goals whose target date has arrived without being marked achieved.
+  const duePrompts = items.filter(i => i.status !== 'Achieved' && i.targetDate && i.targetDate <= today && !snoozed.has(i.id));
 
   // Dragging always works, regardless of which sort is currently active — starting a drag is a
   // clear enough signal of intent to take manual control that it switches to "Custom order"
@@ -515,10 +576,10 @@ export function Travel() {
     const fromIndex = ordered.indexOf(dragId);
     const toIndex = ordered.indexOf(targetId);
     if (fromIndex === -1 || toIndex === -1) { setDragId(null); return; }
-    const next = [...ordered];
-    next.splice(fromIndex, 1);
-    next.splice(toIndex, 0, dragId);
-    await Promise.all(next.map((id, index) => {
+    const reordered = [...ordered];
+    reordered.splice(fromIndex, 1);
+    reordered.splice(toIndex, 0, dragId);
+    await Promise.all(reordered.map((id, index) => {
       const item = items.find(i => i.id === id);
       if (!item || item.order === index) return Promise.resolve();
       return upsert('bucketList', { ...item, order: index });
@@ -533,22 +594,26 @@ export function Travel() {
 
   const markAchieved = (item: BucketListItem) => {
     patchItem(item, { status: 'Achieved', achievedAt: item.achievedAt ?? localIso() });
-    setFlippedIds(prev => new Set(prev).add(item.id));
+    setDetailId(item.id);
   };
 
-  const toggleFlip = (id: string) => {
-    setFlippedIds(prev => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id); else next.add(id);
-      return next;
-    });
+  // Steps and the packing list are the same kind of checklist.
+  type ListKey = 'subtasks' | 'packing';
+  const toggleEntry = (item: BucketListItem, key: ListKey, id: string) =>
+    patchItem(item, { [key]: (item[key] ?? []).map(t => (t.id === id ? { ...t, done: !t.done } : t)) });
+  const removeEntry = (item: BucketListItem, key: ListKey, id: string) =>
+    patchItem(item, { [key]: (item[key] ?? []).filter(t => t.id !== id) });
+  const addEntry = (item: BucketListItem, key: ListKey, text: string) => {
+    const value = text.trim();
+    if (!value) return;
+    patchItem(item, { [key]: [...(item[key] ?? []), { id: generateId(), text: value, done: false }] });
   };
 
   const addPhoto = (item: BucketListItem) => {
-    const url = (photoDrafts[item.id] ?? '').trim();
+    const url = photoDraft.trim();
     if (!url) return;
     patchItem(item, { memoryPhotos: [...(item.memoryPhotos ?? []), url] });
-    setPhotoDrafts(prev => ({ ...prev, [item.id]: '' }));
+    setPhotoDraft('');
   };
   const removePhoto = (item: BucketListItem, url: string) => {
     patchItem(item, { memoryPhotos: (item.memoryPhotos ?? []).filter(p => p !== url) });
@@ -573,21 +638,26 @@ export function Travel() {
       const latest = items.find(i => i.id === target.id) ?? target;
       patchItem(latest, { memoryPhotos: [...(latest.memoryPhotos ?? []), dataUrl] });
     } catch {
-      /* unreadable file — silently skip rather than block the rest of the card */
+      /* unreadable file — silently skip rather than block the rest of the panel */
     } finally {
       setUploadingFor(null);
     }
   };
 
-  // ---- Desktop views: Gallery (photo cards) or Board (Someday → Planning → Achieved). ----
-  const [layout, setLayoutState] = useState<'gallery' | 'board'>(() => {
-    try { return window.localStorage.getItem('lifeos.view.bucketList') === 'board' ? 'board' : 'gallery'; } catch { return 'gallery'; }
+  // ---- Views: Gallery, Board (desktop), Map, Memories ----
+  const [layoutRaw, setLayoutState] = useState<Layout>(() => {
+    try {
+      const saved = window.localStorage.getItem(LAYOUT_KEY);
+      return saved === 'board' || saved === 'map' || saved === 'memories' ? saved : 'gallery';
+    } catch { return 'gallery'; }
   });
-  const setLayout = (next: 'gallery' | 'board') => {
-    setLayoutState(next);
-    try { window.localStorage.setItem('lifeos.view.bucketList', next); } catch { /* not remembered */ }
+  const setLayout = (value: Layout) => {
+    setLayoutState(value);
+    try { window.localStorage.setItem(LAYOUT_KEY, value); } catch { /* not remembered */ }
   };
-  const boardMode = !isMobile && layout === 'board';
+  // The board needs room for three columns side by side.
+  const layout: Layout = isMobile && layoutRaw === 'board' ? 'gallery' : layoutRaw;
+  const boardMode = layout === 'board';
   const [boardOver, setBoardOver] = useState<BucketListStatus | null>(null);
   const moveToStatus = (id: string, status: BucketListStatus) => {
     const item = items.find(i => i.id === id);
@@ -596,16 +666,19 @@ export function Travel() {
     else patchItem(item, { status });
   };
 
-  // Right-click a goal (desktop): edit, move between statuses, delete.
+  // Right-click a goal (desktop), or tap its status pill anywhere: move between statuses, edit, delete.
   const { menu: contextMenu, openMenu } = useContextMenu();
-  const goalMenu = (item: BucketListItem): ContextMenuItem[] => [
-    { label: 'Edit…', icon: Pencil, onSelect: () => startEdit(item) },
-    ...(item.status === 'Achieved' && !boardMode ? [{ label: 'View memory', icon: ImageIcon, onSelect: () => toggleFlip(item.id) }] : []),
-    'separator',
+  const statusMenu = (item: BucketListItem): ContextMenuItem[] => [
     { heading: 'Status' },
-    ...STATUSES.map(st => ({ label: st, checked: item.status === st, onSelect: () => moveToStatus(item.id, st) })),
+    ...STATUSES.map(st => ({ label: st, checked: item.status === st, onSelect: () => moveToStatus(item.id, st) }))
+  ];
+  const goalMenu = (item: BucketListItem): ContextMenuItem[] => [
+    { label: 'Open', icon: ImageIcon, onSelect: () => setDetailId(item.id) },
+    { label: 'Edit…', icon: Pencil, onSelect: () => startEdit(item) },
     'separator',
-    { label: 'Delete…', icon: Trash2, danger: true, onSelect: () => deleteItem(item.id) }
+    ...statusMenu(item),
+    'separator',
+    { label: 'Delete', icon: Trash2, danger: true, onSelect: () => deleteItem(item.id) }
   ];
 
   const startAdd = () => { setFormItem(null); setShowForm(true); };
@@ -623,8 +696,9 @@ export function Travel() {
     closeForm();
   };
 
+  // No "are you sure?" box: the Undo toast (and Ctrl+Z) brings a deleted goal straight back.
   const deleteItem = (id: string) => {
-    if (!window.confirm('Delete this goal? This cannot be undone.')) return;
+    if (detailId === id) setDetailId(null);
     void remove('bucketList', id);
   };
 
@@ -636,6 +710,170 @@ export function Travel() {
     });
     void upsert('bucketList', record);
   };
+
+  // ---- Map ----
+  const placed = useMemo(() => filteredAllStatuses
+    .map(item => ({ item, at: locate(item.location, item.title) }))
+    .filter((p): p is { item: BucketListItem; at: NonNullable<ReturnType<typeof locate>> } => p.at !== null),
+  [filteredAllStatuses]);
+  const unplaced = filteredAllStatuses.filter(i => !placed.some(p => p.item.id === i.id));
+
+  // ---- Memories: what you've done, by year ----
+  const memoryYears = useMemo(() => {
+    const done = filteredAllStatuses.filter(i => i.status === 'Achieved')
+      .sort((a, b) => (b.achievedAt ?? '').localeCompare(a.achievedAt ?? ''));
+    const years = new Map<string, BucketListItem[]>();
+    for (const i of done) {
+      const year = (i.achievedAt ?? '').slice(0, 4) || 'Undated';
+      if (!years.has(year)) years.set(year, []);
+      years.get(year)!.push(i);
+    }
+    return Array.from(years.entries());
+  }, [filteredAllStatuses]);
+
+  const detail = detailId ? items.find(i => i.id === detailId) ?? null : null;
+  const closeDetail = () => { setDetailId(null); setStepDraft(''); setPackDraft(''); setPhotoDraft(''); };
+
+  const renderChecklist = (item: BucketListItem, key: ListKey, draft: string, setDraft: (v: string) => void, placeholder: string) => (
+    <div className="bucket-checklist">
+      {(item[key] ?? []).map(t => (
+        <div className="bucket-check-row" key={t.id}>
+          <label>
+            <input type="checkbox" checked={t.done} onChange={() => toggleEntry(item, key, t.id)} />
+            <span className={t.done ? 'done' : ''}>{t.text}</span>
+          </label>
+          <button type="button" className="icon-btn" onClick={() => removeEntry(item, key, t.id)} aria-label={`Remove ${t.text}`}><X size={13} /></button>
+        </div>
+      ))}
+      <div className="bucket-subtask-add">
+        <input
+          type="text" value={draft} placeholder={placeholder}
+          onChange={e => setDraft(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addEntry(item, key, draft); setDraft(''); } }}
+        />
+        <button type="button" className="btn ghost small" onClick={() => { addEntry(item, key, draft); setDraft(''); }}>Add</button>
+      </div>
+    </div>
+  );
+
+  const renderDetail = (item: BucketListItem) => {
+    const { done, total } = subtaskProgress(item);
+    const target = targetLabel(item, today);
+    const nights = item.tripStart && item.tripEnd ? daysBetween(item.tripStart, item.tripEnd) : null;
+    const packing = item.packing ?? [];
+    return (
+      <Modal
+        eyebrow={[item.category, item.location].filter(Boolean).join(' · ')}
+        title={item.title}
+        onClose={closeDetail}
+        size="wide"
+        footer={<>
+          <button type="button" className="btn ghost danger bucket-detail-delete" onClick={() => deleteItem(item.id)}><Trash2 size={14} /> Delete</button>
+          <button type="button" className="btn ghost" onClick={() => { closeDetail(); startEdit(item); }}><Pencil size={14} /> Edit details</button>
+          {item.status !== 'Achieved' && <button type="button" className="btn teal" onClick={() => markAchieved(item)}><Trophy size={14} /> Mark achieved</button>}
+          <button type="button" className="btn primary" onClick={closeDetail}>Done</button>
+        </>}
+      >
+        <div className="bucket-detail">
+          {item.coverArt && <div className="bucket-detail-cover" style={{ backgroundImage: `url(${item.coverArt})` }} />}
+
+          <div className="bucket-detail-meta">
+            <div className="segmented" role="group" aria-label="Status">
+              {STATUSES.map(st => (
+                <button type="button" key={st} className={item.status === st ? 'on' : ''} onClick={() => moveToStatus(item.id, st)}>{st}</button>
+              ))}
+            </div>
+            {item.costTier && <span className="bucket-detail-chip">{item.costTier}</span>}
+            {target && <span className={`bucket-detail-chip tone-${target.tone}`}><CalendarDays size={13} /> {target.text}</span>}
+            {item.status === 'Achieved' && item.achievedAt && <span className="bucket-detail-chip tone-gold"><Trophy size={13} /> Achieved {formatDate(item.achievedAt)}</span>}
+          </div>
+
+          {item.notes && toPlainText(item.notes) && (
+            <section>
+              <h3>Why it matters</h3>
+              <div className="bucket-detail-notes" dangerouslySetInnerHTML={{ __html: sanitizeHtml(item.notes) }} />
+            </section>
+          )}
+
+          <section>
+            <h3>Steps to get there {total > 0 && <span>{done} of {total} done</span>}</h3>
+            {total > 0 && <ProgressBar value={(done / total) * 100} />}
+            {renderChecklist(item, 'subtasks', stepDraft, setStepDraft, 'Add a step — e.g. Book flights')}
+          </section>
+
+          {item.category === 'Travel' && (
+            <section>
+              <h3>Trip plan {nights != null && nights >= 0 && <span>{nights} night{nights === 1 ? '' : 's'}</span>}</h3>
+              <div className="bucket-trip-grid">
+                <label><span>Leaving</span><DatePicker value={item.tripStart} onChange={v => patchItem(item, { tripStart: v || undefined })} placeholder="Not set" allowClear /></label>
+                <label><span>Back</span><DatePicker value={item.tripEnd} onChange={v => patchItem(item, { tripEnd: v || undefined })} placeholder="Not set" allowClear /></label>
+                <label>
+                  <span><Wallet size={12} /> Budget</span>
+                  <input type="number" inputMode="decimal" min="0" value={item.budget ?? ''} placeholder="e.g. 2500"
+                    onChange={e => patchItem(item, { budget: e.target.value === '' ? undefined : Number(e.target.value) })} />
+                </label>
+              </div>
+              {item.budget != null && nights != null && nights > 0 && (
+                <p className="muted bucket-trip-note">About {formatCurrency(item.budget / nights)} a night.</p>
+              )}
+              <h4>Pack &amp; book {packing.length > 0 && <span>{packing.filter(p => p.done).length} of {packing.length}</span>}</h4>
+              {renderChecklist(item, 'packing', packDraft, setPackDraft, 'Add something — e.g. Passport, travel insurance')}
+            </section>
+          )}
+
+          {item.status === 'Achieved' && (
+            <section className="bucket-detail-memory">
+              <h3><Trophy size={14} /> Memory</h3>
+              <label className="bucket-journal-date">
+                <span>Achieved on</span>
+                <DatePicker value={item.achievedAt} onChange={v => patchItem(item, { achievedAt: v })} placeholder="Set date" />
+              </label>
+              <RichTextEditor
+                value={item.reflection ?? ''}
+                onChange={v => patchItem(item, { reflection: v })}
+                placeholder="How did it feel? What will you remember?"
+              />
+              <div className="bucket-journal-photos">
+                {(item.memoryPhotos ?? []).map(url => (
+                  <div className={`bucket-journal-photo ${brokenPhotos.has(url) ? 'broken' : ''}`} key={url}>
+                    {brokenPhotos.has(url) ? (
+                      <span className="bucket-photo-missing" title="This photo's link no longer works"><ImageOff size={18} /><small>Photo unavailable</small></span>
+                    ) : (
+                      <button type="button" className="bucket-journal-photo-expand" onClick={() => setLightboxUrl(url)} aria-label="View full-size photo">
+                        <img src={url} alt="" onError={() => markBroken(url)} />
+                      </button>
+                    )}
+                    <button type="button" className="bucket-journal-photo-remove" onClick={() => removePhoto(item, url)} aria-label="Remove photo"><X size={11} /></button>
+                  </div>
+                ))}
+              </div>
+              <div className="bucket-journal-add-photo">
+                <button type="button" className="btn ghost small" onClick={() => triggerPhotoUpload(item)} disabled={uploadingFor === item.id} title="Upload a photo from your device">
+                  <Upload size={13} /> {uploadingFor === item.id ? 'Uploading…' : 'Upload'}
+                </button>
+                <input
+                  type="text" value={photoDraft} placeholder="…or paste a photo URL"
+                  onChange={e => setPhotoDraft(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addPhoto(item); } }}
+                />
+                <button type="button" className="btn ghost small" onClick={() => addPhoto(item)}>Add</button>
+              </div>
+            </section>
+          )}
+        </div>
+      </Modal>
+    );
+  };
+
+  // Only one big card, and only on the plain "everything" view where it has neighbours to stand out from.
+  const featuredId = !isMobile && layout === 'gallery' && statusTab === 'All' && !categoryTab && !search.trim() && filtered.length > 2 ? next?.id : undefined;
+
+  const views: { value: Layout; label: string; icon: typeof LayoutGrid }[] = [
+    { value: 'gallery', label: 'Gallery', icon: LayoutGrid },
+    ...(isMobile ? [] : [{ value: 'board' as Layout, label: 'Board — drag between statuses', icon: Columns3 }]),
+    { value: 'map', label: 'Map', icon: Globe },
+    { value: 'memories', label: 'Memories — what you’ve done, by year', icon: Images }
+  ];
 
   return (
     <>
@@ -650,44 +888,74 @@ export function Travel() {
         }
       />
 
-      <div className={`bucket-toolbar ${isMobile ? "" : "has-view-toggle"}`}>
-        {!isMobile && (
-          <div className="view-toggle-btns">
-            <button type="button" className={layout === 'gallery' ? 'on' : ''} onClick={() => setLayout('gallery')} aria-label="Gallery view" title="Gallery"><LayoutGrid size={15} /></button>
-            <button type="button" className={layout === 'board' ? 'on' : ''} onClick={() => setLayout('board')} aria-label="Board view" title="Board — drag between statuses"><Columns3 size={15} /></button>
-          </div>
-        )}
-        {!boardMode && <div className="segmented">
-          {STATUS_TABS.map(tab => (
-            <button type="button" key={tab} className={statusTab === tab ? 'on' : ''} onClick={() => setStatusTab(tab)}>{tab}</button>
-          ))}
-        </div>}
-        <div className="bucket-chip-row">
-          {CATEGORIES.map(cat => (
-            <button
-              type="button"
-              key={cat}
-              className={`bucket-chip ${categoryTab === cat ? 'on' : ''}`}
-              onClick={() => setCategoryTab(prev => (prev === cat ? null : cat))}
-            >
-              {cat}
+      {items.length > 0 && (
+        <div className="bucket-summary">
+          {(['Achieved', 'Planning', 'Someday'] as const).map(st => (
+            <button type="button" key={st} className={`bucket-summary-stat status-${st.toLowerCase()} ${statusTab === st ? 'on' : ''}`} onClick={() => setStatusTab(statusTab === st ? 'All' : st)}>
+              <b>{counts[st]}</b> {st.toLowerCase()}
             </button>
           ))}
+          {next && nextLabel && (
+            <button type="button" className={`bucket-summary-next tone-${nextLabel.tone}`} onClick={() => setDetailId(next.id)}>
+              <span>Next up</span> <b>{next.title}</b> <i>{nextLabel.text}</i>
+            </button>
+          )}
+        </div>
+      )}
+
+      {duePrompts.map(item => (
+        <div className="bucket-due" key={item.id}>
+          <Trophy size={16} />
+          <span><b>{item.title}</b> — its target date ({formatDate(item.targetDate)}) has arrived. Did you do it?</span>
+          <button type="button" className="btn teal" onClick={() => markAchieved(item)}>Yes, achieved</button>
+          <button type="button" className="btn ghost" onClick={() => startEdit(item)}>New date</button>
+          <button type="button" className="icon-btn" onClick={() => setSnoozed(prev => new Set(prev).add(item.id))} aria-label="Ask me later" title="Ask me later"><X size={14} /></button>
+        </div>
+      ))}
+
+      <div className="bucket-toolbar has-view-toggle">
+        <div className="view-toggle-btns">
+          {views.map(v => (
+            <button type="button" key={v.value} className={layout === v.value ? 'on' : ''} onClick={() => setLayout(v.value)} aria-label={`${v.label.split(' — ')[0]} view`} title={v.label}>
+              <v.icon size={15} />
+            </button>
+          ))}
+        </div>
+        <div className="bucket-filter-row">
+          {layout === 'gallery' && <div className="segmented">
+            {STATUS_TABS.map(tab => (
+              <button type="button" key={tab} className={statusTab === tab ? 'on' : ''} onClick={() => setStatusTab(tab)}>{tab}</button>
+            ))}
+          </div>}
+          <div className="bucket-chip-row">
+            {CATEGORIES.map(cat => (
+              <button
+                type="button"
+                key={cat}
+                className={`bucket-chip ${categoryTab === cat ? 'on' : ''}`}
+                onClick={() => setCategoryTab(prev => (prev === cat ? null : cat))}
+              >
+                {cat}
+              </button>
+            ))}
+          </div>
         </div>
         <div className="bucket-toolbar-right">
           <div className="bucket-search">
             <Search size={14} />
-            <input type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search goals…" />
+            <input type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search goals, notes, steps…" />
           </div>
-          <div className="bucket-sort">
-            <ArrowUpDown size={13} />
-            <select value={sortBy} onChange={e => setSortBy(e.target.value as SortBy)} aria-label="Sort goals">
-              <option value="recent">Recently updated</option>
-              <option value="title">Title A–Z</option>
-              <option value="target">Target date</option>
-              <option value="custom">Custom order</option>
-            </select>
-          </div>
+          {layout === 'gallery' && (
+            <div className="bucket-sort">
+              <ArrowUpDown size={13} />
+              <select value={sortBy} onChange={e => setSortBy(e.target.value as SortBy)} aria-label="Sort goals">
+                <option value="recent">Recently updated</option>
+                <option value="title">Title A–Z</option>
+                <option value="target">Target date</option>
+                <option value="custom">Custom order</option>
+              </select>
+            </div>
+          )}
         </div>
       </div>
 
@@ -709,6 +977,7 @@ export function Travel() {
                 <div className="cp-board-list">
                   {col.map(item => {
                     const { done, total } = subtaskProgress(item);
+                    const target = targetLabel(item, today);
                     return (
                       <button
                         type="button"
@@ -717,7 +986,7 @@ export function Travel() {
                         className={`bucket-board-card ${dragId === item.id ? 'dragging' : ''}`}
                         onDragStart={e => { setDragId(item.id); e.dataTransfer.effectAllowed = 'move'; }}
                         onDragEnd={() => { setDragId(null); setBoardOver(null); }}
-                        onClick={() => startEdit(item)}
+                        onClick={() => setDetailId(item.id)}
                         onContextMenu={e => openMenu(e, goalMenu(item))}
                       >
                         <span className="bucket-board-cover" style={item.coverArt ? { backgroundImage: `url(${item.coverArt})` } : undefined} />
@@ -725,7 +994,7 @@ export function Travel() {
                           <b>{item.title}</b>
                           <small>
                             {[item.category, item.location, item.costTier].filter(Boolean).join(' · ')}
-                            {item.targetDate && item.status !== 'Achieved' ? ` · Target ${formatDate(item.targetDate)}` : ''}
+                            {target ? ` · ${target.text}` : ''}
                             {item.status === 'Achieved' && item.achievedAt ? ` · Achieved ${formatDate(item.achievedAt)}` : ''}
                           </small>
                           {total > 0 && <span className="bucket-board-progress"><ProgressBar value={(done / total) * 100} /><small>{done}/{total}</small></span>}
@@ -739,15 +1008,86 @@ export function Travel() {
             );
           })}
         </div>
+      ) : layout === 'map' ? (
+        <div className="bucket-map-wrap">
+          <div className="bucket-map">
+            <svg viewBox={`0 0 ${MAP_W} ${MAP_H}`} role="img" aria-label="World map of your goals">
+              <path d={LAND_PATH} className="bucket-map-land" />
+              {placed.map(({ item, at }) => {
+                const [x, y] = project(at.lon, at.lat);
+                return (
+                  <g key={item.id} className={`bucket-map-pin status-${item.status.toLowerCase()}`} transform={`translate(${x} ${y})`}
+                    onClick={() => setDetailId(item.id)} role="button" tabIndex={0}
+                    onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setDetailId(item.id); } }}>
+                    <title>{`${item.title}${item.location ? ` — ${item.location}` : ''} (${item.status})`}</title>
+                    <circle r="11" className="bucket-map-halo" />
+                    <circle r="5.5" />
+                  </g>
+                );
+              })}
+            </svg>
+            <div className="bucket-map-legend">
+              <span className="status-achieved"><i /> Achieved</span>
+              <span className="status-planning"><i /> Planning</span>
+              <span className="status-someday"><i /> Someday</span>
+            </div>
+          </div>
+          {placed.length > 0 && (
+            <div className="bucket-map-list">
+              {placed.map(({ item }) => (
+                <button type="button" key={item.id} onClick={() => setDetailId(item.id)}>
+                  <i className={`status-${item.status.toLowerCase()}`} /> <b>{item.title}</b> <small>{item.location ?? ''}</small>
+                </button>
+              ))}
+            </div>
+          )}
+          {unplaced.length > 0 && (
+            <p className="muted bucket-map-unplaced">
+              Not on the map ({unplaced.length}): {unplaced.map(i => i.title).join(', ')}. Add a country or city to a goal’s Location to place it.
+            </p>
+          )}
+          {!filteredAllStatuses.length && <Card><EmptyState>Nothing matches these filters.</EmptyState></Card>}
+        </div>
+      ) : layout === 'memories' ? (
+        memoryYears.length ? (
+          <div className="bucket-memories">
+            {memoryYears.map(([year, list]) => (
+              <section key={year}>
+                <h2>{year} <span>{list.length} achieved</span></h2>
+                <div className="bucket-memory-grid">
+                  {list.map(item => {
+                    const photos = (item.memoryPhotos ?? []).filter(u => !brokenPhotos.has(u));
+                    const hero = photos[0] ?? item.coverArt;
+                    const words = toPlainText(item.reflection ?? '');
+                    return (
+                      <button type="button" key={item.id} className="bucket-memory" onClick={() => setDetailId(item.id)}>
+                        <span className="bucket-memory-hero" style={hero ? { backgroundImage: `url(${hero})` } : undefined}>
+                          {photos.length > 1 && <i>+{photos.length - 1}</i>}
+                        </span>
+                        <span className="bucket-memory-body">
+                          <b>{item.title}</b>
+                          <small><Trophy size={11} /> {item.achievedAt ? formatDate(item.achievedAt) : 'No date'}{item.location ? ` · ${item.location}` : ''}</small>
+                          <span className={words ? '' : 'muted'}>{words || 'No reflection written yet — tap to add one.'}</span>
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </section>
+            ))}
+          </div>
+        ) : (
+          <Card><EmptyState>Nothing achieved yet — your memories will collect here, year by year.</EmptyState></Card>
+        )
       ) : filtered.length ? (
         <div className="bucket-grid">
           {filtered.map(item => {
-            const flipped = flippedIds.has(item.id);
             const { done, total } = subtaskProgress(item);
-            const featured = isFeatured(item);
+            const featured = item.id === featuredId;
+            const target = targetLabel(item, today);
             return (
               <div
-                className={`bucket-card ${flipped ? 'flipped' : ''} ${featured ? 'featured' : ''} ${dragId === item.id ? 'dragging' : ''}`}
+                className={`bucket-card status-${item.status.toLowerCase()} ${featured ? 'featured' : ''} ${dragId === item.id ? 'dragging' : ''}`}
                 key={item.id}
                 onContextMenu={e => openMenu(e, goalMenu(item))}
                 onDragOver={e => e.preventDefault()}
@@ -757,7 +1097,11 @@ export function Travel() {
                   <div
                     className="bucket-card-face bucket-card-front"
                     draggable
-                    title="Drag to reorder"
+                    role="button"
+                    tabIndex={0}
+                    title="Open — or drag to reorder"
+                    onClick={() => setDetailId(item.id)}
+                    onKeyDown={e => { if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); setDetailId(item.id); } }}
                     onDragStart={e => {
                       setDragId(item.id);
                       e.dataTransfer.effectAllowed = 'move';
@@ -774,80 +1118,43 @@ export function Travel() {
                     </div>
                     <span className="bucket-card-scrim" aria-hidden="true" />
                     <div className="bucket-card-top">
-                      <span className={`bucket-status-pill status-${item.status.toLowerCase()}`}>{item.status}</span>
+                      <button
+                        type="button"
+                        className={`bucket-status-pill status-${item.status.toLowerCase()}`}
+                        onClick={e => { e.stopPropagation(); openMenu(e, statusMenu(item)); }}
+                        aria-label={`Status: ${item.status}. Change status`}
+                        title="Change status"
+                      >
+                        {item.status === 'Achieved' && <Trophy size={9} />}{item.status} <ChevronDown size={9} />
+                      </button>
                       {item.costTier && <span className="bucket-cost-pill">{item.costTier}</span>}
                     </div>
                     <div className="bucket-card-actions">
-                      <button type="button" className="icon-btn" onClick={() => startEdit(item)} aria-label={`Edit ${item.title}`}><Pencil size={13} /></button>
-                      <button type="button" className="icon-btn danger" onClick={() => deleteItem(item.id)} aria-label={`Delete ${item.title}`}><Trash2 size={13} /></button>
+                      <button type="button" className="icon-btn" onClick={e => { e.stopPropagation(); startEdit(item); }} aria-label={`Edit ${item.title}`}><Pencil size={13} /></button>
+                      <button type="button" className="icon-btn danger" onClick={e => { e.stopPropagation(); deleteItem(item.id); }} aria-label={`Delete ${item.title}`}><Trash2 size={13} /></button>
                     </div>
                     <div className="bucket-card-body">
                       <b>{item.title}</b>
                       {item.location && <small><MapPin size={11} /> {item.location}</small>}
-                      {item.targetDate && item.status !== 'Achieved' && <small>Target: {formatDate(item.targetDate)}</small>}
+                      {target && <small className={`bucket-target tone-${target.tone}`}><CalendarDays size={11} /> {target.text}</small>}
+                      {item.status === 'Achieved' && item.achievedAt && <small className="bucket-achieved-on"><Trophy size={11} /> Achieved {formatDate(item.achievedAt)}</small>}
                       {total > 0 && (
                         <div className="bucket-card-progress">
-                          <ProgressBar value={total ? (done / total) * 100 : 0} />
+                          <ProgressBar value={(done / total) * 100} />
                           <small>{done}/{total} steps</small>
                         </div>
                       )}
                     </div>
                     <div className="bucket-card-footer">
                       {item.status === 'Achieved' ? (
-                        <button type="button" className="bucket-action-btn" onClick={() => toggleFlip(item.id)}>
-                          <ImageIcon size={13} /> View memory
+                        <button type="button" className="bucket-action-btn" onClick={e => { e.stopPropagation(); setDetailId(item.id); }}>
+                          <ImageIcon size={13} /> Memory
                         </button>
                       ) : (
-                        <button type="button" className="bucket-action-btn achieve" onClick={() => markAchieved(item)}>
+                        <button type="button" className="bucket-action-btn achieve" onClick={e => { e.stopPropagation(); markAchieved(item); }}>
                           <Trophy size={13} /> Mark achieved
                         </button>
                       )}
-                    </div>
-                  </div>
-
-                  <div className="bucket-card-face bucket-card-back">
-                    <div className="bucket-journal-head">
-                      <Trophy size={16} />
-                      <b>{item.title}</b>
-                      <button type="button" className="icon-btn" onClick={() => toggleFlip(item.id)} aria-label="Flip back"><RotateCcw size={14} /></button>
-                    </div>
-                    <label className="bucket-journal-date">
-                      <span>Achieved</span>
-                      <DatePicker value={item.achievedAt} onChange={v => patchItem(item, { achievedAt: v })} placeholder="Set date" />
-                    </label>
-                    <RichTextEditor
-                      value={item.reflection ?? ''}
-                      onChange={v => patchItem(item, { reflection: v })}
-                      placeholder="How did it feel? What will you remember?"
-                    />
-                    <div className="bucket-journal-photos">
-                      {(item.memoryPhotos ?? []).map(url => (
-                        <div className="bucket-journal-photo" key={url}>
-                          <button type="button" className="bucket-journal-photo-expand" onClick={() => setLightboxUrl(url)} aria-label="View full-size photo">
-                            <img src={url} alt="" />
-                          </button>
-                          <button type="button" className="bucket-journal-photo-remove" onClick={() => removePhoto(item, url)} aria-label="Remove photo"><X size={11} /></button>
-                        </div>
-                      ))}
-                    </div>
-                    <div className="bucket-journal-add-photo">
-                      <button
-                        type="button"
-                        className="btn ghost small"
-                        onClick={() => triggerPhotoUpload(item)}
-                        disabled={uploadingFor === item.id}
-                        title="Upload a photo from your device"
-                      >
-                        <Upload size={13} /> {uploadingFor === item.id ? 'Uploading…' : 'Upload'}
-                      </button>
-                      <input
-                        type="text"
-                        value={photoDrafts[item.id] ?? ''}
-                        onChange={e => setPhotoDrafts(prev => ({ ...prev, [item.id]: e.target.value }))}
-                        placeholder="…or paste a photo URL"
-                        onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addPhoto(item); } }}
-                      />
-                      <button type="button" className="btn ghost small" onClick={() => addPhoto(item)}>Add</button>
                     </div>
                   </div>
                 </div>
@@ -859,6 +1166,7 @@ export function Travel() {
         <Card><EmptyState>{items.length ? 'Nothing matches these filters.' : 'Nothing here yet — add your first goal.'}</EmptyState></Card>
       )}
 
+      {detail && renderDetail(detail)}
       {showForm && <ItemFormModal item={formItem} onClose={closeForm} onSave={save} />}
       {deckOpen && <DiscoveryDeck existingTitles={existingTitles} onAdd={addFromDeck} onClose={() => setDeckOpen(false)} />}
       {lightboxUrl && (
