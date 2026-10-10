@@ -126,7 +126,14 @@ export function WeightCell({
   );
 }
 
-export function NotesCell({ value, onChange, placeholder = 'Add a note…' }: { value: string; onChange: (v: string) => void; placeholder?: string }) {
+// `ghost` is last time's note for the same thing (e.g. the previous session's note on an exercise).
+// It shows faintly while the box is empty, like a placeholder — but unlike one, it doesn't vanish
+// for good when you start typing: while the box is open it's listed underneath, where you can read
+// it, select part of it to copy, or pull the whole thing in with "Use it" (or Tab in an empty box)
+// and edit from there.
+export function NotesCell({
+  value, onChange, placeholder = 'Add a note…', ghost
+}: { value: string; onChange: (v: string) => void; placeholder?: string; ghost?: string }) {
   const [expanded, setExpanded] = useState(false);
   // Collapsed to one clipped line, `text-overflow: ellipsis` on the textarea itself is easy to
   // miss — this overlays an explicit "..." at the end of the line whenever the note is actually
@@ -138,20 +145,62 @@ export function NotesCell({ value, onChange, placeholder = 'Add a note…' }: { 
     const el = ref.current;
     setTruncated(!!el && (el.scrollWidth > el.clientWidth + 1 || value.includes('\n')));
   }, [value, expanded]);
+  const wrapRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!expanded) return;
+    const onDown = (e: PointerEvent) => { if (!wrapRef.current?.contains(e.target as Node)) setExpanded(false); };
+    document.addEventListener('pointerdown', onDown);
+    return () => document.removeEventListener('pointerdown', onDown);
+  }, [expanded]);
+  const last = ghost?.trim();
+  // The "last time" strip is placed against the screen, not the cell: notes columns are narrow and
+  // sit inside scrolling tables that would clip anything wider hanging off them.
+  const [stripPos, setStripPos] = useState<{ top: number; left: number; width: number } | null>(null);
+  useEffect(() => {
+    if (!expanded || !last) { setStripPos(null); return; }
+    const place = () => {
+      const box = ref.current?.getBoundingClientRect();
+      if (!box) return;
+      const width = Math.min(320, window.innerWidth - 16);
+      const left = Math.max(8, Math.min(box.right - width, window.innerWidth - width - 8));
+      setStripPos({ top: box.bottom + 4, left, width });
+    };
+    place();
+    window.addEventListener('scroll', place, true);
+    window.addEventListener('resize', place);
+    return () => { window.removeEventListener('scroll', place, true); window.removeEventListener('resize', place); };
+  }, [expanded, last, value]);
+  // Empty box: the old note becomes the note. Otherwise it's added on its own line.
+  const applyGhost = () => {
+    if (!last) return;
+    onChange(value.trim() ? `${value.replace(/\s+$/, '')}\n${last}` : last);
+    ref.current?.focus();
+  };
   return (
-    <div className="grid-notes-wrap">
+    // Open while you're in the box or the "last time" strip. It closes when focus moves somewhere else
+    // on the page or you click outside — not merely because the window itself lost focus.
+    <div ref={wrapRef} className="grid-notes-wrap" onBlur={e => { const next = e.relatedTarget as Node | null; if (next && !e.currentTarget.contains(next)) setExpanded(false); }}>
       <textarea
         ref={ref}
         className={`grid-cell-input grid-notes-input ${expanded ? 'expanded' : ''}`}
         rows={expanded ? 3 : 1}
-        placeholder={placeholder}
+        placeholder={last || placeholder}
         value={value}
-        title={value || (placeholder !== 'Add a note…' ? placeholder : undefined)}
+        title={value || last || undefined}
         onFocus={() => setExpanded(true)}
-        onBlur={() => setExpanded(false)}
         onChange={e => onChange(e.target.value)}
+        onKeyDown={e => { if (e.key === 'Tab' && !e.shiftKey && last && !value) { e.preventDefault(); applyGhost(); } }}
       />
       {truncated && <span className="grid-notes-more-dot" title="More text — click to see the full note">...</span>}
+      {expanded && last && stripPos && value.trim() !== last && (
+        <div className="grid-notes-ghost" tabIndex={-1} style={{ top: stripPos.top, left: stripPos.left, width: stripPos.width }}>
+          <span className="grid-notes-ghost-label">Last time</span>
+          <span className="grid-notes-ghost-text">{last}</span>
+          <button type="button" className="grid-notes-ghost-use" onClick={applyGhost} title={value.trim() ? 'Add last time’s note to this one' : 'Start from last time’s note (Tab)'}>
+            {value.trim() ? 'Add it' : 'Use it'}
+          </button>
+        </div>
+      )}
     </div>
   );
 }

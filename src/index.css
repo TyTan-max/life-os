@@ -7510,4 +7510,16 @@ button.bucket-memory-hero { width: 100%; height: 100%; padding: 0; border: 0; cu
 .app-loading-help ol { margin: 0 0 10px; padding-left: 20px; }
 .app-loading-help li { margin-bottom: 4px; }
 .app-loading { flex-direction: column; padding: 20px; }
-.app-loading > p { margin: 0; }
+.app-loading > p { margin: 0; }
+
+/* Notes cell: last time's note, readable and reusable while the box is open */
+.grid-notes-ghost { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 8px; align-items: start; margin-top: 4px; padding: 6px 8px; border: 1px dashed var(--border); border-radius: 8px; background: var(--surface); text-align: left; outline: 0; }
+.grid-notes-ghost-label { grid-column: 1 / -1; font-size: 10.5px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-faint); }
+.grid-notes-ghost-text { min-width: 0; font-size: 12.5px; line-height: 1.45; color: var(--text-muted); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; cursor: text; }
+.grid-notes-ghost-use { align-self: start; padding: 3px 9px; border: 1px solid var(--border); border-radius: 999px; background: transparent; color: var(--accent); font: inherit; font-size: 11.5px; font-weight: 600; white-space: nowrap; cursor: pointer; }
+.grid-notes-ghost-use:hover { background: var(--surface-hover); }
+/* It pops out wider than the (often narrow) notes column, anchored to the box's right edge. */
+.grid-notes-ghost { position: fixed; z-index: 300; margin-top: 0; border-style: solid; box-shadow: 0 10px 28px rgba(0, 0, 0, 0.3); grid-template-columns: minmax(0, 1fr) auto; }
+.grid-notes-ghost-label { grid-column: 1; align-self: center; }
+.grid-notes-ghost-use { grid-column: 2; grid-row: 1; }
+.grid-notes-ghost-text { grid-column: 1 / -1; max-height: 180px; overflow-y: auto; }

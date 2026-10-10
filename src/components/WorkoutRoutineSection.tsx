@@ -323,7 +323,7 @@ function RoutineExerciseRow({
         <NotesCell
           value={activeEntry?.notes ?? ''}
           onChange={notes => onEditNotes(notes || undefined)}
-          placeholder={lastNote || exercise.notes || 'Add a note…'}
+          ghost={lastNote || exercise.notes}
         />
       </td>
       <td>
