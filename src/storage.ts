@@ -158,6 +158,16 @@ export function normalizeData(raw: Partial<AppData>): AppData {
 
 let dbPromise: Promise<IDBPDatabase> | null = null;
 
+// Set when opening the database is being held up by another tab or window still running an older
+// version of the app — the loading screen uses it to say so instead of just sitting there.
+let dbBlocked = false;
+const dbBlockedListeners = new Set<() => void>();
+export function isDbBlocked(): boolean { return dbBlocked; }
+export function onDbBlocked(listener: () => void): () => void {
+  dbBlockedListeners.add(listener);
+  return () => { dbBlockedListeners.delete(listener); };
+}
+
 function getDb(): Promise<IDBPDatabase> {
   if (!dbPromise) {
     dbPromise = openDB(DB_NAME, DB_VERSION, {
@@ -176,6 +186,10 @@ function getDb(): Promise<IDBPDatabase> {
       // Another tab has loaded a newer version of the app and needs to upgrade the database. An
       // open connection here would block it (that tab would hang on loading), so let go and reload
       // into the new version. Everything is already saved — edits are written as they're typed.
+      blocked() {
+        dbBlocked = true;
+        for (const listener of dbBlockedListeners) listener();
+      },
       blocking(_current, _blocked, event) {
         (event.target as IDBDatabase | null)?.close();
         window.location.reload();

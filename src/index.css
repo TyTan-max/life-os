@@ -7502,3 +7502,12 @@ button.bucket-memory-hero { width: 100%; height: 100%; padding: 0; border: 0; cu
   .bucket-list-thumb { width: 44px; height: 44px; }
   .deck-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
+
+/* Loading screen: explains itself if it takes too long */
+.app-loading-help { max-width: 440px; margin: 18px auto 0; padding: 16px 18px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); text-align: left; font-size: 13.5px; line-height: 1.5; color: var(--text-muted); }
+.app-loading-help b { display: block; margin-bottom: 6px; font-size: 14.5px; color: var(--text); }
+.app-loading-help p { margin: 0 0 8px; }
+.app-loading-help ol { margin: 0 0 10px; padding-left: 20px; }
+.app-loading-help li { margin-bottom: 4px; }
+.app-loading { flex-direction: column; padding: 20px; }
+.app-loading > p { margin: 0; }

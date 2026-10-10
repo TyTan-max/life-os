@@ -3,6 +3,7 @@ import { ArrowLeft, Check, RefreshCw, Redo2, Save, Search, Sparkles, Undo2 } fro
 import { SyncBanner, useSyncDescription } from './components/SyncPanel';
 import { useIsMobile } from './hooks/useIsMobile';
 import { StoreProvider, useStore } from './store';
+import { isDbBlocked, onDbBlocked } from './storage';
 import { NAV_SECTIONS } from './navigation';
 import { MobileNav } from './components/MobileNav';
 import { Dashboard } from './pages/Dashboard';
@@ -32,6 +33,40 @@ const PAGES: Record<string, React.ComponentType> = {
   Health: HealthWellness, 'Travel & Bucket List': Travel,
   'Personal CRM': PersonalCRM
 };
+
+// The data normally loads in well under a second. If it doesn't, say why and what to do, rather
+// than leaving a bare "Loading" on screen forever.
+function LoadingScreen() {
+  const [blocked, setBlocked] = useState(isDbBlocked());
+  const [slow, setSlow] = useState(false);
+  useEffect(() => {
+    const off = onDbBlocked(() => setBlocked(true));
+    const timer = window.setTimeout(() => setSlow(true), 5000);
+    return () => { off(); window.clearTimeout(timer); };
+  }, []);
+  return (
+    <div className="app-loading">
+      <p>Loading your data…</p>
+      {(blocked || slow) && (
+        <div className="app-loading-help">
+          <b>{blocked ? 'Another Life OS tab or window is in the way' : 'This is taking longer than it should'}</b>
+          <p>
+            {blocked
+              ? 'An older copy of the app is still open somewhere in this browser — another tab, another window, or the installed app — and it has to close before this one can finish updating your data.'
+              : 'Usually that means another Life OS tab or window is open in this browser on an older version, or the browser’s storage has stalled.'}
+          </p>
+          <ol>
+            <li>Close every other Life OS tab and window in this browser (and the installed app, if you use it).</li>
+            <li>This page will carry on by itself. If it doesn’t within a few seconds, press Reload.</li>
+            <li>Still stuck? Quit the browser completely and open it again.</li>
+          </ol>
+          <p>Your data is safe — nothing is changed while this screen is showing.</p>
+          <button type="button" className="btn primary" onClick={() => window.location.reload()}>Reload</button>
+        </div>
+      )}
+    </div>
+  );
+}
 
 function Shell() {
   const { updateSettings, data, loading, undo, redo, canUndo, canRedo, exportBackup, syncNow, syncStatus, isSyncConfigured } = useStore();
@@ -116,9 +151,7 @@ function Shell() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [exportBackup]);
 
-  if (loading) {
-    return <div className="app-loading">Loading your data…</div>;
-  }
+  if (loading) return <LoadingScreen />;
 
   const Page = PAGES[page];
 
